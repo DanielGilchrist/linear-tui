@@ -2,24 +2,42 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/DanielGilchrist/linear-tui/internal/api"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
+const widthOffset = 4
+
 type Model struct {
-	client       *api.Client
 	teams        []api.Team
+	client       *api.Client
 	teamsList    list.Model
 	selectedTeam *api.Team
+	width        int
+	height       int
 	err          error
 }
 
 func NewModel(client *api.Client) Model {
+	delegate := list.NewDefaultDelegate()
+
+	delegate.ShortHelpFunc = func() []key.Binding { return nil }
+	delegate.FullHelpFunc = func() [][]key.Binding { return nil }
+
+	teamsList := list.New(nil, delegate, 0, 0)
+	teamsList.Title = "Teams"
+	teamsList.SetShowHelp(false)
+	teamsList.SetShowStatusBar(false)
+	teamsList.SetFilteringEnabled(true)
+
 	return Model{
 		client:    client,
-		teamsList: list.New(nil, list.NewDefaultDelegate(), 0, 0),
+		teamsList: teamsList,
 	}
 }
 
@@ -28,7 +46,14 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.teamsList.SetSize(m.sidebarWidth(), m.contentHeight())
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -51,21 +76,72 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 	}
 
-	var cmd tea.Cmd
 	m.teamsList, cmd = m.teamsList.Update(msg)
 	return m, cmd
 }
 
 func (m Model) View() string {
+	if m.width == 0 {
+		return "Loading..."
+	}
+
 	if m.err != nil {
 		return "Error: " + m.err.Error()
 	}
 
+	sidebar := m.sidebarView()
+	main := m.mainView()
+	footer := m.footerView()
+
+	top := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, main)
+	return lipgloss.JoinVertical(lipgloss.Top, top, footer)
+}
+
+func (m Model) sidebarView() string {
+	return sidebarStyle.
+		Width(m.sidebarWidth()).
+		Height(m.contentHeight()).
+		Render(m.teamsList.View())
+}
+
+func (m Model) mainView() string {
+	content := "No team selected"
 	if m.selectedTeam != nil {
-		return "Selected team: " + m.selectedTeam.Name
+		content = fmt.Sprintf(
+			"%s\n\nIssues: %d",
+			titleStyle.Render(m.selectedTeam.Name),
+			m.selectedTeam.IssueCount,
+		)
 	}
 
-	return "Teams\n" + m.teamsList.View()
+	return mainStyle.
+		Width(m.mainWidth()).
+		Height(m.contentHeight()).
+		Render(content)
+}
+
+func (m Model) footerView() string {
+	keys := []string{
+		"↑/↓: Navigate",
+		"enter: Select",
+		"q: Quit",
+	}
+	helpText := strings.Join(keys, " | ")
+	return footerStyle.
+		Width(m.width - widthOffset).
+		Render(helpText)
+}
+
+func (m Model) sidebarWidth() int {
+	return 30
+}
+
+func (m Model) mainWidth() int {
+	return m.width - m.sidebarWidth() - widthOffset
+}
+
+func (m Model) contentHeight() int {
+	return m.height - 10
 }
 
 type teamsMsg struct {
