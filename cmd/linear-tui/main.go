@@ -11,14 +11,14 @@ import (
 
 func main() {
 	// TODO: Retrieve from user and store it somewhere safe on their machine
-	apiToken := os.Getenv("LINEAR_API_TOKEN")
+	apiKey := os.Getenv("LINEAR_API_KEY")
 
-	if apiToken == "" {
-		fmt.Println("Please set LINEAR_API_TOKEN environment variable")
+	if apiKey == "" {
+		fmt.Println("Please set LINEAR_API_KEY environment variable")
 		os.Exit(1)
 	}
 
-	client := api.NewClient(apiToken)
+	client := api.NewClient(apiKey)
 	model := tui.NewModel(client)
 	program := tea.NewProgram(model, tea.WithAltScreen())
 

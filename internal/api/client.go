@@ -12,13 +12,13 @@ const apiEndpoint = "https://api.linear.app/graphql"
 
 type Client struct {
 	httpClient *http.Client
-	apiToken   string
+	apiKey     string
 }
 
-func NewClient(apiToken string) *Client {
+func NewClient(apiKey string) *Client {
 	return &Client{
 		httpClient: &http.Client{},
-		apiToken:   apiToken,
+		apiKey:     apiKey,
 	}
 }
 
@@ -67,7 +67,7 @@ func (c *Client) makeRequest(req interface{}, resp interface{}) error {
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", c.apiToken)
+	httpReq.Header.Set("Authorization", c.apiKey)
 
 	httpResp, err := c.httpClient.Do(httpReq)
 	if err != nil {
