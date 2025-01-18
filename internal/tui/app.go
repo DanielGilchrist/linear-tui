@@ -23,15 +23,12 @@ type Model struct {
 	// Components
 	teamsList  list.Model
 	issuesList list.Model
-	spinner    spinner.Model
 	client     *api.Client
 
 	// State
 	state         appState
 	selectedTeam  *api.Team
 	selectedIssue *api.Issue
-	loadingTeams  bool
-	loadingIssues bool
 
 	// Layout
 	width  int
@@ -42,37 +39,30 @@ type Model struct {
 func New(client *api.Client) Model {
 	teamsList := newList("Teams")
 	issuesList := newList("Issues")
-	sp := newSpinner()
 
 	return Model{
-		teamsList:    teamsList,
-		issuesList:   issuesList,
-		spinner:      sp,
-		client:       client,
-		state:        stateTeamsList,
-		loadingTeams: true,
+		teamsList:  teamsList,
+		issuesList: issuesList,
+		client:     client,
+		state:      stateTeamsList,
 	}
 }
 
 func newList(title string) list.Model {
-	list := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	delegate := list.NewDefaultDelegate()
+
+	list := list.New([]list.Item{}, delegate, 0, 0)
 	list.Title = title
 	list.SetShowHelp(false)
+	list.SetShowTitle(true)
+	list.SetSpinner(spinner.Dot)
 
 	return list
 }
 
-func newSpinner() spinner.Model {
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("69"))
-
-	return sp
-}
-
 func (model Model) Init() tea.Cmd {
 	return tea.Batch(
-		model.spinner.Tick,
+		model.teamsList.StartSpinner(),
 		model.loadTeams,
 	)
 }
@@ -101,23 +91,23 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return model, tea.Quit
-		case "esc", "backspace":
+		case "shift+tab":
 			switch model.state {
 			case stateIssueDetail:
 				model.state = stateIssuesList
 			case stateIssuesList:
 				model.state = stateTeamsList
 			}
+
 		case "enter":
 			switch model.state {
 			case stateTeamsList:
 				if teamItem, ok := model.teamsList.SelectedItem().(teamItem); ok {
 					team := &teamItem.team
 					model.selectedTeam = team
-					model.loadingIssues = true
 					model.state = stateIssuesList
 
-					return model, tea.Batch(model.spinner.Tick, model.loadIssuesCmd(team.ID))
+					return model, tea.Batch(model.issuesList.StartSpinner(), model.loadIssuesCmd(team.ID))
 				}
 			case stateIssuesList:
 				if issueItem, ok := model.issuesList.SelectedItem().(issueItem); ok {
@@ -125,6 +115,8 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					model.selectedIssue = issue
 					// TODO: Set loading individual issue
 					model.state = stateIssueDetail
+
+					return model, nil
 				}
 			}
 		}
@@ -141,7 +133,7 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, tea.Batch(cmds...)
 
 	case teamsLoadedMsg:
-		model.loadingTeams = false
+		model.teamsList.StopSpinner()
 		items := make([]list.Item, len(msg.teams))
 
 		for i, team := range msg.teams {
@@ -152,27 +144,22 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, nil
 
 	case issuesLoadedMsg:
-		model.loadingIssues = false
+		model.issuesList.StopSpinner()
 		items := make([]list.Item, len(msg.issues))
 
 		for i, issue := range msg.issues {
-			items[i] = issueItem{issue}
+			items[i] = issueItem{issue: issue, descWidth: model.width}
 		}
 
 		model.issuesList.SetItems(items)
 		return model, nil
 
 	case errorMsg:
-		model.loadingTeams = false
-		model.loadingIssues = false
+		model.teamsList.StopSpinner()
+		model.issuesList.StopSpinner()
 		model.err = msg.err
 
 		return model, nil
-	}
-
-	if model.loadingTeams || model.loadingIssues {
-		model.spinner, cmd = model.spinner.Update(msg)
-		cmds = append(cmds, cmd)
 	}
 
 	switch model.state {
@@ -199,11 +186,7 @@ func (model Model) View() string {
 		var issuesPanel string
 
 		if model.state == stateIssuesList {
-			if model.loadingIssues {
-				issuesPanel = model.renderSpinner()
-			} else {
-				issuesPanel = model.issuesList.View()
-			}
+			issuesPanel = model.issuesList.View()
 		} else {
 			issuesPanel = "Select a team to view issues"
 		}
@@ -223,13 +206,6 @@ func (model Model) View() string {
 	}
 
 	panic("Invalid state!")
-}
-
-func (model Model) renderSpinner() string {
-	return lipgloss.NewStyle().
-		Width(model.width).
-		Height(model.height).
-		Render(model.spinner.View())
 }
 
 func (model Model) renderIssueDetail() string {
@@ -269,11 +245,27 @@ func (t teamItem) Description() string { return fmt.Sprintf("%d issues", t.team.
 func (t teamItem) FilterValue() string { return t.team.Name }
 
 type issueItem struct {
-	issue api.Issue
+	issue     api.Issue
+	descWidth int
 }
 
-func (i issueItem) Title() string       { return i.issue.Title }
-func (i issueItem) Description() string { return i.issue.Description }
+func (i issueItem) Title() string { return i.issue.Title }
+
+func (i issueItem) Description() string {
+	limit := i.descWidth - 3
+	description := i.issue.Description
+
+	if len(description) == 0 {
+		return "No description."
+	}
+
+	if len(description) < limit {
+		return description
+	}
+
+	return description[:limit-3] + "..."
+}
+
 func (i issueItem) FilterValue() string {
 	return strconv.FormatFloat(float64(i.issue.SortOrder), 'f', -1, 32)
 }

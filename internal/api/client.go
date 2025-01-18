@@ -24,7 +24,7 @@ func NewClient(apiKey string) *Client {
 
 func (client *Client) GetTeams() (*TeamsResponse, error) {
 	query := `
-		query TeamsWithIssues {
+		query Teams {
 			teams {
 				nodes {
 					id
@@ -50,6 +50,7 @@ func (client *Client) GetTeamIssues(teamId string) (*TeamIssuesResponse, error) 
         issues {
           nodes {
             title
+            description
           }
         }
       }

@@ -30,5 +30,5 @@ type TeamIssuesResponse struct {
 				Nodes []Issue `json:"nodes"`
 			} `json:"issues"`
 		} `json:"team"`
-	} `son:"data"`
+	} `json:"data"`
 }
