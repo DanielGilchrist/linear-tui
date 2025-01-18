@@ -3,7 +3,6 @@ package api
 type Team struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
-	Issues     Issues `json:"issues"`
 	IssueCount int    `json:"issueCount"`
 }
 
@@ -18,12 +17,18 @@ type Teams struct {
 	Nodes []Team `json:"nodes"`
 }
 
-type Issues struct {
-	Nodes []Issue `json:"nodes"`
-}
-
 type TeamsResponse struct {
 	Data struct {
 		Teams Teams `json:"teams"`
 	} `json:"data"`
+}
+
+type TeamIssuesResponse struct {
+	Data struct {
+		Team struct {
+			Issues struct {
+				Nodes []Issue `json:"nodes"`
+			} `json:"issues"`
+		} `json:"team"`
+	} `son:"data"`
 }

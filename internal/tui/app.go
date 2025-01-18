@@ -2,216 +2,278 @@ package tui
 
 import (
 	"fmt"
-	"strings"
+	"strconv"
 
 	"github.com/DanielGilchrist/linear-tui/internal/api"
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-const widthOffset = 4
+type appState int
+
+const (
+	stateTeamsList appState = iota
+	stateIssuesList
+	stateIssueDetail
+)
 
 type Model struct {
-	teams        []api.Team
-	client       *api.Client
-	issuesList   list.Model
-	teamsList    list.Model
-	selectedTeam *api.Team
-	width        int
-	height       int
-	err          error
+	// Components
+	teamsList  list.Model
+	issuesList list.Model
+	spinner    spinner.Model
+	client     *api.Client
+
+	// State
+	state         appState
+	selectedTeam  *api.Team
+	selectedIssue *api.Issue
+	loadingTeams  bool
+	loadingIssues bool
+
+	// Layout
+	width  int
+	height int
+	err    error
 }
 
-func NewModel(client *api.Client) Model {
-	teamsDelegate := list.NewDefaultDelegate()
-	teamsDelegate.ShortHelpFunc = func() []key.Binding { return nil }
-	teamsDelegate.FullHelpFunc = func() [][]key.Binding { return nil }
-
-	teamsList := list.New(nil, teamsDelegate, 0, 0)
-	teamsList.Title = "Teams"
-	teamsList.SetShowHelp(false)
-	teamsList.SetShowStatusBar(false)
-	teamsList.SetFilteringEnabled(true)
-
-	issuesDelegate := list.NewDefaultDelegate()
-	issuesDelegate.ShortHelpFunc = func() []key.Binding { return nil }
-	issuesDelegate.FullHelpFunc = func() [][]key.Binding { return nil }
-
-	issuesList := list.New(nil, issuesDelegate, 0, 0)
-	issuesList.Title = "Issues"
-	issuesList.SetShowHelp(false)
-	issuesList.SetShowStatusBar(false)
-	issuesList.SetFilteringEnabled(true)
+func New(client *api.Client) Model {
+	teamsList := newList("Teams")
+	issuesList := newList("Issues")
+	sp := newSpinner()
 
 	return Model{
-		client:     client,
-		issuesList: issuesList,
-		teamsList:  teamsList,
+		teamsList:    teamsList,
+		issuesList:   issuesList,
+		spinner:      sp,
+		client:       client,
+		state:        stateTeamsList,
+		loadingTeams: true,
 	}
 }
 
-func (m Model) Init() tea.Cmd {
-	return m.fetchTeams
+func newList(title string) list.Model {
+	list := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	list.Title = title
+	list.SetShowHelp(false)
+
+	return list
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func newSpinner() spinner.Model {
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("69"))
+
+	return sp
+}
+
+func (model Model) Init() tea.Cmd {
+	return tea.Batch(
+		model.spinner.Tick,
+		model.loadTeams,
+	)
+}
+
+func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		model.height = msg.Height
+		model.width = msg.Width
 
-		headerHeight := 1
-		footerHeight := 3
-		availableHeight := m.height - headerHeight - footerHeight
+		switch model.state {
+		case stateTeamsList, stateIssuesList:
+			panelWidth := (model.width - 2) / 2
+			model.teamsList.SetSize(panelWidth, model.height)
+			model.issuesList.SetSize(panelWidth, model.height)
+		case stateIssueDetail:
+			model.teamsList.SetSize(model.width, model.height)
+		}
 
-		m.teamsList.SetSize(m.sidebarWidth(), m.contentHeight())
-		m.issuesList.SetSize(m.mainWidth(), availableHeight)
+		return model, nil
 
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
-			return m, tea.Quit
+			return model, tea.Quit
+		case "esc", "backspace":
+			switch model.state {
+			case stateIssueDetail:
+				model.state = stateIssuesList
+			case stateIssuesList:
+				model.state = stateTeamsList
+			}
 		case "enter":
-			if i := m.teamsList.Index(); i != -1 && i < len(m.teams) {
-				m.selectedTeam = &m.teams[i]
+			switch model.state {
+			case stateTeamsList:
+				if teamItem, ok := model.teamsList.SelectedItem().(teamItem); ok {
+					team := &teamItem.team
+					model.selectedTeam = team
+					model.loadingIssues = true
+					model.state = stateIssuesList
 
-				issueItems := make([]list.Item, len(m.selectedTeam.Issues.Nodes))
-				for i, issue := range m.selectedTeam.Issues.Nodes {
-					issueItems[i] = issueItem{issue: issue}
+					return model, tea.Batch(model.spinner.Tick, model.loadIssuesCmd(team.ID))
 				}
-
-				m.issuesList.SetItems(issueItems)
-				m.issuesList.Title = m.selectedTeam.Name
+			case stateIssuesList:
+				if issueItem, ok := model.issuesList.SelectedItem().(issueItem); ok {
+					issue := &issueItem.issue
+					model.selectedIssue = issue
+					// TODO: Set loading individual issue
+					model.state = stateIssueDetail
+				}
 			}
 		}
 
-	case teamsMsg:
-		m.teams = msg.teams
-		items := make([]list.Item, len(m.teams))
-		for i, team := range m.teams {
+		switch model.state {
+		case stateTeamsList:
+			model.teamsList, cmd = model.teamsList.Update(msg)
+			cmds = append(cmds, cmd)
+		case stateIssuesList:
+			model.issuesList, cmd = model.issuesList.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+
+		return model, tea.Batch(cmds...)
+
+	case teamsLoadedMsg:
+		model.loadingTeams = false
+		items := make([]list.Item, len(msg.teams))
+
+		for i, team := range msg.teams {
 			items[i] = teamItem{team}
 		}
-		m.teamsList.SetItems(items)
 
-	case errMsg:
-		m.err = msg.err
+		model.teamsList.SetItems(items)
+		return model, nil
+
+	case issuesLoadedMsg:
+		model.loadingIssues = false
+		items := make([]list.Item, len(msg.issues))
+
+		for i, issue := range msg.issues {
+			items[i] = issueItem{issue}
+		}
+
+		model.issuesList.SetItems(items)
+		return model, nil
+
+	case errorMsg:
+		model.loadingTeams = false
+		model.loadingIssues = false
+		model.err = msg.err
+
+		return model, nil
 	}
 
-	m.issuesList, cmd = m.issuesList.Update(msg)
-	m.teamsList, cmd = m.teamsList.Update(msg)
-	return m, cmd
-}
-
-func (m Model) View() string {
-	if m.width == 0 {
-		return "Loading..."
+	if model.loadingTeams || model.loadingIssues {
+		model.spinner, cmd = model.spinner.Update(msg)
+		cmds = append(cmds, cmd)
 	}
 
-	if m.err != nil {
-		return "Error: " + m.err.Error()
+	switch model.state {
+	case stateTeamsList, stateIssuesList:
+		model.teamsList, cmd = model.teamsList.Update(msg)
+		cmds := append(cmds, cmd)
+
+		if model.state == stateIssuesList {
+			model.issuesList, cmd = model.issuesList.Update(msg)
+			cmds = append(cmds, cmd)
+		}
 	}
 
-	sidebar := m.sidebarView()
-	main := m.mainView()
-	footer := m.footerView()
-
-	top := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, main)
-	return lipgloss.JoinVertical(lipgloss.Top, top, footer)
+	return model, tea.Batch(cmds...)
 }
 
-func (m Model) sidebarView() string {
-	return sidebarStyle.
-		Width(m.sidebarWidth()).
-		Height(m.contentHeight()).
-		Render(m.teamsList.View())
-}
-
-func (m Model) mainView() string {
-	var content string
-	if m.selectedTeam == nil {
-		content = "No team selected"
-	} else {
-		content = m.issuesList.View()
+func (model Model) View() string {
+	if model.err != nil {
+		return fmt.Sprintf("Error: %v", model.err)
 	}
 
-	return mainStyle.
-		Width(m.mainWidth()).
-		Height(m.contentHeight()).
-		Render(content)
-}
+	switch model.state {
+	case stateTeamsList, stateIssuesList:
+		var issuesPanel string
 
-func (m Model) footerView() string {
-	keys := []string{
-		"↑/↓: Navigate",
-		"enter: Select",
-		"q: Quit",
+		if model.state == stateIssuesList {
+			if model.loadingIssues {
+				issuesPanel = model.renderSpinner()
+			} else {
+				issuesPanel = model.issuesList.View()
+			}
+		} else {
+			issuesPanel = "Select a team to view issues"
+		}
+
+		panels := []string{
+			model.teamsList.View(),
+			issuesPanel,
+		}
+
+		return lipgloss.JoinHorizontal(lipgloss.Top, panels...)
+	case stateIssueDetail:
+		if model.selectedIssue == nil {
+			return "No issue selected"
+		}
+
+		return model.renderIssueDetail()
 	}
-	helpText := strings.Join(keys, " | ")
-	return footerStyle.
-		Width(m.width - widthOffset).
-		Render(helpText)
+
+	panic("Invalid state!")
 }
 
-func (m Model) sidebarWidth() int {
-	return 30
+func (model Model) renderSpinner() string {
+	return lipgloss.NewStyle().
+		Width(model.width).
+		Height(model.height).
+		Render(model.spinner.View())
 }
 
-func (m Model) mainWidth() int {
-	return m.width - m.sidebarWidth() - widthOffset
+func (model Model) renderIssueDetail() string {
+	return "TODO: Implement rendering issue"
 }
 
-func (m Model) contentHeight() int {
-	return m.height - 10
-}
+type teamsLoadedMsg struct{ teams []api.Team }
+type issuesLoadedMsg struct{ issues []api.Issue }
+type errorMsg struct{ err error }
 
-type teamsMsg struct {
-	teams []api.Team
-}
-
-type errMsg struct {
-	err error
-}
-
-func (m Model) fetchTeams() tea.Msg {
-	resp, err := m.client.GetTeamsWithIssues()
+func (model Model) loadTeams() tea.Msg {
+	teams, err := model.client.GetTeams()
 	if err != nil {
-		return errMsg{err}
+		return errorMsg{err}
 	}
-	return teamsMsg{teams: resp.Data.Teams.Nodes}
+
+	return teamsLoadedMsg{teams.Data.Teams.Nodes}
 }
 
-type issueItem struct {
-	issue api.Issue
-}
+func (model Model) loadIssuesCmd(teamId string) tea.Cmd {
+	return func() tea.Msg {
+		issues, err := model.client.GetTeamIssues(teamId)
+		if err != nil {
+			return errorMsg{err}
+		}
 
-func (i issueItem) Title() string {
-	return i.issue.Title
-}
-
-func (i issueItem) Description() string {
-	return i.issue.Description
-}
-
-func (i issueItem) FilterValue() string {
-	return i.issue.Title
+		return issuesLoadedMsg{issues.Data.Team.Issues.Nodes}
+	}
 }
 
 type teamItem struct {
 	team api.Team
 }
 
-func (i teamItem) Title() string {
-	return i.team.Name
+func (t teamItem) Title() string       { return t.team.Name }
+func (t teamItem) Description() string { return fmt.Sprintf("%d issues", t.team.IssueCount) }
+func (t teamItem) FilterValue() string { return t.team.Name }
+
+type issueItem struct {
+	issue api.Issue
 }
 
-func (i teamItem) Description() string {
-	return fmt.Sprintf("%d issues", i.team.IssueCount)
-}
-
-func (i teamItem) FilterValue() string {
-	return i.team.Name
+func (i issueItem) Title() string       { return i.issue.Title }
+func (i issueItem) Description() string { return i.issue.Description }
+func (i issueItem) FilterValue() string {
+	return strconv.FormatFloat(float64(i.issue.SortOrder), 'f', -1, 32)
 }
