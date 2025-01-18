@@ -78,9 +78,9 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch model.state {
 		case stateTeamsList, stateIssuesList:
-			panelWidth := (model.width - 2) / 2
-			model.teamsList.SetSize(panelWidth, model.height)
-			model.issuesList.SetSize(panelWidth, model.height)
+			panelWidth := model.width
+			model.teamsList.SetSize(panelWidth/3, model.height)
+			model.issuesList.SetSize(panelWidth-20, model.height)
 		case stateIssueDetail:
 			model.teamsList.SetSize(model.width, model.height)
 		}
