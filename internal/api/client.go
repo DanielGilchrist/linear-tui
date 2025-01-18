@@ -43,6 +43,33 @@ func (client *Client) GetTeams() (*TeamsResponse, error) {
 	return &response, nil
 }
 
+func (client *Client) GetIssue(issueId string) (*IssueResponse, error) {
+	query := `
+    query Issue($issueId: String!) {
+      issue(id: $issueId) {
+        title
+        description
+        comments {
+          nodes {
+            body
+          }
+        }
+      }
+    }
+  `
+
+	variables := map[string]interface{}{
+		"issueId": issueId,
+	}
+
+	var response IssueResponse
+	if err := client.makeRequest(query, variables, &response); err != nil {
+		return nil, err
+	}
+
+	return &response, nil
+}
+
 func (client *Client) GetTeamIssues(teamId string) (*TeamIssuesResponse, error) {
 	query := `
     query TeamIssues($teamId: String!) {

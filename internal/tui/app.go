@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/DanielGilchrist/linear-tui/internal/api"
 	"github.com/charmbracelet/bubbles/list"
@@ -109,13 +110,10 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return model, tea.Batch(model.issuesList.StartSpinner(), model.loadIssuesCmd(team.ID))
 				}
 			case stateIssuesList:
-				if issueItem, ok := model.issuesList.SelectedItem().(issueItem); ok {
-					issue := &issueItem.issue
-					model.selectedIssue = issue
-					// TODO: Set loading individual issue
+				if teamIssueItem, ok := model.issuesList.SelectedItem().(teamIssueItem); ok {
 					model.state = stateIssueDetail
 
-					return model, nil
+					return model, model.loadIssueCmd(teamIssueItem.issue.ID)
 				}
 			}
 		}
@@ -147,10 +145,14 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		items := make([]list.Item, len(msg.issues))
 
 		for i, issue := range msg.issues {
-			items[i] = issueItem{issue: issue, descWidth: model.width}
+			items[i] = teamIssueItem{issue: issue, descWidth: model.width}
 		}
 
 		model.issuesList.SetItems(items)
+		return model, nil
+
+	case issueLoadedMsg:
+		model.selectedIssue = &msg.issue
 		return model, nil
 
 	case errorMsg:
@@ -195,10 +197,6 @@ func (model Model) View() string {
 
 		return lipgloss.JoinHorizontal(lipgloss.Top, panels...)
 	case stateIssueDetail:
-		if model.selectedIssue == nil {
-			return "No issue selected"
-		}
-
 		return model.renderIssueDetail()
 	}
 
@@ -206,11 +204,29 @@ func (model Model) View() string {
 }
 
 func (model Model) renderIssueDetail() string {
-	return "TODO: Implement rendering issue"
+	issue := model.selectedIssue
+
+	if issue == nil {
+		return "No issue selected"
+	}
+
+	var comments strings.Builder
+
+	for _, comment := range issue.Comments.Nodes {
+		comments.WriteString(fmt.Sprintf("\tBody:%s\n", comment.Body))
+	}
+
+	return fmt.Sprintf(
+		"Title: %s\nDescription:%s\nComments:%s",
+		issue.Title,
+		issue.Description,
+		comments.String(),
+	)
 }
 
 type teamsLoadedMsg struct{ teams []api.Team }
-type issuesLoadedMsg struct{ issues []api.Issue }
+type issuesLoadedMsg struct{ issues []api.TeamIssue }
+type issueLoadedMsg struct{ issue api.Issue }
 type errorMsg struct{ err error }
 
 func (model Model) loadTeams() tea.Msg {
@@ -220,6 +236,17 @@ func (model Model) loadTeams() tea.Msg {
 	}
 
 	return teamsLoadedMsg{teams.Data.Teams.Nodes}
+}
+
+func (model Model) loadIssueCmd(issueId string) tea.Cmd {
+	return func() tea.Msg {
+		issue, err := model.client.GetIssue(issueId)
+		if err != nil {
+			return errorMsg{err}
+		}
+
+		return issueLoadedMsg{issue.Data.Issue}
+	}
 }
 
 func (model Model) loadIssuesCmd(teamId string) tea.Cmd {
@@ -237,18 +264,18 @@ type teamItem struct {
 	team api.Team
 }
 
-func (t teamItem) Title() string       { return t.team.Name }
-func (t teamItem) Description() string { return fmt.Sprintf("%d issues", t.team.IssueCount) }
-func (t teamItem) FilterValue() string { return t.team.Name }
+func (i teamItem) Title() string       { return i.team.Name }
+func (i teamItem) Description() string { return fmt.Sprintf("%d issues", i.team.IssueCount) }
+func (i teamItem) FilterValue() string { return i.team.Name }
 
-type issueItem struct {
-	issue     api.Issue
+type teamIssueItem struct {
+	issue     api.TeamIssue
 	descWidth int
 }
 
-func (i issueItem) Title() string { return i.issue.Title }
+func (i teamIssueItem) Title() string { return i.issue.Title }
 
-func (i issueItem) Description() string {
+func (i teamIssueItem) Description() string {
 	limit := i.descWidth - 3
 	description := i.issue.Description
 
@@ -263,4 +290,4 @@ func (i issueItem) Description() string {
 	return description[:limit-3] + "..."
 }
 
-func (i issueItem) FilterValue() string { return i.issue.Title }
+func (i teamIssueItem) FilterValue() string { return i.issue.Title }
