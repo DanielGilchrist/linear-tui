@@ -49,6 +49,7 @@ func (client *Client) GetTeamIssues(teamId string) (*TeamIssuesResponse, error) 
       team(id: $teamId) {
         issues {
           nodes {
+            id
             title
             description
           }
