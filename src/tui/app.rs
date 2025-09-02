@@ -9,6 +9,8 @@ use super::components::{IssueDetail, IssuesList, Renderable, TeamsList};
 use super::layout::TwoColumnLayout;
 use crate::api::{issue, team_issues, Client, Team};
 
+static SCROLL_STEP: usize = 2;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
     TeamsList,
@@ -126,7 +128,7 @@ impl App {
                 ListDirection::Next,
             ),
             AppState::IssueDetail => {
-                self.scroll_position = self.scroll_position.saturating_add(1);
+                self.scroll_position = self.scroll_position.saturating_add(SCROLL_STEP);
             }
         }
     }
@@ -144,7 +146,7 @@ impl App {
                 ListDirection::Previous,
             ),
             AppState::IssueDetail => {
-                self.scroll_position = self.scroll_position.saturating_sub(1);
+                self.scroll_position = self.scroll_position.saturating_sub(SCROLL_STEP);
             }
         }
     }
