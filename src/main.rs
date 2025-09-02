@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, Event},
+    event::Event,
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -67,7 +67,7 @@ fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
     enable_raw_mode()?;
 
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen)?;
 
     let backend = CrosstermBackend::new(stdout);
     Terminal::new(backend)
@@ -75,7 +75,7 @@ fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
 
 fn cleanup_terminal() -> io::Result<()> {
     disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(io::stdout(), LeaveAlternateScreen)?;
 
     Ok(())
 }
