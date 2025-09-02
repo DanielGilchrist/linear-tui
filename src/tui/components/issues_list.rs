@@ -48,8 +48,10 @@ impl<'a> Renderable for IssuesList<'a> {
             .map(|issue| {
                 let description = match &issue.description {
                     Some(desc) if !desc.is_empty() => {
-                        if desc.len() > max_desc_width {
-                            format!("{}...", &desc[..max_desc_width.saturating_sub(5)])
+                        if desc.chars().count() > max_desc_width {
+                            let truncate_at = max_desc_width.saturating_sub(3);
+                            let truncated: String = desc.chars().take(truncate_at).collect();
+                            format!("{}...", truncated)
                         } else {
                             desc.clone()
                         }
