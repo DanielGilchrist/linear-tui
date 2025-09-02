@@ -1,6 +1,7 @@
 use anyhow::Result;
 use cynic::{GraphQlResponse, QueryBuilder};
 use reqwest::Client as HttpClient;
+use reqwest::RequestBuilder;
 
 use crate::api::queries::issue;
 use crate::api::queries::team_issues;
@@ -28,15 +29,7 @@ impl Client {
     pub async fn get_teams(&self) -> Result<Vec<Team>> {
         let operation = TeamsQuery::build(());
 
-        let response = self
-            .http_client
-            .post(API_ENDPOINT)
-            .header("Content-Type", "application/json")
-            .header("Authorization", &self.api_key)
-            .json(&operation)
-            .send()
-            .await?;
-
+        let response = self.build_request().json(&operation).send().await?;
         let result: GraphQlResponse<TeamsQuery> = response.json().await?;
 
         if let Some(errors) = result.errors {
@@ -51,15 +44,7 @@ impl Client {
             id: issue_id.to_string(),
         });
 
-        let response = self
-            .http_client
-            .post(API_ENDPOINT)
-            .header("Content-Type", "application/json")
-            .header("Authorization", &self.api_key)
-            .json(&operation)
-            .send()
-            .await?;
-
+        let response = self.build_request().json(&operation).send().await?;
         let result: GraphQlResponse<IssueQuery> = response.json().await?;
 
         if let Some(errors) = result.errors {
@@ -74,15 +59,7 @@ impl Client {
             id: team_id.to_string(),
         });
 
-        let response = self
-            .http_client
-            .post(API_ENDPOINT)
-            .header("Content-Type", "application/json")
-            .header("Authorization", &self.api_key)
-            .json(&operation)
-            .send()
-            .await?;
-
+        let response = self.build_request().json(&operation).send().await?;
         let result: GraphQlResponse<TeamIssuesQuery> = response.json().await?;
 
         if let Some(errors) = result.errors {
@@ -90,5 +67,12 @@ impl Client {
         }
 
         Ok(result.data.unwrap().team.unwrap().issues.nodes)
+    }
+
+    fn build_request(&self) -> RequestBuilder {
+        self.http_client
+            .post(API_ENDPOINT)
+            .header("Content-Type", "application/json")
+            .header("Authorization", &self.api_key)
     }
 }
