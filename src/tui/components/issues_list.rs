@@ -2,7 +2,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, ListItem, ListState, Paragraph},
+    widgets::{ListItem, ListState},
     Frame,
 };
 
@@ -40,13 +40,6 @@ impl<'a> IssuesList<'a> {
 
 impl<'a> Renderable for IssuesList<'a> {
     fn render(&mut self, frame: &mut Frame, area: Rect) {
-        if self.show_placeholder {
-            let placeholder = Paragraph::new("Select a team to view issues")
-                .block(Block::default().title("Issues").borders(Borders::ALL));
-            frame.render_widget(placeholder, area);
-            return;
-        }
-
         let max_desc_width = area.width.saturating_sub(5) as usize;
 
         let items: Vec<ListItem> = self
@@ -56,7 +49,7 @@ impl<'a> Renderable for IssuesList<'a> {
                 let description = match &issue.description {
                     Some(desc) if !desc.is_empty() => {
                         if desc.len() > max_desc_width {
-                            format!("{}...", &desc[..max_desc_width.saturating_sub(3)])
+                            format!("{}...", &desc[..max_desc_width.saturating_sub(5)])
                         } else {
                             desc.clone()
                         }
@@ -74,10 +67,15 @@ impl<'a> Renderable for IssuesList<'a> {
             })
             .collect();
 
-        StyledList::new("Issues")
+        let mut list = StyledList::new("Issues")
             .items(items)
             .focused(self.focused)
-            .state(self.state)
-            .render(frame, area);
+            .state(self.state);
+
+        if self.show_placeholder {
+            list = list.placeholder("Select a team to view issues");
+        }
+
+        list.render(frame, area);
     }
 }
