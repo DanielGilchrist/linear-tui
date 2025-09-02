@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use anyhow::Result;
 use cynic::{GraphQlResponse, QueryBuilder};
 use reqwest::Client as HttpClient;
@@ -27,23 +28,9 @@ impl Client {
 
     pub async fn get_teams(&self) -> Result<Vec<Team>> {
         let operation = TeamsQuery::build(());
+        let result = self.fetch_json(operation).await?;
 
-        let response = self
-            .http_client
-            .post(API_ENDPOINT)
-            .header("Content-Type", "application/json")
-            .header("Authorization", &self.api_key)
-            .json(&operation)
-            .send()
-            .await?;
-
-        let result: GraphQlResponse<TeamsQuery> = response.json().await?;
-
-        if let Some(errors) = result.errors {
-            return Err(anyhow::anyhow!("GraphQL errors: {:?}", errors));
-        }
-
-        Ok(result.data.unwrap().teams.nodes)
+        Ok(result.teams.nodes)
     }
 
     pub async fn get_issue(&self, issue_id: &str) -> Result<Option<DetailedIssue>> {
@@ -51,22 +38,9 @@ impl Client {
             id: issue_id.to_string(),
         });
 
-        let response = self
-            .http_client
-            .post(API_ENDPOINT)
-            .header("Content-Type", "application/json")
-            .header("Authorization", &self.api_key)
-            .json(&operation)
-            .send()
-            .await?;
+        let result = self.fetch_json(operation).await?;
 
-        let result: GraphQlResponse<IssueQuery> = response.json().await?;
-
-        if let Some(errors) = result.errors {
-            return Err(anyhow::anyhow!("GraphQL errors: {:?}", errors));
-        }
-
-        Ok(result.data.unwrap().issue)
+        Ok(result.issue)
     }
 
     pub async fn get_team_issues(&self, team_id: &str) -> Result<Vec<TeamIssue>> {
@@ -74,6 +48,19 @@ impl Client {
             id: team_id.to_string(),
         });
 
+        let result = self.fetch_json(operation).await?;
+        let team = result
+            .team
+            .ok_or_else(|| anyhow!("Team doesn't exist for ID {team_id}"))?;
+
+        Ok(team.issues.nodes)
+    }
+
+    async fn fetch_json<T, V>(&self, operation: cynic::Operation<T, V>) -> Result<T>
+    where
+        T: for<'de> serde::Deserialize<'de>,
+        V: serde::Serialize,
+    {
         let response = self
             .http_client
             .post(API_ENDPOINT)
@@ -83,12 +70,14 @@ impl Client {
             .send()
             .await?;
 
-        let result: GraphQlResponse<TeamIssuesQuery> = response.json().await?;
+        let result: GraphQlResponse<T> = response.json().await?;
 
-        if let Some(errors) = result.errors {
-            return Err(anyhow::anyhow!("GraphQL errors: {:?}", errors));
+        if let Some(errors) = &result.errors {
+            return Err(anyhow!("GraphQL errors: {:?}", errors));
         }
 
-        Ok(result.data.unwrap().team.unwrap().issues.nodes)
+        let data = result.data.ok_or_else(|| anyhow!("Response is empty"))?;
+
+        Ok(data)
     }
 }
