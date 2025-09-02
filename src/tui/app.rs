@@ -1,5 +1,8 @@
 use anyhow::Result;
-use ratatui::{widgets::ListState, Frame};
+use ratatui::{
+    widgets::{ListState, ScrollbarState},
+    Frame,
+};
 use std::sync::Arc;
 
 use super::components::{IssueDetail, IssuesList, Renderable, TeamsList};
@@ -27,6 +30,8 @@ pub struct App {
     pub issue_list_state: ListState,
     pub selected_team: Option<Team>,
     pub selected_issue: Option<Issue>,
+    pub scroll_position: usize,
+    pub scroll_state: ScrollbarState,
 }
 
 impl App {
@@ -46,6 +51,8 @@ impl App {
             issue_list_state,
             selected_team: None,
             selected_issue: None,
+            scroll_position: 0,
+            scroll_state: ScrollbarState::default(),
         }
     }
 
@@ -73,7 +80,14 @@ impl App {
         let issue = self.client.get_issue(issue_id).await?;
         self.selected_issue = Some(issue);
 
+        self.reset_scroll_position();
+
         Ok(())
+    }
+
+    fn reset_scroll_position(&mut self) {
+        self.scroll_position = 0;
+        self.scroll_state = ScrollbarState::default();
     }
 
     fn navigate_list(state: &mut ListState, list_size: usize, direction: ListDirection) {
@@ -110,7 +124,9 @@ impl App {
                 self.issues.len(),
                 ListDirection::Next,
             ),
-            _ => {}
+            AppState::IssueDetail => {
+                self.scroll_position = self.scroll_position.saturating_add(1);
+            }
         }
     }
 
@@ -126,7 +142,9 @@ impl App {
                 self.issues.len(),
                 ListDirection::Previous,
             ),
-            _ => {}
+            AppState::IssueDetail => {
+                self.scroll_position = self.scroll_position.saturating_sub(1);
+            }
         }
     }
 
@@ -157,7 +175,11 @@ impl App {
             }
             AppState::IssueDetail => {
                 if let Some(issue) = &self.selected_issue {
-                    IssueDetail::new(issue).render(frame, frame.area());
+                    let mut issue_detail =
+                        IssueDetail::new(issue, self.scroll_position, &mut self.scroll_state);
+                    issue_detail.render(frame, frame.area());
+
+                    self.scroll_position = issue_detail.get_clamped_scroll_position();
                 }
             }
         }
