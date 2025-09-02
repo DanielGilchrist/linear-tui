@@ -1,9 +1,14 @@
 use anyhow::Result;
+use cynic::{GraphQlResponse, QueryBuilder};
 use reqwest::Client as HttpClient;
-use serde_json::{json, Value};
-use std::collections::HashMap;
 
-use crate::api::models::*;
+use crate::api::queries::issue;
+use crate::api::queries::team_issues;
+use crate::api::queries::teams;
+
+use issue::{Issue as DetailedIssue, IssueQuery, IssueVariables};
+use team_issues::{Issue as TeamIssue, TeamIssuesQuery, TeamIssuesVariables};
+use teams::{Team, TeamsQuery};
 
 const API_ENDPOINT: &str = "https://api.linear.app/graphql";
 
@@ -21,78 +26,29 @@ impl Client {
     }
 
     pub async fn get_teams(&self) -> Result<Vec<Team>> {
-        let query = r#"
-            query Teams {
-                teams {
-                    nodes {
-                        id
-                        name
-                        issueCount
-                    }
-                }
-            }
-        "#;
+        let operation = TeamsQuery::build(());
 
-        let response: TeamsResponse = self.make_request(query, None).await?;
+        let response = self
+            .http_client
+            .post(API_ENDPOINT)
+            .header("Content-Type", "application/json")
+            .header("Authorization", &self.api_key)
+            .json(&operation)
+            .send()
+            .await?;
 
-        Ok(response.data.teams.nodes)
+        let result: GraphQlResponse<TeamsQuery> = response.json().await?;
+
+        if let Some(errors) = result.errors {
+            return Err(anyhow::anyhow!("GraphQL errors: {:?}", errors));
+        }
+
+        Ok(result.data.unwrap().teams.nodes)
     }
 
-    pub async fn get_issue(&self, issue_id: &str) -> Result<Issue> {
-        let query = r#"
-            query Issue($issueId: String!) {
-                issue(id: $issueId) {
-                    title
-                    description
-                    comments {
-                        nodes {
-                            body
-                        }
-                    }
-                    url
-                }
-            }
-        "#;
-
-        let mut variables = HashMap::new();
-        variables.insert("issueId".to_string(), json!(issue_id));
-
-        let response: IssueResponse = self.make_request(query, Some(variables)).await?;
-
-        Ok(response.data.issue)
-    }
-
-    pub async fn get_team_issues(&self, team_id: &str) -> Result<Vec<TeamIssue>> {
-        let query = r#"
-            query TeamIssues($teamId: String!) {
-                team(id: $teamId) {
-                    issues {
-                        nodes {
-                            id
-                            title
-                            description
-                        }
-                    }
-                }
-            }
-        "#;
-
-        let mut variables = HashMap::new();
-        variables.insert("teamId".to_string(), json!(team_id));
-
-        let response: TeamIssuesResponse = self.make_request(query, Some(variables)).await?;
-
-        Ok(response.data.team.issues.nodes)
-    }
-
-    async fn make_request<T: serde::de::DeserializeOwned>(
-        &self,
-        query: &str,
-        variables: Option<HashMap<String, Value>>,
-    ) -> Result<T> {
-        let request_body = json!({
-            "query": query,
-            "variables": variables.unwrap_or_default()
+    pub async fn get_issue(&self, issue_id: &str) -> Result<Option<DetailedIssue>> {
+        let operation = IssueQuery::build(IssueVariables {
+            id: issue_id.to_string(),
         });
 
         let response = self
@@ -100,11 +56,39 @@ impl Client {
             .post(API_ENDPOINT)
             .header("Content-Type", "application/json")
             .header("Authorization", &self.api_key)
-            .json(&request_body)
+            .json(&operation)
             .send()
             .await?;
 
-        let result = response.json::<T>().await?;
-        Ok(result)
+        let result: GraphQlResponse<IssueQuery> = response.json().await?;
+
+        if let Some(errors) = result.errors {
+            return Err(anyhow::anyhow!("GraphQL errors: {:?}", errors));
+        }
+
+        Ok(result.data.unwrap().issue)
+    }
+
+    pub async fn get_team_issues(&self, team_id: &str) -> Result<Vec<TeamIssue>> {
+        let operation = TeamIssuesQuery::build(TeamIssuesVariables {
+            id: team_id.to_string(),
+        });
+
+        let response = self
+            .http_client
+            .post(API_ENDPOINT)
+            .header("Content-Type", "application/json")
+            .header("Authorization", &self.api_key)
+            .json(&operation)
+            .send()
+            .await?;
+
+        let result: GraphQlResponse<TeamIssuesQuery> = response.json().await?;
+
+        if let Some(errors) = result.errors {
+            return Err(anyhow::anyhow!("GraphQL errors: {:?}", errors));
+        }
+
+        Ok(result.data.unwrap().team.unwrap().issues.nodes)
     }
 }
