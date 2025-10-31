@@ -3,6 +3,9 @@ use anyhow::Result;
 use cynic::{GraphQlResponse, QueryBuilder};
 use reqwest::Client as HttpClient;
 
+use crate::api::notifications::Notification;
+use crate::api::notifications::NotificationsQuery;
+use crate::api::notifications::NotificationsVariables;
 use crate::api::queries::issue;
 use crate::api::queries::team_issues;
 use crate::api::queries::teams;
@@ -24,6 +27,13 @@ impl Client {
             http_client: HttpClient::new(),
             api_key,
         }
+    }
+
+    pub async fn get_notifications(&self) -> Result<Vec<Notification>> {
+        let operation = NotificationsQuery::build(NotificationsVariables { first: Some(50) });
+        let result = self.fetch_json(operation).await?;
+
+        Ok(result.notifications.nodes)
     }
 
     pub async fn get_teams(&self) -> Result<Vec<Team>> {

@@ -7,7 +7,6 @@ use ratatui::{
 };
 
 use super::styled_list::StyledList;
-use super::Renderable;
 use crate::api::team_issues;
 
 pub struct IssuesList<'a> {
@@ -36,43 +35,27 @@ impl<'a> IssuesList<'a> {
         self.show_placeholder = show;
         self
     }
-}
 
-impl<'a> Renderable for IssuesList<'a> {
-    fn render(&mut self, frame: &mut Frame, area: Rect) {
-        let max_desc_width = area.width.saturating_sub(5) as usize;
-
+    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         let items: Vec<ListItem> = self
             .issues
             .iter()
             .map(|issue| {
-                let description = match &issue.description {
-                    Some(desc) if !desc.is_empty() => {
-                        if desc.chars().count() > max_desc_width {
-                            let truncate_at = max_desc_width.saturating_sub(3);
-                            let truncated: String = desc.chars().take(truncate_at).collect();
-                            format!("{}...", truncated)
-                        } else {
-                            desc.clone()
-                        }
-                    }
-                    _ => "No description".to_string(),
-                };
-
-                ListItem::new(vec![
-                    Line::from(Span::styled(
-                        issue.title.as_deref().unwrap_or("Untitled"),
-                        Style::default().fg(Color::White),
-                    )),
-                    Line::from(Span::styled(description, Style::default().fg(Color::Gray))),
-                ])
+                ListItem::new(Line::from(Span::styled(
+                    issue.title.as_deref().unwrap_or("Untitled"),
+                    Style::default().fg(Color::White),
+                )))
             })
             .collect();
+
+        let selected = self.state.selected();
+        let total = self.issues.len();
 
         let mut list = StyledList::new("Issues")
             .items(items)
             .focused(self.focused)
-            .state(self.state);
+            .state(self.state)
+            .position(selected, total);
 
         if self.show_placeholder {
             list = list.placeholder("Select a team to view issues");
