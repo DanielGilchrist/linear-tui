@@ -24,14 +24,45 @@ impl<'a> IssuePreview<'a> {
             .border_style(Style::default().fg(Color::Yellow));
 
         let mut content = vec![
-            Line::from(Span::styled(
-                self.issue.title.as_deref().unwrap_or("Untitled"),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )),
+            Line::from(vec![
+                Span::styled(&self.issue.identifier, Style::default().fg(Color::DarkGray)),
+                Span::raw(" "),
+                Span::styled(
+                    self.issue.title.as_deref().unwrap_or("Untitled"),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
             Line::from(""),
+            Line::from(vec![
+                Span::styled("Status: ", Style::default().fg(Color::Yellow)),
+                Span::styled(&self.issue.state.name, Style::default().fg(Color::White)),
+                Span::styled("  Priority: ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    &self.issue.priority_label,
+                    Style::default().fg(Color::White),
+                ),
+            ]),
         ];
+
+        if let Some(assignee) = &self.issue.assignee {
+            content.push(Line::from(vec![
+                Span::styled("Assignee: ", Style::default().fg(Color::Yellow)),
+                Span::styled(&assignee.display_name, Style::default().fg(Color::White)),
+            ]));
+        }
+
+        let labels = &self.issue.labels.nodes;
+        if !labels.is_empty() {
+            let label_names: Vec<&str> = labels.iter().map(|l| l.name.as_str()).collect();
+            content.push(Line::from(vec![
+                Span::styled("Labels: ", Style::default().fg(Color::Yellow)),
+                Span::styled(label_names.join(", "), Style::default().fg(Color::White)),
+            ]));
+        }
+
+        content.push(Line::from(""));
 
         match &self.issue.description {
             Some(desc) if !desc.is_empty() => {
@@ -52,7 +83,7 @@ impl<'a> IssuePreview<'a> {
 
         content.push(Line::from(""));
         content.push(Line::from(Span::styled(
-            "Press Enter to load full details  ·  Esc to close",
+            "Enter: load full details  ·  Esc: close preview",
             Style::default().fg(Color::DarkGray),
         )));
 
