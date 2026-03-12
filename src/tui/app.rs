@@ -1,15 +1,16 @@
 use anyhow::Result;
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::Direction,
     widgets::{ListState, ScrollbarState},
     Frame,
 };
 use std::sync::Arc;
 
 use super::components::{Inbox, IssueDetail, IssuePreview, IssuesList, TeamsList};
+use super::layout;
 use crate::api::{issue, notifications::Notification, team_issues, Client, Team};
 
-const SCROLL_STEP: usize = 2;
+pub const SCROLL_STEP: usize = 2;
 const SIDEBAR_PCT: u16 = 30;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,12 +22,7 @@ pub enum Focus {
 }
 
 impl Focus {
-    const SIDEBAR: &[Focus] = &[Focus::Inbox, Focus::Teams];
-}
-
-enum ListDirection {
-    Next,
-    Previous,
+    pub const SIDEBAR: &[Focus] = &[Focus::Inbox, Focus::Teams];
 }
 
 pub struct App {
@@ -107,151 +103,13 @@ impl App {
         Ok(())
     }
 
-    pub fn toggle_preview(&mut self) {
-        if self.focus != Focus::Issues {
-            return;
-        }
-
-        self.previewing = !self.previewing;
-    }
-
-    pub fn navigate_to(&mut self) -> Option<NavigateAction> {
-        match self.focus {
-            Focus::Inbox => {
-                let issue_id = self
-                    .get_selected_notification()
-                    .and_then(|n| n.issue_id())
-                    .map(|s| s.to_string());
-
-                if let Some(id) = issue_id {
-                    self.focus = Focus::IssueDetail;
-                    return Some(NavigateAction::LoadIssue(id));
-                }
-
-                None
-            }
-            Focus::Teams => {
-                if let Some(team) = self.get_selected_team() {
-                    let team_id = team.id.inner().to_string();
-                    self.selected_team = Some(team.clone());
-                    self.focus = Focus::Issues;
-                    return Some(NavigateAction::LoadTeamIssues(team_id));
-                }
-
-                None
-            }
-            Focus::Issues => {
-                if let Some(issue) = self.get_selected_team_issue() {
-                    let issue_id = issue.id.inner().to_string();
-                    self.focus = Focus::IssueDetail;
-                    return Some(NavigateAction::LoadIssue(issue_id));
-                }
-
-                None
-            }
-            Focus::IssueDetail => None,
-        }
-    }
-
-    pub fn go_back(&mut self) {
-        if self.previewing {
-            self.previewing = false;
-            return;
-        }
-
-        match self.focus {
-            Focus::IssueDetail => {
-                if self.selected_team.is_some() {
-                    self.focus = Focus::Issues;
-                } else {
-                    self.focus = Focus::Inbox;
-                }
-                self.selected_issue = None;
-            }
-            Focus::Issues => {
-                self.focus = Focus::Teams;
-                self.issues.clear();
-                self.selected_team = None;
-            }
-            _ => {}
-        }
-    }
-
-    pub fn next_item(&mut self) {
-        match self.focus {
-            Focus::Inbox => Self::navigate_list(
-                &mut self.inbox_list_state,
-                self.notifications.len(),
-                ListDirection::Next,
-            ),
-            Focus::Teams => Self::navigate_list(
-                &mut self.team_list_state,
-                self.teams.len(),
-                ListDirection::Next,
-            ),
-            Focus::Issues => Self::navigate_list(
-                &mut self.issue_list_state,
-                self.issues.len(),
-                ListDirection::Next,
-            ),
-            Focus::IssueDetail => {
-                self.scroll_position = self.scroll_position.saturating_add(SCROLL_STEP);
-            }
-        }
-    }
-
-    pub fn previous_item(&mut self) {
-        match self.focus {
-            Focus::Inbox => Self::navigate_list(
-                &mut self.inbox_list_state,
-                self.notifications.len(),
-                ListDirection::Previous,
-            ),
-            Focus::Teams => Self::navigate_list(
-                &mut self.team_list_state,
-                self.teams.len(),
-                ListDirection::Previous,
-            ),
-            Focus::Issues => Self::navigate_list(
-                &mut self.issue_list_state,
-                self.issues.len(),
-                ListDirection::Previous,
-            ),
-            Focus::IssueDetail => {
-                self.scroll_position = self.scroll_position.saturating_sub(SCROLL_STEP);
-            }
-        }
-    }
-
-    pub fn next_panel(&mut self) {
-        self.previewing = false;
-        let panes = self.visible_panes();
-        let current = panes.iter().position(|&p| p == self.focus).unwrap_or(0);
-        self.focus = panes[(current + 1) % panes.len()];
-    }
-
-    pub fn previous_panel(&mut self) {
-        self.previewing = false;
-        let panes = self.visible_panes();
-        let current = panes.iter().position(|&p| p == self.focus).unwrap_or(0);
-        let prev = if current == 0 {
-            panes.len() - 1
-        } else {
-            current - 1
-        };
-        self.focus = panes[prev];
-    }
-
-    pub fn jump_to_panel(&mut self, index: usize) {
-        if let Some(&pane) = Focus::SIDEBAR.get(index) {
-            self.previewing = false;
-            self.focus = pane;
-        }
-    }
-
     pub fn render(&mut self, frame: &mut Frame) {
-        let [sidebar_area, content_area] = split_horizontal(frame.area(), SIDEBAR_PCT);
-        let sidebar_chunks = split_sidebar(sidebar_area, Focus::SIDEBAR.len() as u32);
+        let [sidebar_area, content_area] = layout::split_horizontal(frame.area(), SIDEBAR_PCT);
+        let sidebar_chunks = layout::split_even(
+            sidebar_area,
+            Direction::Vertical,
+            Focus::SIDEBAR.len() as u32,
+        );
 
         Inbox::new(&self.notifications, &mut self.inbox_list_state)
             .focused(self.focus == Focus::Inbox)
@@ -275,7 +133,8 @@ impl App {
 
         if self.previewing && self.focus == Focus::Issues {
             if let Some(issue) = self.get_selected_team_issue_cloned() {
-                let [list_area, preview_area] = split_content_with_preview(content_area);
+                let [list_area, preview_area] =
+                    layout::split_half(content_area, Direction::Vertical);
 
                 let has_issues = self.selected_team.is_some() && !self.issues.is_empty();
                 IssuesList::new(&self.issues, &mut self.issue_list_state)
@@ -295,31 +154,19 @@ impl App {
             .render(frame, content_area);
     }
 
-    fn visible_panes(&self) -> Vec<Focus> {
-        let mut panes: Vec<Focus> = Focus::SIDEBAR.to_vec();
-
-        if self.selected_issue.is_some() {
-            panes.push(Focus::IssueDetail);
-        } else if self.selected_team.is_some() {
-            panes.push(Focus::Issues);
-        }
-
-        panes
-    }
-
-    fn get_selected_notification(&self) -> Option<&Notification> {
+    pub(super) fn get_selected_notification(&self) -> Option<&Notification> {
         self.inbox_list_state
             .selected()
             .and_then(|i| self.notifications.get(i))
     }
 
-    fn get_selected_team(&self) -> Option<&Team> {
+    pub(super) fn get_selected_team(&self) -> Option<&Team> {
         self.team_list_state
             .selected()
             .and_then(|i| self.teams.get(i))
     }
 
-    fn get_selected_team_issue(&self) -> Option<&team_issues::Issue> {
+    pub(super) fn get_selected_team_issue(&self) -> Option<&team_issues::Issue> {
         self.issue_list_state
             .selected()
             .and_then(|i| self.issues.get(i))
@@ -347,64 +194,4 @@ impl App {
 
         result
     }
-
-    fn navigate_list(state: &mut ListState, list_size: usize, direction: ListDirection) {
-        if list_size == 0 {
-            return;
-        }
-
-        let index = match state.selected() {
-            Some(index) => match direction {
-                ListDirection::Next => (index + 1) % list_size,
-                ListDirection::Previous => {
-                    if index == 0 {
-                        list_size - 1
-                    } else {
-                        index - 1
-                    }
-                }
-            },
-            None => 0,
-        };
-
-        state.select(Some(index));
-    }
-}
-
-pub enum NavigateAction {
-    LoadTeamIssues(String),
-    LoadIssue(String),
-}
-
-fn split_horizontal(area: Rect, left_pct: u16) -> [Rect; 2] {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(left_pct),
-            Constraint::Percentage(100 - left_pct),
-        ])
-        .split(area);
-
-    [chunks[0], chunks[1]]
-}
-
-fn split_sidebar(area: Rect, panel_count: u32) -> Vec<Rect> {
-    let constraints: Vec<Constraint> = (0..panel_count)
-        .map(|_| Constraint::Ratio(1, panel_count))
-        .collect();
-
-    Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(constraints)
-        .split(area)
-        .to_vec()
-}
-
-fn split_content_with_preview(area: Rect) -> [Rect; 2] {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(area);
-
-    [chunks[0], chunks[1]]
 }

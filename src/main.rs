@@ -16,8 +16,8 @@ mod tui;
 
 use api::Client;
 use tui::{
-    app::NavigateAction,
     events::{handle_key_event, poll_event, AppEvent},
+    navigation::NavigateAction,
     App,
 };
 
