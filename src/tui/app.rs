@@ -1,10 +1,13 @@
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use anyhow::Result;
 use ratatui::{
     layout::Direction,
     widgets::{ListState, ScrollbarState},
     Frame,
 };
-use std::sync::Arc;
 
 use super::components::{Inbox, IssueDetail, IssuePreview, IssuesList, TeamsList};
 use super::layout;
@@ -177,9 +180,6 @@ impl App {
     }
 
     fn deduplicate_notifications(notifications: Vec<Notification>) -> Vec<Notification> {
-        use std::collections::hash_map::Entry;
-        use std::collections::HashMap;
-
         let mut seen: HashMap<String, usize> = HashMap::new();
         let mut result = Vec::new();
 
