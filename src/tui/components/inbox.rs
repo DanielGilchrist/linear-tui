@@ -1,25 +1,25 @@
 use ratatui::{
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{ListItem, ListState},
     Frame,
 };
 
 use super::styled_list::StyledList;
-use crate::api::Team;
+use crate::api::notifications::Notification;
 
-pub struct TeamsList<'a> {
-    teams: &'a [Team],
+pub struct Inbox<'a> {
+    notifications: &'a [Notification],
     state: &'a mut ListState,
     focused: bool,
     panel_number: Option<usize>,
 }
 
-impl<'a> TeamsList<'a> {
-    pub fn new(teams: &'a [Team], state: &'a mut ListState) -> Self {
+impl<'a> Inbox<'a> {
+    pub fn new(notifications: &'a [Notification], state: &'a mut ListState) -> Self {
         Self {
-            teams,
+            notifications,
             state,
             focused: false,
             panel_number: None,
@@ -38,23 +38,36 @@ impl<'a> TeamsList<'a> {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         let items: Vec<ListItem> = self
-            .teams
+            .notifications
             .iter()
-            .map(|team| {
+            .map(|notification| {
+                let is_read = notification.is_read();
+
+                let indicator = if is_read {
+                    Span::styled("  ", Style::default())
+                } else {
+                    Span::styled("● ", Style::default().fg(Color::Blue))
+                };
+
+                let title_style = if is_read {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                };
+
                 ListItem::new(Line::from(vec![
-                    Span::styled(&team.name, Style::default().fg(Color::White)),
-                    Span::styled(
-                        format!(" ({})", team.issue_count),
-                        Style::default().fg(Color::DarkGray),
-                    ),
+                    indicator,
+                    Span::styled(notification.title(), title_style),
                 ]))
             })
             .collect();
 
         let selected = self.state.selected();
-        let total = self.teams.len();
+        let total = self.notifications.len();
 
-        let mut list = StyledList::new("Teams")
+        let mut list = StyledList::new("Inbox")
             .items(items)
             .focused(self.focused)
             .state(self.state)
