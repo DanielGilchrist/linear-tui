@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use super::{Renderable, ScrollableText};
+use super::ScrollableText;
 use crate::api::issue::Issue;
 
 pub struct IssueDetail<'a> {
@@ -28,11 +28,23 @@ impl<'a> IssueDetail<'a> {
         }
     }
 
-    pub fn get_clamped_scroll_position(&self) -> usize {
+    pub fn clamped_scroll_position(&self) -> usize {
         self.scroll_position
     }
 
-    fn build_issue_content(issue: &Issue) -> Text<'_> {
+    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+        let content = Self::build_content(self.issue);
+
+        let mut scrollable = ScrollableText::new(content, self.scroll_position, self.scroll_state)
+            .title("Issue Detail")
+            .border_color(Color::Yellow);
+
+        scrollable.render(frame, area);
+
+        self.scroll_position = scrollable.clamped_scroll_position();
+    }
+
+    fn build_content(issue: &Issue) -> Text<'_> {
         let mut content = vec![
             Line::from(vec![
                 Span::styled("URL: ", Style::default().fg(Color::Yellow)),
@@ -78,19 +90,5 @@ impl<'a> IssueDetail<'a> {
         }
 
         Text::from(content)
-    }
-}
-
-impl<'a> Renderable for IssueDetail<'a> {
-    fn render(&mut self, frame: &mut Frame, area: Rect) {
-        let content = Self::build_issue_content(self.issue);
-
-        let mut scrollable = ScrollableText::new(content, self.scroll_position, self.scroll_state)
-            .title("Issue Detail")
-            .border_color(Color::Yellow);
-
-        scrollable.render(frame, area);
-
-        self.scroll_position = scrollable.get_clamped_scroll_position();
     }
 }

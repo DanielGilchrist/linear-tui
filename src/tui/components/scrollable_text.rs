@@ -39,7 +39,7 @@ impl<'a> ScrollableText<'a> {
         self
     }
 
-    pub fn get_clamped_scroll_position(&self) -> usize {
+    pub fn clamped_scroll_position(&self) -> usize {
         self.scroll_position
     }
 

@@ -1,39 +1,32 @@
-use ratatui::{
-    layout::{Constraint, Direction, Layout as RatatuiLayout, Rect},
-    Frame,
-};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
-use super::components::Renderable;
+pub fn split_horizontal(area: Rect, left_pct: u16) -> [Rect; 2] {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(left_pct),
+            Constraint::Percentage(100 - left_pct),
+        ])
+        .split(area);
 
-pub struct TwoColumnLayout<L: Renderable, R: Renderable> {
-    left: L,
-    right: R,
-    left_pct: u16,
-    right_pct: u16,
+    [chunks[0], chunks[1]]
 }
 
-impl<L: Renderable, R: Renderable> TwoColumnLayout<L, R> {
-    pub fn new(left: L, right: R) -> Self {
-        Self {
-            left,
-            right,
-            left_pct: 30,
-            right_pct: 70,
-        }
-    }
+pub fn split_even(area: Rect, direction: Direction, count: u32) -> Vec<Rect> {
+    let constraints: Vec<Constraint> = (0..count).map(|_| Constraint::Ratio(1, count)).collect();
+
+    Layout::default()
+        .direction(direction)
+        .constraints(constraints)
+        .split(area)
+        .to_vec()
 }
 
-impl<L: Renderable, R: Renderable> Renderable for TwoColumnLayout<L, R> {
-    fn render(&mut self, frame: &mut Frame, area: Rect) {
-        let chunks = RatatuiLayout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(self.left_pct),
-                Constraint::Percentage(self.right_pct),
-            ])
-            .split(area);
+pub fn split_half(area: Rect, direction: Direction) -> [Rect; 2] {
+    let chunks = Layout::default()
+        .direction(direction)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
 
-        self.left.render(frame, chunks[0]);
-        self.right.render(frame, chunks[1]);
-    }
+    [chunks[0], chunks[1]]
 }
