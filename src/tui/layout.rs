@@ -12,6 +12,15 @@ pub fn split_horizontal(area: Rect, left_pct: u16) -> [Rect; 2] {
     [chunks[0], chunks[1]]
 }
 
+pub fn split_footer(area: Rect, right_width: u16) -> [Rect; 2] {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(right_width)])
+        .split(area);
+
+    [chunks[0], chunks[1]]
+}
+
 pub fn split_even(area: Rect, direction: Direction, count: u32) -> Vec<Rect> {
     let constraints: Vec<Constraint> = (0..count).map(|_| Constraint::Ratio(1, count)).collect();
 

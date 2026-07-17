@@ -1,6 +1,4 @@
 pub mod issue;
+pub mod my_issues;
 pub mod notifications;
-pub mod team_issues;
-pub mod teams;
-
-pub use teams::Team;
+pub mod viewer;

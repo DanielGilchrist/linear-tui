@@ -1,7 +1,11 @@
 pub mod app;
 pub mod components;
-pub mod events;
 pub mod layout;
-pub mod navigation;
+pub mod message;
+pub mod render;
+pub mod run;
+pub mod update;
 
 pub use app::App;
+pub use render::{render, render_to_string};
+pub use run::run;

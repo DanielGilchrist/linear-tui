@@ -1,126 +1,166 @@
-use anyhow::Result;
-use clap::Parser;
+use std::io::{self, Stdout};
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use anyhow::{anyhow, Result};
+use clap::{Parser, Subcommand};
 use crossterm::{
-    event::Event,
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::{
-    env,
-    io::{self, Stdout},
-};
 
-mod api;
-mod tui;
-
-use api::Client;
-use tui::{
-    events::{handle_key_event, poll_event, AppEvent},
-    navigation::NavigateAction,
-    App,
+use linear_tui::api::{self, fixture::FixtureClient, Client, LinearApi};
+use linear_tui::tui::{
+    self,
+    app::{App, Screen, ViewKind},
 };
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(long)]
+    #[arg(long, global = true)]
     api_key: Option<String>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    Render(RenderArgs),
+    Record(RecordArgs),
+}
+
+#[derive(Parser)]
+struct RenderArgs {
+    #[arg(long)]
+    fixture: Option<PathBuf>,
+
+    #[arg(long, default_value = "assigned")]
+    view: String,
+
+    #[arg(long)]
+    detail: Option<String>,
+
+    #[arg(long, default_value_t = 110)]
+    width: u16,
+
+    #[arg(long, default_value_t = 32)]
+    height: u16,
+}
+
+#[derive(Parser)]
+struct RecordArgs {
+    #[arg(long, default_value = "fixtures/recorded.json")]
+    out: PathBuf,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    let api_key = args
-        .api_key
-        .or_else(|| env::var("LINEAR_API_KEY").ok())
-        .expect(
-            "Please provide API key via --api-key argument or LINEAR_API_KEY environment variable",
-        );
-
-    let client = Client::new(api_key);
-
-    with_raw_terminal(|mut terminal| async move {
-        let mut app = App::new(client);
-
-        app.load_notifications().await?;
-        app.load_teams().await?;
-
-        run_app(&mut terminal, &mut app).await
-    })
-    .await
+    match args.command {
+        Some(Command::Render(render_args)) => headless_render(render_args).await,
+        Some(Command::Record(record_args)) => record(&resolve_api_key(&args.api_key)?, record_args).await,
+        None => run_tui(resolve_api_key(&args.api_key)?).await,
+    }
 }
 
-async fn with_raw_terminal<F, Fut, T>(f: F) -> Result<T>
-where
-    F: FnOnce(Terminal<CrosstermBackend<io::Stdout>>) -> Fut,
-    Fut: std::future::Future<Output = Result<T>>,
-{
-    let terminal = setup_terminal()?;
-    let result = f(terminal).await;
+fn resolve_api_key(flag: &Option<String>) -> Result<String> {
+    flag.clone()
+        .or_else(|| std::env::var("LINEAR_API_KEY").ok())
+        .ok_or_else(|| anyhow!("Provide an API key via --api-key or LINEAR_API_KEY"))
+}
+
+async fn run_tui(api_key: String) -> Result<()> {
+    let api: Arc<dyn LinearApi> = Arc::new(Client::new(api_key));
+
+    let mut terminal = setup_terminal()?;
+    let mut app = App::new();
+    let result = tui::run(&mut terminal, &mut app, api).await;
 
     cleanup_terminal()?;
-    show_cursor();
-
     result
 }
 
-fn setup_terminal() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
-    enable_raw_mode()?;
+async fn headless_render(args: RenderArgs) -> Result<()> {
+    let api: Arc<dyn LinearApi> = match &args.fixture {
+        Some(path) => Arc::new(FixtureClient::from_path(path)?),
+        None => Arc::new(FixtureClient::sample()),
+    };
 
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    let mut app = App::new();
+    app.session = api.session().await.ok();
 
-    let backend = CrosstermBackend::new(stdout);
-    Terminal::new(backend)
-}
-
-fn cleanup_terminal() -> io::Result<()> {
-    disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen)?;
-
-    Ok(())
-}
-
-fn show_cursor() {
-    print!("\x1B[?25h");
-}
-
-async fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> Result<()> {
-    loop {
-        terminal.draw(|f| app.render(f))?;
-
-        if let Some(event) = poll_event()? {
-            match event {
-                Event::Key(key) => match handle_key_event(key) {
-                    AppEvent::Quit => break,
-                    AppEvent::NavigateTo => {
-                        if let Some(action) = app.navigate_to() {
-                            match action {
-                                NavigateAction::LoadTeamIssues(id) => {
-                                    app.load_team_issues(&id).await?;
-                                }
-                                NavigateAction::LoadIssue(id) => {
-                                    app.load_issue_detail(&id).await?;
-                                }
-                            }
-                        }
-                    }
-                    AppEvent::GoBack => app.go_back(),
-                    AppEvent::Preview => app.toggle_preview(),
-                    AppEvent::NextItem => app.next_item(),
-                    AppEvent::PreviousItem => app.previous_item(),
-                    AppEvent::NextPanel => app.next_panel(),
-                    AppEvent::PreviousPanel => app.previous_panel(),
-                    AppEvent::JumpToPanel(idx) => app.jump_to_panel(idx),
-                    AppEvent::None => {}
-                },
-                Event::Resize(_, _) => {}
-                _ => {}
-            }
+    if let Some(id) = &args.detail {
+        app.screen = Screen::Detail;
+        app.detail = api.issue_detail(id).await?;
+    } else {
+        let index = view_index(&args.view);
+        app.view_state.select(Some(index));
+        match &app.active_view().kind {
+            ViewKind::Issues(filter) => app.issues = api.issues(&filter.clone()).await?,
+            ViewKind::Inbox => app.notifications = api.notifications().await?,
         }
     }
 
+    let output = tui::render_to_string(&mut app, args.width, args.height);
+    print!("{output}");
+    Ok(())
+}
+
+fn view_index(name: &str) -> usize {
+    match name {
+        "progress" | "in-progress" => 1,
+        "inbox" => 2,
+        _ => 0,
+    }
+}
+
+async fn record(api_key: &str, args: RecordArgs) -> Result<()> {
+    use api::fixture::Fixture;
+    use api::IssueFilter;
+
+    let client = Client::new(api_key.to_string());
+    let session = client.session().await?;
+    let issues = client.issues(&IssueFilter::assigned_to_me()).await?;
+    let notifications = client.notifications().await?;
+
+    let mut details = Vec::new();
+    for issue in issues.iter().take(5) {
+        if let Some(detail) = client.issue_detail(&issue.id).await? {
+            details.push(detail);
+        }
+    }
+
+    let fixture = Fixture {
+        viewer: session.user,
+        org_name: session.org_name,
+        org_url_key: session.org_url_key,
+        notifications,
+        issues,
+        details,
+    };
+
+    if let Some(parent) = args.out.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&args.out, serde_json::to_string_pretty(&fixture)?)?;
+    eprintln!("Wrote fixture to {}", args.out.display());
+    Ok(())
+}
+
+fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    Ok(Terminal::new(CrosstermBackend::new(stdout))?)
+}
+
+fn cleanup_terminal() -> Result<()> {
+    disable_raw_mode()?;
+    execute!(io::stdout(), LeaveAlternateScreen)?;
+    print!("\x1B[?25h");
     Ok(())
 }

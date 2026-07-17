@@ -6,21 +6,23 @@ mod schema {
 
 #[derive(Debug, Clone, QueryFragment)]
 #[cynic(schema_path = "schema.graphql")]
-pub struct Team {
+pub struct User {
     pub id: cynic::Id,
     pub name: String,
-    #[cynic(rename = "issueCount")]
-    pub issue_count: i32,
+    pub display_name: String,
+    pub is_me: bool,
 }
 
-#[derive(Debug, QueryFragment)]
+#[derive(Debug, Clone, QueryFragment)]
 #[cynic(schema_path = "schema.graphql")]
-pub struct TeamConnection {
-    pub nodes: Vec<Team>,
+pub struct Organization {
+    pub name: String,
+    pub url_key: String,
 }
 
 #[derive(Debug, QueryFragment)]
 #[cynic(schema_path = "schema.graphql", graphql_type = "Query")]
-pub struct TeamsQuery {
-    pub teams: TeamConnection,
+pub struct ViewerQuery {
+    pub viewer: User,
+    pub organization: Organization,
 }

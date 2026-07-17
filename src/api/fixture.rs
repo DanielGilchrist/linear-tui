@@ -1,0 +1,262 @@
+use std::path::Path;
+
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+
+use crate::api::model::{
+    Comment, IssueDetail, IssueFilter, IssueSummary, Label, NotificationItem, Session, User,
+    WorkflowState,
+};
+use crate::api::LinearApi;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Fixture {
+    pub viewer: User,
+    #[serde(default)]
+    pub org_name: String,
+    #[serde(default)]
+    pub org_url_key: String,
+    #[serde(default)]
+    pub notifications: Vec<NotificationItem>,
+    #[serde(default)]
+    pub issues: Vec<IssueSummary>,
+    #[serde(default)]
+    pub details: Vec<IssueDetail>,
+}
+
+pub struct FixtureClient {
+    fixture: Fixture,
+}
+
+impl FixtureClient {
+    pub fn new(fixture: Fixture) -> Self {
+        Self { fixture }
+    }
+
+    pub fn from_path(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let raw = std::fs::read_to_string(path)
+            .with_context(|| format!("reading fixture {}", path.display()))?;
+        let fixture: Fixture = serde_json::from_str(&raw)
+            .with_context(|| format!("parsing fixture {}", path.display()))?;
+        Ok(Self::new(fixture))
+    }
+
+    pub fn sample() -> Self {
+        Self::new(sample_fixture())
+    }
+}
+
+fn matches(issue: &IssueSummary, filter: &IssueFilter) -> bool {
+    let ty = &issue.state.state_type;
+    if !filter.state_types_in.is_empty() && !filter.state_types_in.contains(ty) {
+        return false;
+    }
+    if filter.state_types_nin.contains(ty) {
+        return false;
+    }
+    true
+}
+
+#[async_trait::async_trait]
+impl LinearApi for FixtureClient {
+    async fn session(&self) -> Result<Session> {
+        Ok(Session {
+            user: self.fixture.viewer.clone(),
+            org_name: self.fixture.org_name.clone(),
+            org_url_key: self.fixture.org_url_key.clone(),
+        })
+    }
+
+    async fn issues(&self, filter: &IssueFilter) -> Result<Vec<IssueSummary>> {
+        Ok(self
+            .fixture
+            .issues
+            .iter()
+            .filter(|issue| matches(issue, filter))
+            .cloned()
+            .collect())
+    }
+
+    async fn issue_detail(&self, id: &str) -> Result<Option<IssueDetail>> {
+        Ok(self
+            .fixture
+            .details
+            .iter()
+            .find(|d| d.id == id || d.identifier == id)
+            .cloned())
+    }
+
+    async fn notifications(&self) -> Result<Vec<NotificationItem>> {
+        Ok(self.fixture.notifications.clone())
+    }
+}
+
+fn state(name: &str, ty: &str) -> WorkflowState {
+    WorkflowState {
+        name: name.into(),
+        state_type: ty.into(),
+    }
+}
+
+fn person(display_name: &str, is_me: bool) -> User {
+    User {
+        id: format!("u_{display_name}"),
+        name: display_name.into(),
+        display_name: display_name.into(),
+        is_me,
+    }
+}
+
+fn summary(
+    id: &str,
+    identifier: &str,
+    title: &str,
+    st: WorkflowState,
+    priority: u8,
+    assignee: &str,
+    labels: &[(&str, &str)],
+) -> IssueSummary {
+    IssueSummary {
+        id: id.into(),
+        identifier: identifier.into(),
+        title: Some(title.into()),
+        state: st,
+        priority,
+        assignee: Some(person(assignee, assignee == "dan")),
+        labels: labels
+            .iter()
+            .map(|(name, color)| Label {
+                name: (*name).into(),
+                color: (*color).into(),
+            })
+            .collect(),
+    }
+}
+
+fn sample_fixture() -> Fixture {
+    let issues = vec![
+        summary(
+            "i1",
+            "DAN2-7",
+            "Wood-fired oven runs 40°C too hot on Friday nights",
+            state("In Progress", "started"),
+            1,
+            "dan",
+            &[("oven", "#eb5757")],
+        ),
+        summary(
+            "i2",
+            "DAN-10",
+            "Sprinkle dispenser jams during the morning rush",
+            state("In Progress", "started"),
+            1,
+            "dan",
+            &[("production", "#eb5757")],
+        ),
+        summary(
+            "i3",
+            "DAN2-2",
+            "Delivery driver GPS points to the old shopfront",
+            state("In Progress", "started"),
+            2,
+            "dan",
+            &[("delivery", "#5e6ad2")],
+        ),
+        summary(
+            "i4",
+            "DAN2-3",
+            "Add gluten-free base option to the online menu",
+            state("Todo", "unstarted"),
+            1,
+            "dan",
+            &[("menu", "#0f9d58")],
+        ),
+        summary(
+            "i5",
+            "DAN-13",
+            "Introduce a maple-bacon donut for the winter menu",
+            state("Todo", "unstarted"),
+            2,
+            "dan",
+            &[("menu", "#0f9d58")],
+        ),
+        summary(
+            "i6",
+            "DAN2-5",
+            "Settle the pineapple-on-pizza debate once and for all",
+            state("Backlog", "backlog"),
+            2,
+            "dan",
+            &[("customer-poll", "#f2c94c")],
+        ),
+        summary(
+            "i7",
+            "DAN-15",
+            "Coffee pairing bundle for donut boxes",
+            state("Backlog", "backlog"),
+            0,
+            "dan",
+            &[("upsell", "#f2c94c")],
+        ),
+    ];
+
+    let details = vec![IssueDetail {
+        id: "i1".into(),
+        identifier: "DAN2-7".into(),
+        title: Some("Wood-fired oven runs 40°C too hot on Friday nights".into()),
+        description: Some(
+            "During the Friday rush the stone oven creeps past 480°C and bases scorch before the cheese melts.\n\nExpected: steady 430°C. Actual: 470-480°C. Suspect the flue damper is sticking open.".into(),
+        ),
+        url: "https://linear.app/dans-donuts/issue/DAN2-7/wood-fired-oven-runs-too-hot".into(),
+        state: state("In Progress", "started"),
+        priority: 1,
+        assignee: Some(person("dan", true)),
+        labels: vec![Label {
+            name: "oven".into(),
+            color: "#eb5757".into(),
+        }],
+        comments: vec![
+            Comment {
+                author: Some("dan".into()),
+                body: "Swapped the thermocouple this morning. Will watch it tonight.".into(),
+                created_at: "2026-07-16T09:24:00Z".into(),
+            },
+            Comment {
+                author: Some("dan".into()),
+                body: "Still climbing. Confirmed the flue damper is sticking open.".into(),
+                created_at: "2026-07-16T18:40:00Z".into(),
+            },
+        ],
+    }];
+
+    let notifications = vec![
+        NotificationItem {
+            title: "New comment on DAN2-7 (wood-fired oven)".into(),
+            issue_id: Some("i1".into()),
+            is_read: false,
+            grouping_key: "g1".into(),
+        },
+        NotificationItem {
+            title: "You were assigned DAN-10 (sprinkle dispenser jams)".into(),
+            issue_id: Some("i2".into()),
+            is_read: false,
+            grouping_key: "g2".into(),
+        },
+        NotificationItem {
+            title: "DAN2-5 moved to Backlog (pineapple debate)".into(),
+            issue_id: Some("i6".into()),
+            is_read: true,
+            grouping_key: "g3".into(),
+        },
+    ];
+
+    Fixture {
+        viewer: person("dan", true),
+        org_name: "Dan's Donuts".into(),
+        org_url_key: "dans-donuts".into(),
+        notifications,
+        issues,
+        details,
+    }
+}
