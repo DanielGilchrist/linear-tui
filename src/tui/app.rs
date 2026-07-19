@@ -1,48 +1,14 @@
 use ratatui::widgets::{ListState, ScrollbarState};
 
-use super::action::{self, Action};
-use super::message::Command;
-use crate::api::{
-    IssueDetail, IssueFilter, IssueSummary, NotificationItem, Session, StateOption, User,
-};
+use super::focus::{Focus, LeftPanel, Nav};
+use super::overlay::{Confirm, Find, Input, Menu, Overlay, Picker, Prefix, Search};
+use super::spinner::Spinner;
+use super::view::{View, ViewKind};
+use crate::api::{IssueDetail, IssueSummary, NotificationItem, Session};
 
-#[derive(Debug, Clone)]
-pub enum ViewKind {
-    Issues(IssueFilter),
-    Inbox,
-}
+pub const SCROLL_STEP: usize = 2;
 
-#[derive(Debug, Clone)]
-pub struct View {
-    pub name: String,
-    pub kind: ViewKind,
-}
-
-impl View {
-    pub fn defaults() -> Vec<View> {
-        vec![
-            View {
-                name: "Assigned to me".into(),
-                kind: ViewKind::Issues(IssueFilter::assigned_to_me()),
-            },
-            View {
-                name: "In Progress".into(),
-                kind: ViewKind::Issues(IssueFilter::in_progress_mine()),
-            },
-            View {
-                name: "Inbox".into(),
-                kind: ViewKind::Inbox,
-            },
-        ]
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Focus {
-    MyWork,
-    Stub(usize),
-    Detail,
-}
+pub const RECENT_CAP: usize = 50;
 
 pub struct StubPanel {
     pub title: String,
@@ -58,189 +24,6 @@ impl StubPanel {
             state: ListState::default().with_selected(Some(0)),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PickerKind {
-    Status,
-    Assign,
-}
-
-#[derive(Debug, Clone)]
-pub struct PickerItem {
-    pub id: String,
-    pub label: String,
-    pub hint: String,
-}
-
-impl From<StateOption> for PickerItem {
-    fn from(state: StateOption) -> Self {
-        Self {
-            id: state.id,
-            label: state.name,
-            hint: state.state_type,
-        }
-    }
-}
-
-impl From<User> for PickerItem {
-    fn from(user: User) -> Self {
-        Self {
-            hint: if user.is_me {
-                "you".into()
-            } else {
-                String::new()
-            },
-            id: user.id,
-            label: user.display_name,
-        }
-    }
-}
-
-pub struct Picker {
-    pub kind: PickerKind,
-    pub target_issue: String,
-    pub target_label: String,
-    pub items: Vec<PickerItem>,
-    pub state: ListState,
-    pub loading: bool,
-}
-
-impl Picker {
-    pub fn verb(&self) -> &'static str {
-        match self.kind {
-            PickerKind::Status => "Set status",
-            PickerKind::Assign => "Assign",
-        }
-    }
-
-    pub fn selected(&self) -> Option<&PickerItem> {
-        self.state.selected().and_then(|i| self.items.get(i))
-    }
-}
-
-pub struct Confirm {
-    pub message: String,
-    pub command: Command,
-}
-
-pub enum MenuRow {
-    Header(&'static str),
-    Item {
-        action: Action,
-        keys: String,
-        label: &'static str,
-    },
-}
-
-pub struct Menu {
-    pub rows: Vec<MenuRow>,
-    pub state: ListState,
-}
-
-impl Menu {
-    pub fn new(rows: Vec<MenuRow>) -> Self {
-        let first = rows
-            .iter()
-            .position(|row| matches!(row, MenuRow::Item { .. }));
-
-        Self {
-            rows,
-            state: ListState::default().with_selected(first),
-        }
-    }
-
-    pub fn for_focus(focus: Focus) -> Self {
-        let local = match focus {
-            Focus::MyWork => action::MY_WORK_MENU,
-            Focus::Detail => action::DETAIL_MENU,
-            Focus::Stub(_) => action::STUB_MENU,
-        };
-
-        let mut rows = vec![MenuRow::Header("Local")];
-        Self::push_items(&mut rows, local);
-        rows.push(MenuRow::Header("Global"));
-        Self::push_items(&mut rows, action::GLOBAL_MENU);
-
-        Menu::new(rows)
-    }
-
-    fn push_items(rows: &mut Vec<MenuRow>, actions: &[Action]) {
-        for &action in actions {
-            if let Some((keys, label)) = action::BROWSE.describe(action) {
-                rows.push(MenuRow::Item { action, keys, label });
-            }
-        }
-    }
-
-    pub fn selected_action(&self) -> Option<Action> {
-        match self.rows.get(self.state.selected()?)? {
-            MenuRow::Item { action, .. } => Some(*action),
-            MenuRow::Header(_) => None,
-        }
-    }
-
-    pub fn move_selection(&mut self, forward: bool) {
-        let items: Vec<usize> = self
-            .rows
-            .iter()
-            .enumerate()
-            .filter(|(_, row)| matches!(row, MenuRow::Item { .. }))
-            .map(|(index, _)| index)
-            .collect();
-
-        if items.is_empty() {
-            return;
-        }
-
-        let current = self.state.selected().unwrap_or(items[0]);
-        let position = items.iter().position(|&i| i == current).unwrap_or(0);
-
-        let next = if forward {
-            (position + 1) % items.len()
-        } else {
-            (position + items.len() - 1) % items.len()
-        };
-
-        self.state.select(Some(items[next]));
-    }
-
-    pub fn jump_section(&mut self, forward: bool) {
-        let headers: Vec<usize> = self
-            .rows
-            .iter()
-            .enumerate()
-            .filter(|(_, row)| matches!(row, MenuRow::Header(_)))
-            .map(|(index, _)| index)
-            .collect();
-
-        if headers.is_empty() {
-            return;
-        }
-
-        let current = self.state.selected().unwrap_or(0);
-        let section = headers.iter().rposition(|&h| h <= current).unwrap_or(0);
-        let target = if forward {
-            (section + 1) % headers.len()
-        } else {
-            (section + headers.len() - 1) % headers.len()
-        };
-
-        let first_item = (headers[target] + 1..self.rows.len())
-            .find(|&index| matches!(self.rows[index], MenuRow::Item { .. }));
-        if let Some(index) = first_item {
-            self.state.select(Some(index));
-        }
-    }
-}
-
-#[derive(Default)]
-pub enum Overlay {
-    #[default]
-    None,
-    Picker(Picker),
-    Confirm(Confirm),
-    Menu(Menu),
 }
 
 pub struct FocusedIssue {
@@ -273,8 +56,6 @@ impl FocusedIssue {
     }
 }
 
-pub const SCROLL_STEP: usize = 2;
-
 pub struct App {
     pub session: Option<Session>,
     pub views: Vec<View>,
@@ -282,16 +63,21 @@ pub struct App {
     pub issues: Vec<IssueSummary>,
     pub notifications: Vec<NotificationItem>,
     pub list_state: ListState,
+    pub recently_viewed: Vec<IssueSummary>,
+    pub recent_state: ListState,
     pub stubs: Vec<StubPanel>,
     pub detail: Option<IssueDetail>,
     pub detail_loading: bool,
     pub focus: Focus,
     pub loading: bool,
     pub status: Option<String>,
-    pub spinner_frame: usize,
+    pub spinner: Spinner,
     pub scroll_position: usize,
     pub scroll_state: ScrollbarState,
+    pub viewport: usize,
     pub overlay: Overlay,
+    pub find_query: Option<String>,
+    pub search_return: Option<Search>,
     pub should_quit: bool,
 }
 
@@ -304,18 +90,12 @@ impl App {
             issues: Vec::new(),
             notifications: Vec::new(),
             list_state: ListState::default().with_selected(Some(0)),
+            recently_viewed: Vec::new(),
+            recent_state: ListState::default().with_selected(Some(0)),
             stubs: vec![
                 StubPanel::new(
                     "Saved Views",
                     &["#payroll", "#nest-sync", "High priority", "Created by me"],
-                ),
-                StubPanel::new(
-                    "Recently viewed",
-                    &[
-                        "DAN2-7 Wood-fired oven",
-                        "DAN-10 Sprinkle dispenser",
-                        "DAN2-5 Pineapple debate",
-                    ],
                 ),
                 StubPanel::new("Teams", &["Dan's Pizza", "Dan's Donuts"]),
             ],
@@ -324,10 +104,13 @@ impl App {
             focus: Focus::MyWork,
             loading: false,
             status: None,
-            spinner_frame: 0,
+            spinner: Spinner::default(),
             scroll_position: 0,
             scroll_state: ScrollbarState::default(),
+            viewport: 0,
             overlay: Overlay::None,
+            find_query: None,
+            search_return: None,
             should_quit: false,
         }
     }
@@ -349,6 +132,34 @@ impl App {
     pub fn menu(&self) -> Option<&Menu> {
         match &self.overlay {
             Overlay::Menu(menu) => Some(menu),
+            _ => None,
+        }
+    }
+
+    pub fn prefix(&self) -> Option<&Prefix> {
+        match &self.overlay {
+            Overlay::Prefix(prefix) => Some(prefix),
+            _ => None,
+        }
+    }
+
+    pub fn input(&self) -> Option<&Input> {
+        match &self.overlay {
+            Overlay::Input(input) => Some(input),
+            _ => None,
+        }
+    }
+
+    pub fn search(&self) -> Option<&Search> {
+        match &self.overlay {
+            Overlay::Search(search) => Some(search),
+            _ => None,
+        }
+    }
+
+    pub fn find(&self) -> Option<&Find> {
+        match &self.overlay {
+            Overlay::Find(find) => Some(find),
             _ => None,
         }
     }
@@ -385,52 +196,135 @@ impl App {
         }
     }
 
+    pub fn panels(&self) -> Vec<LeftPanel> {
+        let mut panels = vec![LeftPanel::MyWork, LeftPanel::Recent];
+        panels.extend((0..self.stubs.len()).map(LeftPanel::Stub));
+        panels
+    }
+
     pub fn panel_count(&self) -> usize {
-        1 + self.stubs.len()
+        self.panels().len()
     }
 
-    pub fn focus_at(&self, index: usize) -> Focus {
-        if index == 0 {
-            Focus::MyWork
-        } else {
-            Focus::Stub(index - 1)
-        }
+    pub fn panel_at(&self, index: usize) -> LeftPanel {
+        self.panels()[index]
     }
 
-    pub fn expanded_panel(&self) -> usize {
-        match self.focus {
-            Focus::Stub(index) => index + 1,
-            _ => 0,
-        }
-    }
-
-    pub fn panel_len(&self, index: usize) -> usize {
-        match index {
-            0 => self.main_len(),
-            _ => self.stubs[index - 1].items.len(),
+    pub fn panel_len(&self, focus: Focus) -> usize {
+        match focus {
+            Focus::MyWork => self.main_len(),
+            Focus::Recent => self.recently_viewed.len(),
+            Focus::Stub(index) => self.stubs[index].items.len(),
+            Focus::Detail(_) => 0,
         }
     }
 
     pub fn focused_list_len(&self) -> usize {
-        match self.focus {
-            Focus::MyWork => self.main_len(),
-            Focus::Stub(index) => self.stubs[index].items.len(),
-            Focus::Detail => 0,
-        }
+        self.panel_len(self.focus)
     }
 
     pub fn focused_list_mut(&mut self) -> Option<&mut ListState> {
         match self.focus {
             Focus::MyWork => Some(&mut self.list_state),
+            Focus::Recent => Some(&mut self.recent_state),
             Focus::Stub(index) => Some(&mut self.stubs[index].state),
-            Focus::Detail => None,
+            Focus::Detail(_) => None,
         }
+    }
+
+    pub fn nav(&mut self) -> Nav<'_> {
+        let viewport = self.viewport;
+        match self.focus {
+            Focus::Detail(_) => Nav::Scroll {
+                position: &mut self.scroll_position,
+                viewport,
+            },
+            Focus::MyWork => {
+                let len = self.main_len();
+                Nav::List {
+                    state: &mut self.list_state,
+                    len,
+                    viewport,
+                }
+            }
+            Focus::Recent => {
+                let len = self.recently_viewed.len();
+                Nav::List {
+                    state: &mut self.recent_state,
+                    len,
+                    viewport,
+                }
+            }
+            Focus::Stub(index) => {
+                let len = self.stubs[index].items.len();
+                Nav::List {
+                    state: &mut self.stubs[index].state,
+                    len,
+                    viewport,
+                }
+            }
+        }
+    }
+
+    pub fn focused_selection(&self) -> Option<usize> {
+        match self.focus {
+            Focus::MyWork => self.list_state.selected(),
+            Focus::Recent => self.recent_state.selected(),
+            Focus::Stub(index) => self.stubs[index].state.selected(),
+            Focus::Detail(_) => None,
+        }
+    }
+
+    pub fn selected_recent(&self) -> Option<&IssueSummary> {
+        self.recent_state
+            .selected()
+            .and_then(|i| self.recently_viewed.get(i))
+    }
+
+    pub fn record_recent(&mut self, issue: IssueSummary) {
+        let position = match self.recently_viewed.iter().position(|i| i.id == issue.id) {
+            Some(position) => position,
+            None => {
+                self.recently_viewed.insert(0, issue);
+                self.recently_viewed.truncate(RECENT_CAP);
+                0
+            }
+        };
+        self.recent_state.select(Some(position));
+    }
+
+    pub fn open_recent_pos(&self) -> Option<usize> {
+        let detail = self.detail.as_ref()?;
+        self.recently_viewed.iter().position(|i| i.id == detail.id)
+    }
+
+    fn focused_row_texts(&self) -> Vec<String> {
+        match self.focus {
+            Focus::MyWork => match self.active_view().kind {
+                ViewKind::Issues(_) => self.issues.iter().map(issue_search_text).collect(),
+                ViewKind::Inbox => self.notifications.iter().map(|n| n.title.clone()).collect(),
+            },
+            Focus::Recent => self.recently_viewed.iter().map(issue_search_text).collect(),
+            Focus::Stub(index) => self.stubs[index].items.clone(),
+            Focus::Detail(_) => Vec::new(),
+        }
+    }
+
+    pub fn focused_matches(&self, query: &str) -> Vec<usize> {
+        let needle = query.to_lowercase();
+        self.focused_row_texts()
+            .iter()
+            .enumerate()
+            .filter(|(_, text)| text.to_lowercase().contains(&needle))
+            .map(|(index, _)| index)
+            .collect()
     }
 
     pub fn open_target(&self) -> Option<FocusedIssue> {
         match self.focus {
             Focus::MyWork => self.selected_issue().map(FocusedIssue::from_summary),
-            Focus::Detail => self
+            Focus::Recent => self.selected_recent().map(FocusedIssue::from_summary),
+            Focus::Detail(_) => self
                 .detail
                 .as_ref()
                 .map(FocusedIssue::from_detail)
@@ -440,10 +334,9 @@ impl App {
     }
 
     pub fn action_target(&self) -> Option<FocusedIssue> {
-        if self.focus == Focus::Detail {
-            self.detail.as_ref().map(FocusedIssue::from_detail)
-        } else {
-            None
+        match self.focus {
+            Focus::Detail(_) => self.detail.as_ref().map(FocusedIssue::from_detail),
+            Focus::MyWork | Focus::Recent | Focus::Stub(_) => None,
         }
     }
 }
@@ -452,4 +345,16 @@ impl Default for App {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn issue_search_text(issue: &IssueSummary) -> String {
+    let mut parts = vec![issue.identifier.clone(), issue.state.name.clone()];
+    if let Some(title) = &issue.title {
+        parts.push(title.clone());
+    }
+    if let Some(assignee) = &issue.assignee {
+        parts.push(assignee.display_name.clone());
+    }
+    parts.extend(issue.labels.iter().map(|label| label.name.clone()));
+    parts.join(" ")
 }

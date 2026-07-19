@@ -95,7 +95,7 @@ impl<'a> StyledList<'a> {
         let highlight_style = if self.focused {
             Style::default().bg(Color::DarkGray).fg(Color::White)
         } else {
-            Style::default()
+            Style::default().bg(Color::Rgb(45, 45, 48))
         };
 
         let list = List::new(self.items)

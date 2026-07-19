@@ -3,8 +3,8 @@ use cynic::{GraphQlResponse, QueryBuilder};
 use reqwest::Client as HttpClient;
 
 use crate::api::model::{
-    Comment, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, Label, NotificationItem, Session,
-    StateOption, User, WorkflowState,
+    Comment, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, Label, NotificationItem,
+    Priority, Rgb, Session, StateOption, StateType, User, WorkflowState,
 };
 use crate::api::queries::actions::{
     IssueUpdateInput, IssueUpdateMutation, IssueUpdateVariables, TeamMembersQuery, TeamStatesQuery,
@@ -18,6 +18,7 @@ use crate::api::queries::my_issues::{
 use crate::api::queries::notifications::{
     Notification, NotificationsQuery, NotificationsVariables,
 };
+use crate::api::queries::search::{self, SearchIssuesQuery, SearchVariables};
 use crate::api::queries::viewer::ViewerQuery;
 use crate::api::LinearApi;
 use cynic::MutationBuilder;
@@ -66,12 +67,16 @@ fn build_cynic_filter(filter: &IssueFilter) -> my_issues::IssueFilter {
         is_me: Some(BooleanComparator { eq: Some(true) }),
     };
 
+    let api_types = |types: &[StateType]| -> Option<Vec<String>> {
+        (!types.is_empty()).then(|| types.iter().map(|t| t.as_api().to_string()).collect())
+    };
+
     let state = if !filter.state_types_in.is_empty() || !filter.state_types_nin.is_empty() {
         Some(WorkflowStateFilter {
             type_: Some(StringComparator {
                 eq: None,
-                in_: (!filter.state_types_in.is_empty()).then(|| filter.state_types_in.clone()),
-                nin: (!filter.state_types_nin.is_empty()).then(|| filter.state_types_nin.clone()),
+                in_: api_types(&filter.state_types_in),
+                nin: api_types(&filter.state_types_nin),
             }),
         })
     } else {
@@ -92,9 +97,9 @@ fn map_summary(issue: my_issues::Issue) -> IssueSummary {
         title: issue.title,
         state: WorkflowState {
             name: issue.state.name,
-            state_type: issue.state.state_type,
+            state_type: StateType::from_api(&issue.state.state_type),
         },
-        priority: issue.priority as u8,
+        priority: Priority::from(issue.priority as u8),
         assignee: issue.assignee.map(|a| User {
             id: String::new(),
             name: String::new(),
@@ -107,7 +112,38 @@ fn map_summary(issue: my_issues::Issue) -> IssueSummary {
             .into_iter()
             .map(|l| Label {
                 name: l.name,
-                color: l.color,
+                color: Rgb::parse_hex(&l.color),
+            })
+            .collect(),
+        url: issue.url,
+        branch_name: issue.branch_name,
+        team_id: issue.team.id.into_inner(),
+    }
+}
+
+fn map_search_result(issue: search::IssueSearchResult) -> IssueSummary {
+    IssueSummary {
+        id: issue.id.into_inner(),
+        identifier: issue.identifier,
+        title: Some(issue.title),
+        state: WorkflowState {
+            name: issue.state.name,
+            state_type: StateType::from_api(&issue.state.state_type),
+        },
+        priority: Priority::from(issue.priority as u8),
+        assignee: issue.assignee.map(|a| User {
+            id: String::new(),
+            name: String::new(),
+            display_name: a.display_name,
+            is_me: false,
+        }),
+        labels: issue
+            .labels
+            .nodes
+            .into_iter()
+            .map(|l| Label {
+                name: l.name,
+                color: Rgb::parse_hex(&l.color),
             })
             .collect(),
         url: issue.url,
@@ -125,9 +161,9 @@ fn map_detail(issue: issue::Issue) -> IssueDetail {
         url: issue.url,
         state: WorkflowState {
             name: issue.state.name,
-            state_type: issue.state.state_type,
+            state_type: StateType::from_api(&issue.state.state_type),
         },
-        priority: issue.priority as u8,
+        priority: Priority::from(issue.priority as u8),
         assignee: issue.assignee.map(|a| User {
             id: String::new(),
             name: String::new(),
@@ -140,7 +176,7 @@ fn map_detail(issue: issue::Issue) -> IssueDetail {
             .into_iter()
             .map(|l| Label {
                 name: l.name,
-                color: l.color,
+                color: Rgb::parse_hex(&l.color),
             })
             .collect(),
         comments: issue
@@ -198,6 +234,24 @@ impl LinearApi for Client {
         Ok(issues)
     }
 
+    async fn search_issues(&self, term: &str) -> Result<Vec<IssueSummary>> {
+        let operation = SearchIssuesQuery::build(SearchVariables {
+            term: term.to_string(),
+            first: Some(50),
+        });
+
+        let result = self.fetch_json(operation).await?;
+
+        let issues = result
+            .search_issues
+            .nodes
+            .into_iter()
+            .map(map_search_result)
+            .collect();
+
+        Ok(issues)
+    }
+
     async fn issue_detail(&self, id: &str) -> Result<Option<IssueDetail>> {
         let operation = IssueQuery::build(IssueVariables { id: id.to_string() });
         let result = self.fetch_json(operation).await?;
@@ -236,7 +290,7 @@ impl LinearApi for Client {
             .map(|s| StateOption {
                 id: s.id.into_inner(),
                 name: s.name,
-                state_type: s.state_type,
+                state_type: StateType::from_api(&s.state_type),
             })
             .collect();
         states.reverse();

@@ -7,15 +7,17 @@ use ratatui::{
 };
 
 use super::action;
-use super::app::{App, Confirm, Focus, Menu, MenuRow, Overlay, Picker, View, ViewKind};
+use super::app::App;
 use super::components::{ScrollableText, StyledList};
+use super::focus::{Focus, LeftPanel};
 use super::layout;
-use crate::api::{IssueDetail, IssueSummary, NotificationItem};
+use super::overlay::{Confirm, Input, Menu, MenuRow, Overlay, Picker, PrefixUnder, Search};
+use super::spinner::Spinner;
+use super::view::{View, ViewKind};
+use crate::api::{IssueDetail, IssueSummary, NotificationItem, Priority, Rgb, StateType};
 
-const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const LEFT_PCT: u16 = 38;
 const COLLAPSED_PEEK: usize = 2;
-const MENU_HINT: &str = "j/k move   tab section   enter run   esc close";
 
 pub fn render(app: &mut App, frame: &mut Frame) {
     let chunks = Layout::default()
@@ -32,12 +34,125 @@ pub fn render(app: &mut App, frame: &mut Frame) {
 
     render_footer(app, frame, footer);
 
-    let spinner = SPINNER[app.spinner_frame % SPINNER.len()];
-    match &mut app.overlay {
+    render_overlay(&mut app.overlay, app.spinner, frame);
+}
+
+fn render_overlay(overlay: &mut Overlay, spinner: Spinner, frame: &mut Frame) {
+    match overlay {
         Overlay::Picker(picker) => render_picker(picker, spinner, frame),
         Overlay::Confirm(confirm) => render_confirm(confirm, frame),
         Overlay::Menu(menu) => render_menu(menu, frame),
-        Overlay::None => {}
+        Overlay::Input(input) => render_input(input, frame),
+        Overlay::Search(search) => render_search(search, spinner, frame),
+        Overlay::Prefix(prefix) => match &mut prefix.under {
+            PrefixUnder::Modal(modal) => render_overlay(modal, spinner, frame),
+            PrefixUnder::Browse => render_prefix(prefix.keymap, prefix.title, frame),
+        },
+        Overlay::Find(_) | Overlay::None => {}
+    }
+}
+
+fn render_prefix(keymap: &action::Keymap<action::Action>, title: &str, frame: &mut Frame) {
+    use ratatui::widgets::Clear;
+
+    let items: Vec<ListItem> = keymap
+        .bindings
+        .iter()
+        .filter_map(|binding| {
+            keymap.describe(binding.action).map(|(keys, label)| {
+                ListItem::new(Line::from(vec![
+                    Span::styled(keys, Style::default().fg(Color::Yellow)),
+                    Span::raw("  "),
+                    Span::styled(label, Style::default().fg(Color::White)),
+                ]))
+            })
+        })
+        .collect();
+
+    let area = layout::centered_rect_fixed(frame.area(), 30, items.len() as u16 + 2);
+    frame.render_widget(Clear, area);
+
+    StyledList::new(title)
+        .items(items)
+        .focused(true)
+        .render(frame, area);
+}
+
+fn render_input(input: &Input, frame: &mut Frame) {
+    use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+
+    let area = layout::centered_rect_fixed(frame.area(), 60, 3);
+    frame.render_widget(Clear, area);
+
+    let block = Block::default()
+        .title(input.prompt)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow));
+
+    frame.render_widget(Paragraph::new(input_line(input)).block(block), area);
+}
+
+fn input_line(input: &Input) -> Line<'static> {
+    let chars: Vec<char> = input.buffer.chars().collect();
+    let cursor = input.cursor.min(chars.len());
+    let before: String = chars[..cursor].iter().collect();
+    let under = chars.get(cursor).copied().unwrap_or(' ').to_string();
+    let after: String = chars
+        .get(cursor + 1..)
+        .map(|rest| rest.iter().collect())
+        .unwrap_or_default();
+
+    Line::from(vec![
+        Span::raw(format!(" {before}")),
+        Span::styled(under, Style::default().add_modifier(Modifier::REVERSED)),
+        Span::raw(after),
+    ])
+}
+
+fn render_search(search: &mut Search, spinner: Spinner, frame: &mut Frame) {
+    use ratatui::widgets::Clear;
+
+    let area = layout::centered_rect(frame.area(), 60, 60);
+    frame.render_widget(Clear, area);
+
+    let items: Vec<ListItem> = search
+        .results
+        .iter()
+        .map(|issue| {
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    issue.identifier.clone(),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::raw("  "),
+                Span::styled(
+                    issue.title.clone().unwrap_or_else(|| "Untitled".into()),
+                    Style::default().fg(Color::White),
+                ),
+            ]))
+        })
+        .collect();
+
+    let title = format!("Search  {}", search.query);
+    let mut list = StyledList::new(&title).items(items).focused(true);
+
+    if search.results.is_empty() {
+        let placeholder = if search.loading {
+            format!("{spinner}  Searching…")
+        } else {
+            "No matches".to_string()
+        };
+
+        list = list.placeholder(&placeholder);
+
+        list.render(frame, area);
+    } else {
+        let selected = search.state.selected();
+        let total = search.results.len();
+
+        list.state(&mut search.state)
+            .position(selected, total)
+            .render(frame, area);
     }
 }
 
@@ -113,7 +228,7 @@ fn render_confirm(confirm: &Confirm, frame: &mut Frame) {
     );
 }
 
-fn render_picker(picker: &mut Picker, spinner: &str, frame: &mut Frame) {
+fn render_picker(picker: &mut Picker, spinner: Spinner, frame: &mut Frame) {
     use ratatui::widgets::Clear;
 
     let area = layout::centered_rect(frame.area(), 44, 55);
@@ -131,7 +246,7 @@ fn render_picker(picker: &mut Picker, spinner: &str, frame: &mut Frame) {
                 spans.push(Span::raw("  "));
                 spans.push(Span::styled(
                     item.hint.clone(),
-                    Style::default().fg(state_type_color(&item.hint)),
+                    Style::default().fg(Color::DarkGray),
                 ));
             }
             ListItem::new(Line::from(spans))
@@ -159,43 +274,76 @@ fn render_picker(picker: &mut Picker, spinner: &str, frame: &mut Frame) {
 }
 
 fn render_left(app: &mut App, frame: &mut Frame, area: Rect) {
-    let expanded = app.expanded_panel();
+    let panels = app.panels();
 
-    let constraints: Vec<Constraint> = (0..app.panel_count())
-        .map(|panel| {
+    let expanded = app.focus.left();
+    let constraints: Vec<Constraint> = panels
+        .iter()
+        .map(|&panel| {
             if panel == expanded {
                 Constraint::Min(5)
             } else {
-                Constraint::Length(app.panel_len(panel).min(COLLAPSED_PEEK) as u16 + 2)
+                let rows = app.panel_len(panel.focus()).clamp(1, COLLAPSED_PEEK);
+                Constraint::Length(rows as u16 + 2)
             }
         })
         .collect();
+
     let rects = Layout::vertical(constraints).split(area);
 
-    render_my_work(app, frame, rects[0]);
+    for (rect, panel) in rects.iter().zip(panels) {
+        if panel.focus() == app.focus {
+            app.viewport = (rect.height as usize).saturating_sub(2);
+        }
 
-    for index in 0..app.stubs.len() {
-        let focused = app.focus == Focus::Stub(index);
-        let rect = rects[index + 1];
-        let stub = &mut app.stubs[index];
-        let items: Vec<ListItem> = stub
-            .items
-            .iter()
-            .map(|item| ListItem::new(Line::from(item.clone())))
-            .collect();
-        let selected = stub.state.selected();
-        let total = stub.items.len();
-        StyledList::new(&stub.title)
-            .items(items)
-            .focused(focused)
-            .state(&mut stub.state)
-            .position(selected, total)
-            .render(frame, rect);
+        match panel {
+            LeftPanel::MyWork => render_my_work(app, frame, *rect),
+            LeftPanel::Recent => render_recent(app, frame, *rect),
+            LeftPanel::Stub(index) => render_stub(app, frame, *rect, index),
+        }
     }
 }
 
+fn render_stub(app: &mut App, frame: &mut Frame, rect: Rect, index: usize) {
+    let focused = app.focus == Focus::Stub(index);
+    let stub = &mut app.stubs[index];
+    let items: Vec<ListItem> = stub
+        .items
+        .iter()
+        .map(|item| ListItem::new(Line::from(item.clone())))
+        .collect();
+
+    let selected = stub.state.selected();
+    let total = stub.items.len();
+
+    StyledList::new(&stub.title)
+        .items(items)
+        .focused(focused)
+        .state(&mut stub.state)
+        .position(selected, total)
+        .render(frame, rect);
+}
+
+fn render_recent(app: &mut App, frame: &mut Frame, area: Rect) {
+    let focused = app.focus == Focus::Recent;
+    let selected = app.recent_state.selected();
+    let total = app.recently_viewed.len();
+    let items = issue_items(&app.recently_viewed);
+
+    let mut list = StyledList::new("Recently viewed")
+        .items(items)
+        .focused(focused)
+        .state(&mut app.recent_state)
+        .position(selected, total);
+
+    if total == 0 {
+        list = list.placeholder("Issues you open land here");
+    }
+
+    list.render(frame, area);
+}
+
 fn render_my_work(app: &mut App, frame: &mut Frame, area: Rect) {
-    let spinner = SPINNER[app.spinner_frame % SPINNER.len()];
     let focused = app.focus == Focus::MyWork;
     let selected = app.list_state.selected();
     let max_title = area.width.saturating_sub(2) as usize;
@@ -203,7 +351,7 @@ fn render_my_work(app: &mut App, frame: &mut Frame, area: Rect) {
         &app.views,
         app.active_view_index(),
         app.loading,
-        spinner,
+        app.spinner,
         max_title,
     );
     let is_inbox = matches!(app.active_view().kind, ViewKind::Inbox);
@@ -238,7 +386,7 @@ fn view_tabs(
     views: &[View],
     active: usize,
     loading: bool,
-    spinner: &str,
+    spinner: Spinner,
     max_width: usize,
 ) -> Line<'static> {
     let active_style = Style::default()
@@ -249,7 +397,7 @@ fn view_tabs(
     let separator = " · ";
 
     let spinner_width = if loading {
-        2 + spinner.chars().count()
+        2 + spinner.glyph().chars().count()
     } else {
         0
     };
@@ -287,52 +435,82 @@ fn view_tabs(
 }
 
 fn render_right(app: &mut App, frame: &mut Frame, area: Rect) {
-    if let Focus::Stub(index) = app.focus {
-        let stub = &app.stubs[index];
-        let selected = stub
-            .state
-            .selected()
-            .and_then(|i| stub.items.get(i))
-            .cloned()
-            .unwrap_or_default();
-        let text = Text::from(vec![
-            Line::from(Span::styled(
-                "Not implemented yet",
-                Style::default().fg(Color::DarkGray),
-            )),
-            Line::from(""),
-            Line::from(selected),
-        ]);
-        render_text_panel(frame, area, &stub.title, text, Color::Yellow);
-        return;
+    match app.focus {
+        Focus::Stub(index) => render_stub_placeholder(app, frame, area, index),
+        Focus::Recent => {
+            let (title, text) = match app.selected_recent() {
+                Some(issue) => (issue.identifier.clone(), preview_text(issue)),
+                None => (
+                    "Recently viewed".to_string(),
+                    Text::from("Open an issue and it shows up here"),
+                ),
+            };
+            render_text_panel(frame, area, &title, text, Color::Gray);
+        }
+        Focus::MyWork => {
+            if app.detail_ready() && render_detail_if_loaded(app, frame, area, Color::Gray) {
+                return;
+            }
+            render_work_preview(app, frame, area, Color::Gray);
+        }
+        Focus::Detail(_) => {
+            app.viewport = (area.height as usize).saturating_sub(2);
+            if render_detail_if_loaded(app, frame, area, Color::Yellow) {
+                return;
+            }
+            if app.detail_loading {
+                render_text_panel(
+                    frame,
+                    area,
+                    "Issue",
+                    Text::from(format!("{}  Loading issue…", app.spinner)),
+                    Color::Yellow,
+                );
+                return;
+            }
+            render_work_preview(app, frame, area, Color::Yellow);
+        }
     }
+}
 
-    let focused = app.focus == Focus::Detail;
-    let border = if focused { Color::Yellow } else { Color::Gray };
-    let spinner = SPINNER[app.spinner_frame % SPINNER.len()];
+fn render_stub_placeholder(app: &mut App, frame: &mut Frame, area: Rect, index: usize) {
+    let stub = &app.stubs[index];
+    let selected = stub
+        .state
+        .selected()
+        .and_then(|i| stub.items.get(i))
+        .cloned()
+        .unwrap_or_default();
+    let text = Text::from(vec![
+        Line::from(Span::styled(
+            "Not implemented yet",
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from(""),
+        Line::from(selected),
+    ]);
+    render_text_panel(frame, area, &stub.title, text, Color::Yellow);
+}
 
-    if app.detail.is_some() && (focused || app.detail_ready()) {
-        let detail = app.detail.as_ref().unwrap();
-        let content = detail_text(detail);
-        let title = detail.identifier.clone();
-        ScrollableText::new(content, app.scroll_position, &mut app.scroll_state)
-            .title(&title)
-            .border_color(border)
-            .render(frame, area);
-        return;
-    }
+fn render_detail_if_loaded(app: &mut App, frame: &mut Frame, area: Rect, border: Color) -> bool {
+    let Some(detail) = app.detail.as_ref() else {
+        return false;
+    };
+    let content = detail_text(detail);
+    let title = detail.identifier.clone();
+    let clamped = {
+        let mut scrollable =
+            ScrollableText::new(content, app.scroll_position, &mut app.scroll_state)
+                .title(&title)
+                .border_color(border);
+        scrollable.render(frame, area);
+        scrollable.clamped_scroll_position()
+    };
+    app.scroll_position = clamped;
+    true
+}
 
-    if focused && app.detail_loading {
-        render_text_panel(
-            frame,
-            area,
-            "Issue",
-            Text::from(format!("{spinner}  Loading issue…")),
-            border,
-        );
-        return;
-    }
-
+fn render_work_preview(app: &mut App, frame: &mut Frame, area: Rect, border: Color) {
     let (title, text) = match app.active_view().kind {
         ViewKind::Issues(_) => match app.selected_issue() {
             Some(issue) => (issue.identifier.clone(), preview_text(issue)),
@@ -372,11 +550,11 @@ fn preview_text(issue: &IssueSummary) -> Text<'static> {
             Span::raw("  "),
             Span::styled(
                 issue.state.name.clone(),
-                Style::default().fg(state_type_color(&issue.state.state_type)),
+                Style::default().fg(state_type_color(issue.state.state_type)),
             ),
             Span::raw("  "),
             Span::styled(
-                priority_label(issue.priority).to_string(),
+                issue.priority.label().to_string(),
                 Style::default().fg(priority_indicator(issue.priority).1),
             ),
         ]),
@@ -399,9 +577,7 @@ fn preview_text(issue: &IssueSummary) -> Text<'static> {
         meta.push(Span::raw(" "));
         meta.push(Span::styled(
             format!(" {} ", label.name),
-            Style::default()
-                .fg(Color::Black)
-                .bg(parse_hex_color(&label.color)),
+            Style::default().fg(Color::Black).bg(rgb_color(label.color)),
         ));
     }
     if !meta.is_empty() {
@@ -428,17 +604,25 @@ fn notification_preview_text(notification: &NotificationItem) -> Text<'static> {
             .fg(Color::White)
             .add_modifier(Modifier::BOLD),
     ))];
+
     lines.push(Line::from(Span::styled(
-        if notification.is_read { "read" } else { "unread" },
+        if notification.is_read {
+            "read"
+        } else {
+            "unread"
+        },
         Style::default().fg(Color::DarkGray),
     )));
+
     lines.push(Line::from(""));
-    if notification.issue_id.is_some() {
-        lines.push(Line::from(Span::styled(
+
+    lines.extend(notification.issue_id.as_ref().map(|_| {
+        Line::from(Span::styled(
             "Press enter to open the linked issue",
             Style::default().fg(Color::DarkGray),
-        )));
-    }
+        ))
+    }));
+
     Text::from(lines)
 }
 
@@ -457,19 +641,14 @@ fn fit(text: &str, width: usize) -> String {
     output
 }
 
-fn priority_label(priority: u8) -> &'static str {
-    match priority {
-        1 => "Urgent",
-        2 => "High",
-        3 => "Medium",
-        4 => "Low",
-        _ => "No priority",
-    }
-}
-
 fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
     use ratatui::layout::Alignment;
     use ratatui::widgets::Paragraph;
+
+    if let Some(bar) = search_bar(app) {
+        frame.render_widget(Paragraph::new(bar), area);
+        return;
+    }
 
     let workspace = match &app.session {
         Some(session) => format!("{} · @{} ", session.org_name, session.user.display_name),
@@ -478,17 +657,7 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
 
     let [left, right] = layout::split_footer(area, workspace.chars().count() as u16 + 1);
 
-    let (text, color) = match &app.status {
-        Some(status) => (format!(" {status}"), Color::Red),
-        None => (format!(" {}", footer_hint(app)), Color::DarkGray),
-    };
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            fit(&text, left.width as usize),
-            Style::default().fg(color),
-        ))),
-        left,
-    );
+    frame.render_widget(Paragraph::new(footer_left(app, left.width as usize)), left);
 
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
@@ -498,6 +667,68 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
         .alignment(Alignment::Right),
         right,
     );
+}
+
+fn search_bar(app: &App) -> Option<Line<'static>> {
+    match &app.overlay {
+        Overlay::Find(find) => Some(find_bar(app, &find.query, true)),
+        Overlay::None => app.find_query.as_deref().map(|q| find_bar(app, q, false)),
+        _ => None,
+    }
+}
+
+fn find_bar(app: &App, query: &str, typing: bool) -> Line<'static> {
+    let label = Span::styled(
+        " Search ",
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    );
+
+    let matches = app.focused_matches(query);
+    let total = matches.len();
+
+    if typing {
+        return Line::from(vec![
+            label,
+            Span::styled(format!(" {query}"), Style::default().fg(Color::White)),
+            Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
+            Span::styled(
+                format!("   {total} matches   enter select   esc cancel"),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]);
+    }
+
+    if total == 0 {
+        return Line::from(vec![
+            label,
+            Span::styled(
+                format!(" no matches for '{query}'"),
+                Style::default().fg(Color::Red),
+            ),
+            Span::styled("   esc exit", Style::default().fg(Color::DarkGray)),
+        ]);
+    }
+
+    let position = app
+        .focused_selection()
+        .and_then(|selected| matches.iter().position(|&index| index == selected))
+        .map(|index| index + 1)
+        .unwrap_or(0);
+
+    Line::from(vec![
+        label,
+        Span::styled(
+            format!(" '{query}'  {position} of {total}"),
+            Style::default().fg(Color::White),
+        ),
+        Span::styled(
+            "   n next   N prev   esc exit",
+            Style::default().fg(Color::DarkGray),
+        ),
+    ])
 }
 
 pub fn render_to_string(app: &mut App, width: u16, height: u16) -> String {
@@ -524,18 +755,37 @@ fn buffer_to_string(buffer: &ratatui::buffer::Buffer) -> String {
     out
 }
 
+fn footer_left(app: &App, width: usize) -> Line<'static> {
+    if let Some(status) = &app.status {
+        return Line::from(Span::styled(
+            fit(&format!(" {status}"), width),
+            Style::default().fg(Color::Red),
+        ));
+    }
+
+    Line::from(Span::styled(
+        fit(&format!(" {}", footer_hint(app)), width),
+        Style::default().fg(Color::DarkGray),
+    ))
+}
+
 fn footer_hint(app: &App) -> String {
     match &app.overlay {
-        Overlay::Menu(_) => return MENU_HINT.to_string(),
+        Overlay::Menu(_) => return action::MENU.hint_bar(action::MENU_HINTS),
         Overlay::Confirm(_) => return action::CONFIRM.hint_bar(action::CONFIRM_HINTS),
-        Overlay::Picker(_) => return action::PICKER.hint_bar(action::PICKER_HINTS),
-        Overlay::None => {}
+        Overlay::Picker(_) | Overlay::Search(_) => {
+            return action::PICKER.hint_bar(action::PICKER_HINTS)
+        }
+        Overlay::Prefix(prefix) => return format!("{}   esc cancel", prefix.keymap.summary()),
+        Overlay::Input(_) => return action::INPUT.hint_bar(action::INPUT_HINTS),
+        Overlay::Find(_) | Overlay::None => {}
     }
 
     let specs = match app.focus {
         Focus::MyWork => action::MY_WORK_HINTS,
+        Focus::Recent => action::RECENT_HINTS,
         Focus::Stub(_) => action::STUB_HINTS,
-        Focus::Detail => action::DETAIL_HINTS,
+        Focus::Detail(_) => action::DETAIL_HINTS,
     };
     action::BROWSE.hint_bar(specs)
 }
@@ -545,7 +795,7 @@ fn issue_items(issues: &[IssueSummary]) -> Vec<ListItem<'static>> {
         .iter()
         .map(|issue| {
             let (icon, priority_color) = priority_indicator(issue.priority);
-            let state_color = state_type_color(&issue.state.state_type);
+            let state_color = state_type_color(issue.state.state_type);
 
             let mut spans = vec![
                 Span::styled(icon.to_string(), Style::default().fg(priority_color)),
@@ -575,9 +825,7 @@ fn issue_items(issues: &[IssueSummary]) -> Vec<ListItem<'static>> {
                 spans.push(Span::raw(" "));
                 spans.push(Span::styled(
                     format!(" {} ", label.name),
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(parse_hex_color(&label.color)),
+                    Style::default().fg(Color::Black).bg(rgb_color(label.color)),
                 ));
             }
 
@@ -621,7 +869,7 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
         Span::raw("  "),
         Span::styled(
             detail.state.name.clone(),
-            Style::default().fg(state_type_color(&detail.state.state_type)),
+            Style::default().fg(state_type_color(detail.state.state_type)),
         ),
     ]));
     lines.push(Line::from(Span::styled(
@@ -642,9 +890,7 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
         meta.push(Span::raw(" "));
         meta.push(Span::styled(
             format!(" {} ", label.name),
-            Style::default()
-                .fg(Color::Black)
-                .bg(parse_hex_color(&label.color)),
+            Style::default().fg(Color::Black).bg(rgb_color(label.color)),
         ));
     }
     if !meta.is_empty() {
@@ -689,35 +935,27 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
     Text::from(lines)
 }
 
-fn priority_indicator(priority: u8) -> (&'static str, Color) {
+fn priority_indicator(priority: Priority) -> (&'static str, Color) {
     match priority {
-        1 => ("!!!", Color::Red),
-        2 => ("!! ", Color::LightRed),
-        3 => ("!  ", Color::Yellow),
-        4 => ("-  ", Color::Blue),
-        _ => ("   ", Color::DarkGray),
+        Priority::Urgent => ("!!!", Color::Red),
+        Priority::High => ("!! ", Color::LightRed),
+        Priority::Medium => ("!  ", Color::Yellow),
+        Priority::Low => ("-  ", Color::Blue),
+        Priority::None => ("   ", Color::DarkGray),
     }
 }
 
-fn state_type_color(state_type: &str) -> Color {
+fn state_type_color(state_type: StateType) -> Color {
     match state_type {
-        "started" => Color::Yellow,
-        "completed" => Color::Green,
-        "canceled" => Color::Red,
-        "triage" => Color::Magenta,
-        "backlog" => Color::DarkGray,
-        "unstarted" => Color::Gray,
-        _ => Color::Gray,
+        StateType::Started => Color::Yellow,
+        StateType::Completed => Color::Green,
+        StateType::Canceled => Color::Red,
+        StateType::Triage => Color::Magenta,
+        StateType::Backlog => Color::DarkGray,
+        StateType::Unstarted => Color::Gray,
     }
 }
 
-fn parse_hex_color(hex: &str) -> Color {
-    let hex = hex.trim_start_matches('#');
-    if hex.len() != 6 {
-        return Color::Gray;
-    }
-    let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(128);
-    let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(128);
-    let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(128);
-    Color::Rgb(r, g, b)
+fn rgb_color(color: Rgb) -> Color {
+    Color::Rgb(color.r, color.g, color.b)
 }

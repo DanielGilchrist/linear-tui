@@ -13,6 +13,7 @@ pub use model::*;
 pub trait LinearApi: Send + Sync {
     async fn session(&self) -> Result<Session>;
     async fn issues(&self, filter: &IssueFilter) -> Result<Vec<IssueSummary>>;
+    async fn search_issues(&self, term: &str) -> Result<Vec<IssueSummary>>;
     async fn issue_detail(&self, id: &str) -> Result<Option<IssueDetail>>;
     async fn notifications(&self) -> Result<Vec<NotificationItem>>;
     async fn workflow_states(&self, team_id: &str) -> Result<Vec<StateOption>>;

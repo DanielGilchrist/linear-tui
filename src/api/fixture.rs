@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::api::model::{
-    Comment, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, Label, NotificationItem, Session,
-    StateOption, User, WorkflowState,
+    Comment, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, Label, NotificationItem,
+    Priority, Rgb, Session, StateOption, StateType, User, WorkflowState,
 };
 use crate::api::LinearApi;
 
@@ -78,6 +78,23 @@ impl LinearApi for FixtureClient {
             .collect())
     }
 
+    async fn search_issues(&self, term: &str) -> Result<Vec<IssueSummary>> {
+        let needle = term.to_lowercase();
+        Ok(self
+            .fixture
+            .issues
+            .iter()
+            .filter(|issue| {
+                issue.identifier.to_lowercase().contains(&needle)
+                    || issue
+                        .title
+                        .as_deref()
+                        .is_some_and(|title| title.to_lowercase().contains(&needle))
+            })
+            .cloned()
+            .collect())
+    }
+
     async fn issue_detail(&self, id: &str) -> Result<Option<IssueDetail>> {
         Ok(self
             .fixture
@@ -96,27 +113,27 @@ impl LinearApi for FixtureClient {
             StateOption {
                 id: "s_backlog".into(),
                 name: "Backlog".into(),
-                state_type: "backlog".into(),
+                state_type: StateType::Backlog,
             },
             StateOption {
                 id: "s_todo".into(),
                 name: "Todo".into(),
-                state_type: "unstarted".into(),
+                state_type: StateType::Unstarted,
             },
             StateOption {
                 id: "s_started".into(),
                 name: "In Progress".into(),
-                state_type: "started".into(),
+                state_type: StateType::Started,
             },
             StateOption {
                 id: "s_done".into(),
                 name: "Done".into(),
-                state_type: "completed".into(),
+                state_type: StateType::Completed,
             },
             StateOption {
                 id: "s_canceled".into(),
                 name: "Canceled".into(),
-                state_type: "canceled".into(),
+                state_type: StateType::Canceled,
             },
         ])
     }
@@ -134,10 +151,10 @@ impl LinearApi for FixtureClient {
     }
 }
 
-fn state(name: &str, ty: &str) -> WorkflowState {
+fn state(name: &str, state_type: StateType) -> WorkflowState {
     WorkflowState {
         name: name.into(),
-        state_type: ty.into(),
+        state_type,
     }
 }
 
@@ -155,7 +172,7 @@ fn summary(
     identifier: &str,
     title: &str,
     st: WorkflowState,
-    priority: u8,
+    priority: Priority,
     assignee: &str,
     labels: &[(&str, &str)],
 ) -> IssueSummary {
@@ -170,7 +187,7 @@ fn summary(
             .iter()
             .map(|(name, color)| Label {
                 name: (*name).into(),
-                color: (*color).into(),
+                color: Rgb::parse_hex(color),
             })
             .collect(),
         url: format!("https://linear.app/dans-donuts/issue/{identifier}"),
@@ -193,8 +210,8 @@ fn sample_fixture() -> Fixture {
             "i1",
             "DAN2-7",
             "Wood-fired oven runs 40°C too hot on Friday nights",
-            state("In Progress", "started"),
-            1,
+            state("In Progress", StateType::Started),
+            Priority::Urgent,
             "dan",
             &[("oven", "#eb5757")],
         ),
@@ -202,8 +219,8 @@ fn sample_fixture() -> Fixture {
             "i2",
             "DAN-10",
             "Sprinkle dispenser jams during the morning rush",
-            state("In Progress", "started"),
-            1,
+            state("In Progress", StateType::Started),
+            Priority::Urgent,
             "dan",
             &[("production", "#eb5757")],
         ),
@@ -211,8 +228,8 @@ fn sample_fixture() -> Fixture {
             "i3",
             "DAN2-2",
             "Delivery driver GPS points to the old shopfront",
-            state("In Progress", "started"),
-            2,
+            state("In Progress", StateType::Started),
+            Priority::High,
             "dan",
             &[("delivery", "#5e6ad2")],
         ),
@@ -220,8 +237,8 @@ fn sample_fixture() -> Fixture {
             "i4",
             "DAN2-3",
             "Add gluten-free base option to the online menu",
-            state("Todo", "unstarted"),
-            1,
+            state("Todo", StateType::Unstarted),
+            Priority::Urgent,
             "dan",
             &[("menu", "#0f9d58")],
         ),
@@ -229,8 +246,8 @@ fn sample_fixture() -> Fixture {
             "i5",
             "DAN-13",
             "Introduce a maple-bacon donut for the winter menu",
-            state("Todo", "unstarted"),
-            2,
+            state("Todo", StateType::Unstarted),
+            Priority::High,
             "dan",
             &[("menu", "#0f9d58")],
         ),
@@ -238,8 +255,8 @@ fn sample_fixture() -> Fixture {
             "i6",
             "DAN2-5",
             "Settle the pineapple-on-pizza debate once and for all",
-            state("Backlog", "backlog"),
-            2,
+            state("Backlog", StateType::Backlog),
+            Priority::High,
             "dan",
             &[("customer-poll", "#f2c94c")],
         ),
@@ -247,8 +264,8 @@ fn sample_fixture() -> Fixture {
             "i7",
             "DAN-15",
             "Coffee pairing bundle for donut boxes",
-            state("Backlog", "backlog"),
-            0,
+            state("Backlog", StateType::Backlog),
+            Priority::None,
             "dan",
             &[("upsell", "#f2c94c")],
         ),
@@ -262,12 +279,12 @@ fn sample_fixture() -> Fixture {
             "During the Friday rush the stone oven creeps past 480°C and bases scorch before the cheese melts.\n\nExpected: steady 430°C. Actual: 470-480°C. Suspect the flue damper is sticking open.".into(),
         ),
         url: "https://linear.app/dans-donuts/issue/DAN2-7/wood-fired-oven-runs-too-hot".into(),
-        state: state("In Progress", "started"),
-        priority: 1,
+        state: state("In Progress", StateType::Started),
+        priority: Priority::Urgent,
         assignee: Some(person("dan", true)),
         labels: vec![Label {
             name: "oven".into(),
-            color: "#eb5757".into(),
+            color: Rgb::parse_hex("#eb5757"),
         }],
         comments: vec![
             Comment {
