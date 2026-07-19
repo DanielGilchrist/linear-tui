@@ -26,6 +26,7 @@ pub struct User {
     pub id: cynic::Id,
     pub name: String,
     pub display_name: String,
+    pub url: String,
     pub is_me: bool,
 }
 

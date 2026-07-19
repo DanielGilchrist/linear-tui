@@ -50,6 +50,7 @@ pub(super) fn map_summary(issue: my_issues::Issue) -> IssueSummary {
             id: String::new(),
             name: String::new(),
             display_name: a.display_name,
+            url: String::new(),
             is_me: false,
         }),
         labels: issue
@@ -81,6 +82,7 @@ pub(super) fn map_search_result(issue: search::IssueSearchResult) -> IssueSummar
             id: String::new(),
             name: String::new(),
             display_name: a.display_name,
+            url: String::new(),
             is_me: false,
         }),
         labels: issue
@@ -114,6 +116,7 @@ pub(super) fn map_detail(issue: issue::Issue) -> IssueDetail {
             id: String::new(),
             name: String::new(),
             display_name: a.display_name,
+            url: String::new(),
             is_me: false,
         }),
         labels: issue

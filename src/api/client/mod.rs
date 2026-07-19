@@ -71,6 +71,7 @@ impl LinearApi for Client {
             id: result.viewer.id.into_inner(),
             name: result.viewer.name,
             display_name: result.viewer.display_name,
+            url: String::new(),
             is_me: result.viewer.is_me,
         };
 
@@ -170,6 +171,7 @@ impl LinearApi for Client {
                 id: u.id.into_inner(),
                 name: u.name,
                 display_name: u.display_name,
+                url: u.url,
                 is_me: u.is_me,
             })
             .collect())

@@ -152,6 +152,25 @@ async fn comment_editor_overlay() {
 }
 
 #[tokio::test]
+async fn mention_autocomplete_popup() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+    );
+    let members = client.team_members("t_pizza").await.unwrap();
+    apply(&mut app, Message::MentionMembersLoaded(members));
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+    );
+
+    insta::assert_snapshot!(render_to_string(&mut app, 90, 24));
+}
+
+#[tokio::test]
 async fn go_prefix_overlay() {
     let mut app = App::new();
     handle_key(

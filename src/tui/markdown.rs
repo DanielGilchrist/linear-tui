@@ -3,6 +3,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 const RULE_WIDTH: usize = 40;
+const PROFILE_PREFIX: &str = "https://linear.app/";
+const PROFILE_SEGMENT: &str = "/profiles/";
 
 pub fn render(input: &str, base: Style) -> Vec<Line<'static>> {
     let mut options = Options::empty();
@@ -123,12 +125,44 @@ impl Writer {
         while let Some(part) = parts.next() {
             if !part.is_empty() {
                 self.open_line();
-                self.spans.push(Span::styled(part.to_string(), style));
+                self.push_run(part, style);
             }
 
             if parts.peek().is_some() {
                 self.flush_line();
             }
+        }
+    }
+
+    fn push_run(&mut self, text: &str, style: Style) {
+        let mut rest = text;
+
+        while let Some(start) = rest.find(PROFILE_PREFIX) {
+            let token_end = rest[start..]
+                .find(char::is_whitespace)
+                .map(|offset| start + offset)
+                .unwrap_or(rest.len());
+
+            match profile_handle(&rest[start..token_end]) {
+                Some(handle) => {
+                    if start > 0 {
+                        self.spans
+                            .push(Span::styled(rest[..start].to_string(), style));
+                    }
+                    self.spans
+                        .push(Span::styled(format!("@{handle}"), mention_style(self.base)));
+                }
+                None => {
+                    self.spans
+                        .push(Span::styled(rest[..token_end].to_string(), style));
+                }
+            }
+
+            rest = &rest[token_end..];
+        }
+
+        if !rest.is_empty() {
+            self.spans.push(Span::styled(rest.to_string(), style));
         }
     }
 
@@ -340,6 +374,17 @@ fn code_style(base: Style) -> Style {
     base.fg(Color::Rgb(0xa3, 0xbe, 0x8c))
 }
 
+fn profile_handle(url: &str) -> Option<&str> {
+    let index = url.find(PROFILE_SEGMENT)?;
+    let handle = &url[index + PROFILE_SEGMENT.len()..];
+
+    (!handle.is_empty()).then_some(handle)
+}
+
+fn mention_style(base: Style) -> Style {
+    base.fg(Color::Blue)
+}
+
 fn link_style(base: Style) -> Style {
     base.fg(Color::Blue).add_modifier(Modifier::UNDERLINED)
 }
@@ -465,6 +510,22 @@ mod tests {
     #[test]
     fn trailing_blank_lines_are_trimmed() {
         assert_eq!(lines("text\n\n\n"), vec!["text"]);
+    }
+
+    #[test]
+    fn profile_urls_render_as_mentions() {
+        assert_eq!(
+            lines("ping https://linear.app/dans-donuts/profiles/danniieelg please"),
+            vec!["ping @danniieelg please"]
+        );
+    }
+
+    #[test]
+    fn non_profile_linear_urls_are_left_alone() {
+        assert_eq!(
+            lines("see https://linear.app/dans-donuts/issue/DAN2-8"),
+            vec!["see https://linear.app/dans-donuts/issue/DAN2-8"]
+        );
     }
 
     #[test]

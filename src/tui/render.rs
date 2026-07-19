@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::ListItem,
+    widgets::{ListItem, ListState},
     Frame,
 };
 
@@ -12,7 +12,9 @@ use super::components::{ScrollableText, StyledList};
 use super::focus::{DetailView, Focus, LeftPanel};
 use super::layout;
 use super::markdown;
-use super::overlay::{Confirm, Editor, Input, Menu, MenuRow, Overlay, Picker, PrefixUnder, Search};
+use super::overlay::{
+    Cell, Confirm, Editor, Input, MentionMenu, Menu, MenuRow, Overlay, Picker, PrefixUnder, Search,
+};
 use super::spinner::Spinner;
 use super::view::{View, ViewKind};
 use crate::api::{
@@ -119,16 +121,93 @@ fn render_editor(editor: &Editor, frame: &mut Frame) {
         .enumerate()
         .skip(offset)
         .take(inner_height)
-        .map(|(row, text)| {
-            if row == editor.row {
-                cursor_line(text, editor.col)
-            } else {
-                Line::from(format!(" {text}"))
-            }
+        .map(|(row, cells)| {
+            let cursor = (row == editor.row).then_some(editor.col);
+            editor_line(cells, cursor)
         })
         .collect();
 
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), area);
+
+    if let Some(mention) = &editor.mention {
+        render_mention_popup(editor, mention, frame, area);
+    }
+}
+
+fn editor_line(cells: &[Cell], cursor: Option<usize>) -> Line<'static> {
+    let mut spans = vec![Span::raw(" ".to_string())];
+
+    for (index, cell) in cells.iter().enumerate() {
+        let mut span = match cell {
+            Cell::Char(c) => Span::raw(c.to_string()),
+            Cell::Mention(mention) => Span::styled(
+                format!("@{}", mention.display),
+                Style::default().fg(Color::Blue),
+            ),
+        };
+
+        if cursor == Some(index) {
+            span.style = span.style.add_modifier(Modifier::REVERSED);
+        }
+
+        spans.push(span);
+    }
+
+    if cursor == Some(cells.len()) {
+        spans.push(Span::styled(
+            " ".to_string(),
+            Style::default().add_modifier(Modifier::REVERSED),
+        ));
+    }
+
+    Line::from(spans)
+}
+
+fn render_mention_popup(
+    editor: &Editor,
+    mention: &MentionMenu,
+    frame: &mut Frame,
+    editor_area: Rect,
+) {
+    use ratatui::widgets::Clear;
+
+    let candidates = editor.candidates(&mention.query);
+
+    if candidates.is_empty() {
+        return;
+    }
+
+    let selected = mention.state.selected();
+
+    let visible = candidates.len().min(6) as u16;
+    let width = editor_area.width.saturating_sub(4).min(40);
+    let height = visible + 2;
+    let area = Rect {
+        x: editor_area.x + 2,
+        y: (editor_area.y + editor_area.height).saturating_sub(height + 1),
+        width,
+        height,
+    };
+
+    let items: Vec<ListItem> = candidates
+        .iter()
+        .map(|user| {
+            ListItem::new(Line::from(Span::styled(
+                format!("@{}", user.display_name),
+                Style::default().fg(Color::Blue),
+            )))
+        })
+        .collect();
+
+    frame.render_widget(Clear, area);
+
+    let mut state = ListState::default().with_selected(selected);
+
+    StyledList::new("Mention")
+        .items(items)
+        .focused(true)
+        .state(&mut state)
+        .render(frame, area);
 }
 
 fn cursor_line(text: &str, col: usize) -> Line<'static> {
