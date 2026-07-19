@@ -172,6 +172,7 @@ fn person(display_name: &str, is_me: bool) -> User {
         id: format!("u_{display_name}"),
         name: display_name.into(),
         display_name: display_name.into(),
+        url: format!("https://linear.app/dans-donuts/profiles/{display_name}"),
         is_me,
     }
 }

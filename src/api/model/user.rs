@@ -8,6 +8,8 @@ pub struct User {
     #[serde(default)]
     pub display_name: String,
     #[serde(default)]
+    pub url: String,
+    #[serde(default)]
     pub is_me: bool,
 }
 

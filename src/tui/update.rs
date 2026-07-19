@@ -7,8 +7,8 @@ use super::focus::{DetailView, Direction, Edge, Focus, LeftPanel, Nav, Reveal};
 use super::issue_ref::parse_issue_ref;
 use super::message::{Command, Message};
 use super::overlay::{
-    Confirm, Editor, Find, Input, InputPurpose, Menu, Overlay, Picker, PickerKind, Prefix,
-    PrefixUnder, Search,
+    Confirm, Editor, Find, Input, InputPurpose, MentionMenu, Menu, Overlay, Picker, PickerKind,
+    Prefix, PrefixUnder, Search,
 };
 use super::status::Status;
 use super::view::ViewKind;
@@ -233,6 +233,13 @@ fn apply_editor(app: &mut App, mut editor: Editor, key: KeyEvent) -> Option<Comm
         return submit_editor(app, editor);
     }
 
+    match editor.mention.take() {
+        Some(mention) => apply_mention(app, editor, mention, key),
+        None => edit(app, editor, key),
+    }
+}
+
+fn edit(app: &mut App, mut editor: Editor, key: KeyEvent) -> Option<Command> {
     match EditorInput::from_key(key) {
         Some(EditorInput::Cancel) => {
             app.status = Some(Status::Cancelled);
@@ -263,17 +270,107 @@ fn apply_editor(app: &mut App, mut editor: Editor, key: KeyEvent) -> Option<Comm
             restore_editor(app, editor)
         }
         None => match key.code {
-            KeyCode::Char(c)
-                if !key
-                    .modifiers
-                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                editor.insert(c);
+            KeyCode::Char('@') if is_plain(key) && editor.at_word_boundary() => {
+                editor.insert_char('@');
+                editor.mention = Some(MentionMenu {
+                    at: editor.col - 1,
+                    query: String::new(),
+                    state: ListState::default().with_selected(Some(0)),
+                });
+
+                restore_editor(app, editor)
+            }
+            KeyCode::Char(c) if is_plain(key) => {
+                editor.insert_char(c);
                 restore_editor(app, editor)
             }
             _ => restore_editor(app, editor),
         },
     }
+}
+
+fn is_plain(key: KeyEvent) -> bool {
+    !key.modifiers
+        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+}
+
+fn apply_mention(
+    app: &mut App,
+    mut editor: Editor,
+    mut mention: MentionMenu,
+    key: KeyEvent,
+) -> Option<Command> {
+    match key.code {
+        KeyCode::Up => {
+            mention_move(&editor, &mut mention, Direction::Prev);
+            editor.mention = Some(mention);
+            restore_editor(app, editor)
+        }
+        KeyCode::Down => {
+            mention_move(&editor, &mut mention, Direction::Next);
+            editor.mention = Some(mention);
+            restore_editor(app, editor)
+        }
+        KeyCode::Enter => {
+            accept_mention(&mut editor, mention);
+            restore_editor(app, editor)
+        }
+        KeyCode::Esc | KeyCode::Left | KeyCode::Right => {
+            // dropping `mention` closes the popup and keeps the literal text
+            restore_editor(app, editor)
+        }
+        KeyCode::Backspace => {
+            editor.backspace();
+            if !mention.query.is_empty() {
+                mention.query.pop();
+                mention.state.select(Some(0));
+                editor.mention = Some(mention);
+            }
+            restore_editor(app, editor)
+        }
+        KeyCode::Char(c) if is_plain(key) => {
+            editor.insert_char(c);
+            mention.query.push(c);
+            mention.state.select(Some(0));
+            editor.mention = Some(mention);
+            restore_editor(app, editor)
+        }
+        _ => {
+            editor.mention = Some(mention);
+            restore_editor(app, editor)
+        }
+    }
+}
+
+fn mention_move(editor: &Editor, mention: &mut MentionMenu, direction: Direction) {
+    let len = editor.candidates(&mention.query).len();
+    if len == 0 {
+        return;
+    }
+    let current = mention.state.selected().unwrap_or(0);
+    mention.state.select(Some(direction.wrap(current, len)));
+}
+
+fn accept_mention(editor: &mut Editor, mention: MentionMenu) {
+    let Some(selected) = mention.state.selected() else {
+        return;
+    };
+
+    let query = mention.query.to_lowercase();
+    let picked = editor
+        .members
+        .iter()
+        .filter(|user| user.display_name.to_lowercase().contains(&query))
+        .nth(selected)
+        .map(|user| (user.display_name.clone(), user.url.clone()));
+
+    let Some((display, url)) = picked else {
+        return;
+    };
+
+    editor.lines[editor.row].drain(mention.at..editor.col);
+    editor.col = mention.at;
+    editor.insert_mention(display, url);
 }
 
 fn restore_editor(app: &mut App, editor: Editor) -> Option<Command> {
@@ -571,6 +668,13 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             }
             None
         }
+        Message::MentionMembersLoaded(members) => {
+            if let Overlay::Editor(editor) = &mut app.overlay {
+                editor.members = members;
+            }
+
+            None
+        }
         Message::IssueUpdated { id } => {
             app.status = Some(Status::IssueUpdated);
             let reload = load_active_command(app);
@@ -707,11 +811,17 @@ fn enter_comments(app: &mut App) -> Option<Command> {
 
 fn open_reply_editor(app: &mut App) -> Option<Command> {
     let detail = app.detail.as_ref()?;
+    let team_id = detail.team_id.clone();
     let selected = app.comment_state.selected()?;
-    let comment = detail.threaded_comments().get(selected)?.comment;
+    let parent_id = detail
+        .threaded_comments()
+        .get(selected)?
+        .comment
+        .reply_parent();
 
-    app.overlay = Overlay::Editor(Editor::new("Reply", Some(comment.reply_parent())));
-    None
+    app.overlay = Overlay::Editor(Editor::new("Reply", Some(parent_id)));
+
+    Some(Command::LoadMentionMembers { team_id })
 }
 
 fn descend(app: &mut App) -> Option<Command> {
@@ -884,9 +994,13 @@ fn open_assign_picker(app: &mut App) -> Option<Command> {
 }
 
 fn open_comment_input(app: &mut App) -> Option<Command> {
-    require(app, app.action_target(), Status::NeedOpenIssue)?;
+    let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
+
     app.overlay = Overlay::Editor(Editor::new("Comment", None));
-    None
+
+    Some(Command::LoadMentionMembers {
+        team_id: target.team_id,
+    })
 }
 
 fn open_picker(app: &mut App, kind: PickerKind, target: FocusedIssue) -> Command {

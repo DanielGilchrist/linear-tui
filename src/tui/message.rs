@@ -1,6 +1,8 @@
 use super::focus::Reveal;
 use super::overlay::PickerItem;
-use crate::api::{IssueDetail, IssueFilter, IssueSummary, IssueUpdate, NotificationItem, Session};
+use crate::api::{
+    IssueDetail, IssueFilter, IssueSummary, IssueUpdate, NotificationItem, Session, User,
+};
 
 #[derive(Debug)]
 pub enum Message {
@@ -21,6 +23,7 @@ pub enum Message {
     RecentLoaded(Vec<IssueSummary>),
     RecentCleared,
     PickerLoaded(Vec<PickerItem>),
+    MentionMembersLoaded(Vec<User>),
     IssueUpdated {
         id: String,
     },
@@ -48,6 +51,9 @@ pub enum Command {
         team_id: String,
     },
     LoadMembers {
+        team_id: String,
+    },
+    LoadMentionMembers {
         team_id: String,
     },
     UpdateIssue {

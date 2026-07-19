@@ -126,6 +126,12 @@ fn dispatch(
                 }
                 Err(error) => Message::Failed(error.to_string()),
             }),
+            Command::LoadMentionMembers { team_id } => {
+                Some(match api.team_members(&team_id).await {
+                    Ok(members) => Message::MentionMembersLoaded(members),
+                    Err(error) => Message::Failed(error.to_string()),
+                })
+            }
             Command::UpdateIssue { id, update } => {
                 Some(match api.update_issue(&id, update).await {
                     Ok(()) => Message::IssueUpdated { id },

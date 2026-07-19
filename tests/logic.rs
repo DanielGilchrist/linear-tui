@@ -347,10 +347,13 @@ fn comment_action_requires_an_opened_issue() {
 fn c_opens_the_comment_editor_once_issue_is_loaded() {
     let mut app = detail_app();
 
-    let commands = handle_key(&mut app, press(KeyCode::Char('c')));
+    let command = handle_key(&mut app, press(KeyCode::Char('c')));
 
     assert!(app.editor().is_some());
-    assert!(commands.is_none());
+    match command {
+        Some(Command::LoadMentionMembers { team_id }) if team_id == "t_pizza" => {}
+        other => panic!("expected LoadMentionMembers for the mention popup, got {other:?}"),
+    }
 }
 
 #[test]
@@ -389,6 +392,29 @@ fn ctrl_s_posts_the_multiline_comment_for_the_open_issue() {
         other => panic!("expected CreateComment, got {other:?}"),
     }
     assert!(app.editor().is_none());
+}
+
+#[test]
+fn mention_autocomplete_inserts_the_profile_url() {
+    let mut app = detail_app();
+    handle_key(&mut app, press(KeyCode::Char('c')));
+    apply(
+        &mut app,
+        Message::MentionMembersLoaded(vec![member("danniieelg"), member("sam")]),
+    );
+
+    handle_key(&mut app, press(KeyCode::Char('@')));
+    handle_key(&mut app, press(KeyCode::Char('d')));
+    assert!(app.editor().is_some_and(|e| e.mention.is_some()));
+
+    handle_key(&mut app, press(KeyCode::Enter));
+
+    let editor = app.editor().expect("editor open");
+    assert!(editor.mention.is_none());
+    assert_eq!(
+        editor.text(),
+        "https://linear.app/dans-donuts/profiles/danniieelg"
+    );
 }
 
 #[test]
@@ -1084,6 +1110,16 @@ fn comment(id: &str, parent: Option<&str>, body: &str) -> linear_tui::api::Comme
         author: Some("dan".into()),
         body: body.into(),
         created_at: linear_tui::api::Timestamp::from("2026-07-16T09:00:00Z"),
+    }
+}
+
+fn member(name: &str) -> linear_tui::api::User {
+    linear_tui::api::User {
+        id: format!("u_{name}"),
+        name: name.into(),
+        display_name: name.into(),
+        url: format!("https://linear.app/dans-donuts/profiles/{name}"),
+        is_me: false,
     }
 }
 

@@ -270,58 +270,86 @@ impl Input {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum Cell {
+    Char(char),
+    Mention(Mention),
+}
+
+#[derive(Debug, Clone)]
+pub struct Mention {
+    pub display: String,
+    pub url: String,
+}
+
+pub struct MentionMenu {
+    pub at: usize,
+    pub query: String,
+    pub state: ListState,
+}
+
 pub struct Editor {
     pub title: &'static str,
-    pub lines: Vec<String>,
+    pub lines: Vec<Vec<Cell>>,
     pub row: usize,
     pub col: usize,
     pub parent_id: Option<String>,
+    pub members: Vec<User>,
+    pub mention: Option<MentionMenu>,
 }
 
 impl Editor {
     pub fn new(title: &'static str, parent_id: Option<String>) -> Self {
         Self {
             title,
-            lines: vec![String::new()],
+            lines: vec![Vec::new()],
             row: 0,
             col: 0,
             parent_id,
+            members: Vec::new(),
+            mention: None,
         }
     }
 
     pub fn text(&self) -> String {
-        self.lines.join("\n")
+        self.lines
+            .iter()
+            .map(|line| {
+                line.iter()
+                    .map(|cell| match cell {
+                        Cell::Char(c) => c.to_string(),
+                        Cell::Mention(mention) => mention.url.clone(),
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     pub fn is_empty(&self) -> bool {
         self.lines.iter().all(|line| line.is_empty())
     }
 
-    fn chars(&self, row: usize) -> Vec<char> {
-        self.lines[row].chars().collect()
-    }
-
     fn line_len(&self, row: usize) -> usize {
-        self.lines[row].chars().count()
+        self.lines[row].len()
     }
 
-    pub fn insert(&mut self, c: char) {
-        let mut chars = self.chars(self.row);
-        let col = self.col.min(chars.len());
+    pub fn insert_char(&mut self, c: char) {
+        let col = self.col.min(self.line_len(self.row));
+        self.lines[self.row].insert(col, Cell::Char(c));
+        self.col = col + 1;
+    }
 
-        chars.insert(col, c);
-
-        self.lines[self.row] = chars.into_iter().collect();
+    pub fn insert_mention(&mut self, display: String, url: String) {
+        let col = self.col.min(self.line_len(self.row));
+        self.lines[self.row].insert(col, Cell::Mention(Mention { display, url }));
         self.col = col + 1;
     }
 
     pub fn newline(&mut self) {
-        let chars = self.chars(self.row);
-        let col = self.col.min(chars.len());
-        let head: String = chars[..col].iter().collect();
-        let tail: String = chars[col..].iter().collect();
+        let col = self.col.min(self.line_len(self.row));
+        let tail = self.lines[self.row].split_off(col);
 
-        self.lines[self.row] = head;
         self.lines.insert(self.row + 1, tail);
         self.row += 1;
         self.col = 0;
@@ -329,18 +357,14 @@ impl Editor {
 
     pub fn backspace(&mut self) {
         if self.col > 0 {
-            let mut chars = self.chars(self.row);
-
-            chars.remove(self.col - 1);
-
             self.col -= 1;
-            self.lines[self.row] = chars.into_iter().collect();
+            self.lines[self.row].remove(self.col);
         } else if self.row > 0 {
             let current = self.lines.remove(self.row);
 
             self.row -= 1;
             self.col = self.line_len(self.row);
-            self.lines[self.row].push_str(&current);
+            self.lines[self.row].extend(current);
         }
     }
 
@@ -374,6 +398,27 @@ impl Editor {
             self.row += 1;
             self.col = self.col.min(self.line_len(self.row));
         }
+    }
+
+    pub fn at_word_boundary(&self) -> bool {
+        match self
+            .col
+            .checked_sub(1)
+            .and_then(|i| self.lines[self.row].get(i))
+        {
+            None => true,
+            Some(Cell::Char(c)) => c.is_whitespace(),
+            Some(Cell::Mention(_)) => true,
+        }
+    }
+
+    pub fn candidates(&self, query: &str) -> Vec<&User> {
+        let needle = query.to_lowercase();
+
+        self.members
+            .iter()
+            .filter(|user| user.display_name.to_lowercase().contains(&needle))
+            .collect()
     }
 }
 
