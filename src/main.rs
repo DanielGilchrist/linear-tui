@@ -13,7 +13,9 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use linear_tui::api::{self, fixture::FixtureClient, Client, LinearApi};
 use linear_tui::tui::{
     self,
-    app::{App, Focus, ViewKind},
+    app::App,
+    focus::{Focus, LeftPanel},
+    view::ViewKind,
 };
 
 #[derive(Parser)]
@@ -62,7 +64,9 @@ async fn main() -> Result<()> {
 
     match args.command {
         Some(Command::Render(render_args)) => headless_render(render_args).await,
-        Some(Command::Record(record_args)) => record(&resolve_api_key(&args.api_key)?, record_args).await,
+        Some(Command::Record(record_args)) => {
+            record(&resolve_api_key(&args.api_key)?, record_args).await
+        }
         None => run_tui(resolve_api_key(&args.api_key)?).await,
     }
 }
@@ -101,7 +105,7 @@ async fn headless_render(args: RenderArgs) -> Result<()> {
     }
 
     if let Some(id) = &args.detail {
-        app.focus = Focus::Detail;
+        app.focus = Focus::Detail(LeftPanel::MyWork);
         app.detail = api.issue_detail(id).await?;
     }
 

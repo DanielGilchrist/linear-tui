@@ -8,15 +8,15 @@ expression: "render_to_string(&mut app, 100, 20)"
 │!!  DAN2-2 In Progress Delivery driv││@dan  oven                                                  █
 │!!! DAN2-3 Todo Add gluten-┌Set status  DAN2-7────────────────────────┐sue/DAN2-7/wood-fired-oven-█
 │!!  DAN-13 Todo Introduce a│Backlog  backlog                          │                           █
-└ 1 of 7 ───────────────────│Todo  unstarted                           │                           █
-┌Saved Views────────────────│In Progress  started                      │oven creeps past 480°C and █
-│#payroll                   │Done  completed                           │lts.                       █
-│#nest-sync                 │Canceled  canceled                        │                           █
-└ 1 of 4 ───────────────────│                                          │70-480°C. Suspect the flue ║
-┌Recently viewed────────────│                                          │                           ║
-│DAN2-7 Wood-fired oven     │                                          │                           ║
-│DAN-10 Sprinkle dispenser  │                                          │                           ║
-└ 1 of 3 ───────────────────└ 1 of 5 ──────────────────────────────────┘                           ║
+│!!  DAN2-5 Backlog Settle t│Todo  unstarted                           │                           █
+└ 1 of 7 ───────────────────│In Progress  started                      │oven creeps past 480°C and █
+┌Recently viewed────────────│Done  completed                           │lts.                       █
+│Issues you open land here  │Canceled  canceled                        │                           █
+└───────────────────────────│                                          │70-480°C. Suspect the flue ║
+┌Saved Views────────────────│                                          │                           ║
+│#payroll                   │                                          │                           ║
+│#nest-sync                 │                                          │                           ║
+└ 1 of 4 ───────────────────└ 1 of 5 ──────────────────────────────────┘                           ║
 ┌Teams───────────────────────────────┐│dan                                                         ║
 │Dan's Pizza                         ││Swapped the thermocouple this morning. Will watch it        ║
 │Dan's Donuts                        ││tonight.                                                    ↓

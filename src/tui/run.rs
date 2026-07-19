@@ -7,8 +7,9 @@ use futures::StreamExt;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::mpsc::{self, UnboundedSender};
 
-use super::app::{App, PickerItem};
+use super::app::App;
 use super::message::{Command, Message};
+use super::overlay::PickerItem;
 use super::platform::Platform;
 use super::{render, update};
 use crate::api::LinearApi;
@@ -51,7 +52,7 @@ pub async fn run(
             }
             _ = ticker.tick() => {
                 if app.loading {
-                    app.spinner_frame = app.spinner_frame.wrapping_add(1);
+                    app.spinner.tick();
                 }
             }
         }
@@ -96,8 +97,23 @@ fn dispatch(
                 Ok(None) => Message::Failed(format!("Issue {id} not found")),
                 Err(error) => Message::Failed(error.to_string()),
             }),
+            Command::Search(term) => Some(match api.search_issues(&term).await {
+                Ok(results) => Message::SearchResults(results),
+                Err(error) => Message::Failed(error.to_string()),
+            }),
+            Command::LoadRecent => Some(Message::RecentLoaded(crate::store::load_recent())),
+            Command::SaveRecent(issues) => {
+                crate::store::save_recent(&issues);
+                None
+            }
+            Command::ClearRecent => {
+                crate::store::save_recent(&[]);
+                Some(Message::RecentCleared)
+            }
             Command::LoadStates { team_id } => Some(match api.workflow_states(&team_id).await {
-                Ok(states) => Message::PickerLoaded(states.into_iter().map(PickerItem::from).collect()),
+                Ok(states) => {
+                    Message::PickerLoaded(states.into_iter().map(PickerItem::from).collect())
+                }
                 Err(error) => Message::Failed(error.to_string()),
             }),
             Command::LoadMembers { team_id } => Some(match api.team_members(&team_id).await {

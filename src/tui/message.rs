@@ -1,4 +1,4 @@
-use super::app::PickerItem;
+use super::overlay::PickerItem;
 use crate::api::{IssueDetail, IssueFilter, IssueSummary, IssueUpdate, NotificationItem, Session};
 
 #[derive(Debug)]
@@ -13,6 +13,9 @@ pub enum Message {
         items: Vec<NotificationItem>,
     },
     DetailLoaded(Box<IssueDetail>),
+    SearchResults(Vec<IssueSummary>),
+    RecentLoaded(Vec<IssueSummary>),
+    RecentCleared,
     PickerLoaded(Vec<PickerItem>),
     IssueUpdated {
         id: String,
@@ -30,6 +33,10 @@ pub enum Command {
     LoadStates { team_id: String },
     LoadMembers { team_id: String },
     UpdateIssue { id: String, update: IssueUpdate },
+    Search(String),
+    LoadRecent,
+    SaveRecent(Vec<IssueSummary>),
+    ClearRecent,
     OpenUrl(String),
     CopyToClipboard(String),
     Batch(Vec<Command>),

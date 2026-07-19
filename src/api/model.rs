@@ -19,17 +19,139 @@ pub struct Session {
     pub org_url_key: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StateType {
+    Triage,
+    Backlog,
+    Unstarted,
+    Started,
+    Completed,
+    Canceled,
+}
+
+impl StateType {
+    pub fn from_api(raw: &str) -> Self {
+        match raw {
+            "triage" => StateType::Triage,
+            "unstarted" => StateType::Unstarted,
+            "started" => StateType::Started,
+            "completed" => StateType::Completed,
+            "canceled" | "cancelled" => StateType::Canceled,
+            _ => StateType::Backlog,
+        }
+    }
+
+    pub fn as_api(self) -> &'static str {
+        match self {
+            StateType::Triage => "triage",
+            StateType::Backlog => "backlog",
+            StateType::Unstarted => "unstarted",
+            StateType::Started => "started",
+            StateType::Completed => "completed",
+            StateType::Canceled => "canceled",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "u8", into = "u8")]
+pub enum Priority {
+    #[default]
+    None,
+    Urgent,
+    High,
+    Medium,
+    Low,
+}
+
+impl Priority {
+    pub fn label(self) -> &'static str {
+        match self {
+            Priority::None => "No priority",
+            Priority::Urgent => "Urgent",
+            Priority::High => "High",
+            Priority::Medium => "Medium",
+            Priority::Low => "Low",
+        }
+    }
+}
+
+impl From<u8> for Priority {
+    fn from(value: u8) -> Self {
+        match value {
+            1 => Priority::Urgent,
+            2 => Priority::High,
+            3 => Priority::Medium,
+            4 => Priority::Low,
+            _ => Priority::None,
+        }
+    }
+}
+
+impl From<Priority> for u8 {
+    fn from(priority: Priority) -> Self {
+        match priority {
+            Priority::None => 0,
+            Priority::Urgent => 1,
+            Priority::High => 2,
+            Priority::Medium => 3,
+            Priority::Low => 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub struct Rgb {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+impl Rgb {
+    const FALLBACK: Rgb = Rgb {
+        r: 128,
+        g: 128,
+        b: 128,
+    };
+
+    pub fn parse_hex(hex: &str) -> Self {
+        let hex = hex.trim_start_matches('#');
+        if hex.len() != 6 {
+            return Rgb::FALLBACK;
+        }
+        let channel = |range: std::ops::Range<usize>| u8::from_str_radix(&hex[range], 16);
+        match (channel(0..2), channel(2..4), channel(4..6)) {
+            (Ok(r), Ok(g), Ok(b)) => Rgb { r, g, b },
+            _ => Rgb::FALLBACK,
+        }
+    }
+}
+
+impl From<String> for Rgb {
+    fn from(hex: String) -> Self {
+        Rgb::parse_hex(&hex)
+    }
+}
+
+impl From<Rgb> for String {
+    fn from(color: Rgb) -> Self {
+        format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorkflowState {
     pub name: String,
     #[serde(rename = "type")]
-    pub state_type: String,
+    pub state_type: StateType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Label {
     pub name: String,
-    pub color: String,
+    pub color: Rgb,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -40,7 +162,7 @@ pub struct IssueSummary {
     pub title: Option<String>,
     pub state: WorkflowState,
     #[serde(default)]
-    pub priority: u8,
+    pub priority: Priority,
     #[serde(default)]
     pub assignee: Option<User>,
     #[serde(default)]
@@ -51,6 +173,23 @@ pub struct IssueSummary {
     pub branch_name: String,
     #[serde(default)]
     pub team_id: String,
+}
+
+impl IssueSummary {
+    pub fn from_detail(detail: &IssueDetail) -> Self {
+        Self {
+            id: detail.id.clone(),
+            identifier: detail.identifier.clone(),
+            title: detail.title.clone(),
+            state: detail.state.clone(),
+            priority: detail.priority,
+            assignee: detail.assignee.clone(),
+            labels: detail.labels.clone(),
+            url: detail.url.clone(),
+            branch_name: detail.branch_name.clone(),
+            team_id: detail.team_id.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -73,7 +212,7 @@ pub struct IssueDetail {
     pub url: String,
     pub state: WorkflowState,
     #[serde(default)]
-    pub priority: u8,
+    pub priority: Priority,
     #[serde(default)]
     pub assignee: Option<User>,
     #[serde(default)]
@@ -91,7 +230,7 @@ pub struct StateOption {
     pub id: String,
     pub name: String,
     #[serde(rename = "type")]
-    pub state_type: String,
+    pub state_type: StateType,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -118,9 +257,9 @@ pub struct IssueFilter {
     #[serde(default)]
     pub created_by_me: bool,
     #[serde(default)]
-    pub state_types_in: Vec<String>,
+    pub state_types_in: Vec<StateType>,
     #[serde(default)]
-    pub state_types_nin: Vec<String>,
+    pub state_types_nin: Vec<StateType>,
     #[serde(default)]
     pub label: Option<String>,
 }
@@ -129,7 +268,7 @@ impl IssueFilter {
     pub fn assigned_to_me() -> Self {
         Self {
             assigned_to_me: true,
-            state_types_nin: vec!["completed".into(), "canceled".into()],
+            state_types_nin: vec![StateType::Completed, StateType::Canceled],
             ..Default::default()
         }
     }
@@ -137,7 +276,7 @@ impl IssueFilter {
     pub fn in_progress_mine() -> Self {
         Self {
             assigned_to_me: true,
-            state_types_in: vec!["started".into()],
+            state_types_in: vec![StateType::Started],
             ..Default::default()
         }
     }
