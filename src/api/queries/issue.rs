@@ -35,11 +35,19 @@ pub struct IssueLabelConnection {
 }
 
 #[derive(Debug, Clone, QueryFragment)]
+#[cynic(schema_path = "schema.graphql", graphql_type = "Comment")]
+pub struct CommentParent {
+    pub id: cynic::Id,
+}
+
+#[derive(Debug, Clone, QueryFragment)]
 #[cynic(schema_path = "schema.graphql")]
 pub struct Comment {
+    pub id: cynic::Id,
     pub body: String,
     pub created_at: DateTime,
     pub user: Option<User>,
+    pub parent: Option<CommentParent>,
 }
 
 #[derive(Debug, Clone, QueryFragment)]

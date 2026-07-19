@@ -132,8 +132,8 @@ impl LinearApi for FixtureClient {
             },
             StateOption {
                 id: "s_canceled".into(),
-                name: "Canceled".into(),
-                state_type: StateType::Canceled,
+                name: "Cancelled".into(),
+                state_type: StateType::Cancelled,
             },
         ])
     }
@@ -311,11 +311,29 @@ oven-ctl --set-target 430
         }],
         comments: vec![
             Comment {
+                id: "c1".into(),
+                parent_id: None,
                 author: Some("dan".into()),
                 body: "Swapped the thermocouple this morning. Readings so far:\n\n1. 6pm - `445°C`\n2. 7pm - `462°C`".into(),
                 created_at: "2026-07-16T09:24:00Z".into(),
             },
             Comment {
+                id: "c1a".into(),
+                parent_id: Some("c1".into()),
+                author: Some("danniiee".into()),
+                body: "Agreed, the sensor looks fine. Next suspect is the `flue damper`.".into(),
+                created_at: "2026-07-16T10:02:00Z".into(),
+            },
+            Comment {
+                id: "c1b".into(),
+                parent_id: Some("c1".into()),
+                author: Some("dan".into()),
+                body: "Adding the damper check to the list.".into(),
+                created_at: "2026-07-16T10:05:00Z".into(),
+            },
+            Comment {
+                id: "c2".into(),
+                parent_id: None,
                 author: Some("dan".into()),
                 body: "Still climbing. Confirmed the flue damper is sticking open.".into(),
                 created_at: "2026-07-16T18:40:00Z".into(),

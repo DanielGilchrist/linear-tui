@@ -78,7 +78,17 @@ pub struct App {
     pub overlay: Overlay,
     pub find_query: Option<String>,
     pub search_return: Option<Search>,
+    pub now: i64,
     pub should_quit: bool,
+}
+
+pub fn now_epoch() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 impl App {
@@ -111,6 +121,7 @@ impl App {
             overlay: Overlay::None,
             find_query: None,
             search_return: None,
+            now: now_epoch(),
             should_quit: false,
         }
     }

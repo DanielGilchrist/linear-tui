@@ -11,7 +11,7 @@ expression: "render_to_string(&mut app, 110, 26)"
 │!!  DAN2-5 Backlog Settle the pineapple-││                                                                  █
 │    DAN-15 Backlog Coffee pairing bundle││Symptoms                                                          █
 │                                        ││                                                                  █
-│                                        ││During the Friday rush the stone oven creeps past 480°C and bases █
+│                                        ││During the Friday rush the stone oven creeps past 480°C and bases ║
 │                                        ││scorch before the cheese melts.                                   ║
 │                                        ││                                                                  ║
 │                                        ││• Expected: steady 430°C                                          ║

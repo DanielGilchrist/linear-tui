@@ -8,10 +8,10 @@ expression: "render_to_string(&mut app, 100, 20)"
 │!!  DAN2-2 In Progress Delivery driv││@dan  oven                                                  █
 │!!! DAN2-3 Todo Add gluten-┌Set status  DAN2-7────────────────────────┐sue/DAN2-7/wood-fired-oven-█
 │!!  DAN-13 Todo Introduce a│Backlog  backlog                          │                           █
-│!!  DAN2-5 Backlog Settle t│Todo  unstarted                           │                           █
+│!!  DAN2-5 Backlog Settle t│Todo  unstarted                           │                           ║
 └ 1 of 7 ───────────────────│In Progress  started                      │                           ║
 ┌Recently viewed────────────│Done  completed                           │                           ║
-│Issues you open land here  │Canceled  canceled                        │oven creeps past 480°C and ║
+│Issues you open land here  │Cancelled  canceled                       │oven creeps past 480°C and ║
 └───────────────────────────│                                          │lts.                       ║
 ┌Saved Views────────────────│                                          │                           ║
 │#payroll                   │                                          │                           ║

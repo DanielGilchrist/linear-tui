@@ -1,0 +1,50 @@
+---
+source: tests/render.rs
+expression: "render_to_string(&mut app, 90, 46)"
+---
+┌Assigned to me 1/3──────────────┐┌DAN2-7────────────────────────────────────────────────┐
+│!!! DAN2-7 In Progress Wood-fire││DAN2-7  In Progress                                   ↑
+│!!! DAN-10 In Progress Sprinkle ││Wood-fired oven runs 40°C too hot on Friday nights    █
+│!!  DAN2-2 In Progress Delivery ││@dan  oven                                            █
+│!!! DAN2-3 Todo Add gluten-free ││https://linear.app/dans-donuts/issue/DAN2-7/wood-fired█
+│!!  DAN-13 Todo Introduce a mapl││-oven-runs-too-hot                                    █
+│!!  DAN2-5 Backlog Settle the pi││                                                      █
+│    DAN-15 Backlog Coffee pairin││Symptoms                                              █
+│                                ││                                                      █
+│                                ││During the Friday rush the stone oven creeps past     █
+│                                ││480°C and bases scorch before the cheese melts.       █
+│                                ││                                                      █
+│                                ││• Expected: steady 430°C                              █
+│                                ││• Actual: 470-480°C                                   █
+│                                ││• Suspect the flue damper is sticking open            █
+│                                ││                                                      █
+│                                ││Checklist                                             █
+│                                ││                                                      █
+│                                ││[x] Swap the thermocouple                             █
+│                                ││[ ] Inspect the flue damper                           █
+│                                ││[ ] Recalibrate the PID loop                          █
+│                                ││                                                      █
+│                                ││▌ Damper was replaced 6 months ago, should still be   █
+│                                ││under warranty.                                       ║
+│                                ││                                                      ║
+│                                ││See the vendor runbook for the reset steps:           ║
+│                                ││                                                      ║
+│                                ││▏ sudo oven-ctl --reset-pid                           ║
+│                                ││▏ oven-ctl --set-target 430                           ║
+│                                ││                                                      ║
+│                                ││Comments (4)                                          ║
+│                                ││                                                      ║
+│                                ││dan · 11h ago                                         ║
+└ 1 of 7 ────────────────────────┘│  Swapped the thermocouple this morning. Readings so  ║
+┌Recently viewed─────────────────┐│far:                                                  ║
+│Issues you open land here       ││                                                      ║
+└────────────────────────────────┘│  1. 6pm - 445°C                                      ║
+┌Saved Views─────────────────────┐│  2. 7pm - 462°C                                      ║
+│#payroll                        ││                                                      ║
+│#nest-sync                      ││  └ danniiee · 10h ago                                ║
+└ 1 of 4 ────────────────────────┘│    Agreed, the sensor looks fine. Next suspect is the║
+┌Teams───────────────────────────┐│flue damper.                                          ║
+│Dan's Pizza                     ││                                                      ║
+│Dan's Donuts                    ││  └ dan · 10h ago                                     ↓
+└ 1 of 2 ────────────────────────┘└──────────────────────────────────────────────────────┘
+ j/k scroll   C-d/C-u page   s status   a assign   o browser   y yan… Dan's Donuts · @dan
