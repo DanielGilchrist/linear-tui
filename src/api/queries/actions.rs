@@ -105,3 +105,36 @@ pub struct IssueUpdateMutation {
     #[arguments(id: $id, input: $input)]
     pub issue_update: IssuePayload,
 }
+
+#[derive(Debug, Clone, InputObject)]
+#[cynic(schema_path = "schema.graphql")]
+pub struct CommentCreateInput {
+    #[cynic(skip_serializing_if = "Option::is_none")]
+    pub issue_id: Option<String>,
+    #[cynic(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[cynic(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+}
+
+#[derive(Debug, QueryVariables)]
+pub struct CommentCreateVariables {
+    pub input: CommentCreateInput,
+}
+
+#[derive(Debug, QueryFragment)]
+#[cynic(schema_path = "schema.graphql")]
+pub struct CommentPayload {
+    pub success: bool,
+}
+
+#[derive(Debug, QueryFragment)]
+#[cynic(
+    schema_path = "schema.graphql",
+    graphql_type = "Mutation",
+    variables = "CommentCreateVariables"
+)]
+pub struct CommentCreateMutation {
+    #[arguments(input: $input)]
+    pub comment_create: CommentPayload,
+}

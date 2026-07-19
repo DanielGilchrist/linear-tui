@@ -1,3 +1,4 @@
+use super::focus::Reveal;
 use super::overlay::PickerItem;
 use crate::api::{IssueDetail, IssueFilter, IssueSummary, IssueUpdate, NotificationItem, Session};
 
@@ -12,7 +13,10 @@ pub enum Message {
         view: usize,
         items: Vec<NotificationItem>,
     },
-    DetailLoaded(Box<IssueDetail>),
+    DetailLoaded {
+        detail: Box<IssueDetail>,
+        reveal: Reveal,
+    },
     SearchResults(Vec<IssueSummary>),
     RecentLoaded(Vec<IssueSummary>),
     RecentCleared,
@@ -20,19 +24,41 @@ pub enum Message {
     IssueUpdated {
         id: String,
     },
-    Status(String),
+    CommentPosted {
+        id: String,
+    },
     Failed(String),
 }
 
 #[derive(Debug, Clone)]
 pub enum Command {
     LoadSession,
-    LoadIssues { view: usize, filter: IssueFilter },
-    LoadInbox { view: usize },
-    LoadDetail(String),
-    LoadStates { team_id: String },
-    LoadMembers { team_id: String },
-    UpdateIssue { id: String, update: IssueUpdate },
+    LoadIssues {
+        view: usize,
+        filter: IssueFilter,
+    },
+    LoadInbox {
+        view: usize,
+    },
+    LoadDetail {
+        id: String,
+        reveal: Reveal,
+    },
+    LoadStates {
+        team_id: String,
+    },
+    LoadMembers {
+        team_id: String,
+    },
+    UpdateIssue {
+        id: String,
+        update: IssueUpdate,
+    },
+    CreateComment {
+        issue_id: String,
+        body: String,
+        parent_id: Option<String>,
+    },
     Search(String),
     LoadRecent,
     SaveRecent(Vec<IssueSummary>),

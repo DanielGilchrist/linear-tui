@@ -118,6 +118,27 @@ async fn status_picker_overlay() {
 }
 
 #[tokio::test]
+async fn comment_editor_overlay() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+    );
+    let script = "Checked the damper.\nSpring tension looks off, ordering a replacement.";
+    for c in script.chars() {
+        let key = match c {
+            '\n' => KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            _ => KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        };
+        handle_key(&mut app, key);
+    }
+
+    insta::assert_snapshot!(render_to_string(&mut app, 90, 22));
+}
+
+#[tokio::test]
 async fn go_prefix_overlay() {
     let mut app = App::new();
     handle_key(

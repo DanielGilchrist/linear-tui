@@ -27,4 +27,4 @@ expression: "render_to_string(&mut app, 110, 26)"
 │Dan's Pizza                             ││▌ Damper was replaced 6 months ago, should still be under         ║
 │Dan's Donuts                            ││warranty.                                                         ↓
 └ 1 of 2 ────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
- j/k scroll   C-d/C-u page   s status   a assign   o browser   y yank   tab/S-tab next/p… Dan's Donuts · @dan
+ j/k scroll   C-d/C-u page   s status   a assign   c comment   o browser   y yank   tab/… Dan's Donuts · @dan

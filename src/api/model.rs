@@ -137,8 +137,8 @@ impl From<String> for Rgb {
 }
 
 impl From<Rgb> for String {
-    fn from(color: Rgb) -> Self {
-        format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+    fn from(colour: Rgb) -> Self {
+        format!("#{:02x}{:02x}{:02x}", colour.r, colour.g, colour.b)
     }
 }
 
@@ -152,7 +152,7 @@ pub struct WorkflowState {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Label {
     pub name: String,
-    pub color: Rgb,
+    pub colour: Rgb,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

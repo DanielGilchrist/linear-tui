@@ -7,7 +7,7 @@ use crate::api::model::{
     Comment, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, Label, NotificationItem,
     Priority, Rgb, Session, StateOption, StateType, User, WorkflowState,
 };
-use crate::api::LinearApi;
+use crate::api::{ApiResult, LinearApi};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Fixture {
@@ -60,7 +60,7 @@ fn matches(issue: &IssueSummary, filter: &IssueFilter) -> bool {
 
 #[async_trait::async_trait]
 impl LinearApi for FixtureClient {
-    async fn session(&self) -> Result<Session> {
+    async fn session(&self) -> ApiResult<Session> {
         Ok(Session {
             user: self.fixture.viewer.clone(),
             org_name: self.fixture.org_name.clone(),
@@ -68,7 +68,7 @@ impl LinearApi for FixtureClient {
         })
     }
 
-    async fn issues(&self, filter: &IssueFilter) -> Result<Vec<IssueSummary>> {
+    async fn issues(&self, filter: &IssueFilter) -> ApiResult<Vec<IssueSummary>> {
         Ok(self
             .fixture
             .issues
@@ -78,7 +78,7 @@ impl LinearApi for FixtureClient {
             .collect())
     }
 
-    async fn search_issues(&self, term: &str) -> Result<Vec<IssueSummary>> {
+    async fn search_issues(&self, term: &str) -> ApiResult<Vec<IssueSummary>> {
         let needle = term.to_lowercase();
         Ok(self
             .fixture
@@ -95,7 +95,7 @@ impl LinearApi for FixtureClient {
             .collect())
     }
 
-    async fn issue_detail(&self, id: &str) -> Result<Option<IssueDetail>> {
+    async fn issue_detail(&self, id: &str) -> ApiResult<Option<IssueDetail>> {
         Ok(self
             .fixture
             .details
@@ -104,11 +104,11 @@ impl LinearApi for FixtureClient {
             .cloned())
     }
 
-    async fn notifications(&self) -> Result<Vec<NotificationItem>> {
+    async fn notifications(&self) -> ApiResult<Vec<NotificationItem>> {
         Ok(self.fixture.notifications.clone())
     }
 
-    async fn workflow_states(&self, _team_id: &str) -> Result<Vec<StateOption>> {
+    async fn workflow_states(&self, _team_id: &str) -> ApiResult<Vec<StateOption>> {
         Ok(vec![
             StateOption {
                 id: "s_backlog".into(),
@@ -138,7 +138,7 @@ impl LinearApi for FixtureClient {
         ])
     }
 
-    async fn team_members(&self, _team_id: &str) -> Result<Vec<User>> {
+    async fn team_members(&self, _team_id: &str) -> ApiResult<Vec<User>> {
         Ok(vec![
             person("dan", true),
             person("sam", false),
@@ -146,7 +146,16 @@ impl LinearApi for FixtureClient {
         ])
     }
 
-    async fn update_issue(&self, _id: &str, _update: IssueUpdate) -> Result<()> {
+    async fn update_issue(&self, _id: &str, _update: IssueUpdate) -> ApiResult<()> {
+        Ok(())
+    }
+
+    async fn create_comment(
+        &self,
+        _issue_id: &str,
+        _body: &str,
+        _parent_id: Option<&str>,
+    ) -> ApiResult<()> {
         Ok(())
     }
 }
@@ -185,9 +194,9 @@ fn summary(
         assignee: Some(person(assignee, assignee == "dan")),
         labels: labels
             .iter()
-            .map(|(name, color)| Label {
+            .map(|(name, colour)| Label {
                 name: (*name).into(),
-                color: Rgb::parse_hex(color),
+                colour: Rgb::parse_hex(colour),
             })
             .collect(),
         url: format!("https://linear.app/dans-donuts/issue/{identifier}"),
@@ -307,7 +316,7 @@ oven-ctl --set-target 430
         assignee: Some(person("dan", true)),
         labels: vec![Label {
             name: "oven".into(),
-            color: Rgb::parse_hex("#eb5757"),
+            colour: Rgb::parse_hex("#eb5757"),
         }],
         comments: vec![
             Comment {

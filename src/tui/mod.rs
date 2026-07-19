@@ -11,6 +11,7 @@ pub mod platform;
 pub mod render;
 pub mod run;
 pub mod spinner;
+pub mod status;
 pub mod update;
 pub mod view;
 
