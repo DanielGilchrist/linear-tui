@@ -14,7 +14,7 @@ use linear_tui::api::{self, fixture::FixtureClient, Client, LinearApi};
 use linear_tui::tui::{
     self,
     app::App,
-    focus::{Focus, LeftPanel},
+    focus::{DetailView, Focus, LeftPanel},
     view::ViewKind,
 };
 
@@ -105,7 +105,7 @@ async fn headless_render(args: RenderArgs) -> Result<()> {
     }
 
     if let Some(id) = &args.detail {
-        app.focus = Focus::Detail(LeftPanel::MyWork);
+        app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
         app.detail = api.issue_detail(id).await?;
     }
 

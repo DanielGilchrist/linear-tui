@@ -1,5 +1,3 @@
-use std::collections::{HashMap, HashSet};
-
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -11,13 +9,15 @@ use ratatui::{
 use super::action;
 use super::app::App;
 use super::components::{ScrollableText, StyledList};
-use super::focus::{Focus, LeftPanel};
+use super::focus::{DetailView, Focus, LeftPanel};
 use super::layout;
 use super::markdown;
 use super::overlay::{Confirm, Editor, Input, Menu, MenuRow, Overlay, Picker, PrefixUnder, Search};
 use super::spinner::Spinner;
 use super::view::{View, ViewKind};
-use crate::api::{Comment, IssueDetail, IssueSummary, NotificationItem, Priority, Rgb, StateType};
+use crate::api::{
+    IssueDetail, IssueSummary, NotificationItem, Priority, Rgb, StateType, ThreadedComment,
+};
 
 const LEFT_PCT: u16 = 38;
 const COLLAPSED_PEEK: usize = 2;
@@ -492,7 +492,7 @@ fn render_right(app: &mut App, frame: &mut Frame, area: Rect) {
             }
             render_work_preview(app, frame, area, Color::Gray);
         }
-        Focus::Detail(_) => {
+        Focus::Detail(..) => {
             app.viewport = (area.height as usize).saturating_sub(2);
             if render_detail_if_loaded(app, frame, area, Color::Yellow) {
                 return;
@@ -532,15 +532,25 @@ fn render_stub_placeholder(app: &mut App, frame: &mut Frame, area: Rect, index: 
 }
 
 fn render_detail_if_loaded(app: &mut App, frame: &mut Frame, area: Rect, border: Color) -> bool {
+    let selected = match app.focus {
+        Focus::Detail(_, DetailView::Comments) => app.comment_state.selected(),
+        _ => None,
+    };
+
     let Some(detail) = app.detail.as_ref() else {
         return false;
     };
 
-    let content = detail_text(detail, app.now);
+    let body = detail_text(detail, app.now, selected);
     let title = detail.identifier.clone();
+
+    if let Some(start) = selected.and_then(|index| body.comment_top(index)) {
+        app.scroll_position = start;
+    }
+
     let clamped = {
         let mut scrollable =
-            ScrollableText::new(content, app.scroll_position, &mut app.scroll_state)
+            ScrollableText::new(body.text, app.scroll_position, &mut app.scroll_state)
                 .title(&title)
                 .border_colour(border);
         scrollable.render(frame, area);
@@ -833,7 +843,8 @@ fn footer_hint(app: &App) -> String {
         Focus::MyWork => action::MY_WORK_HINTS,
         Focus::Recent => action::RECENT_HINTS,
         Focus::Stub(_) => action::STUB_HINTS,
-        Focus::Detail(_) => action::DETAIL_HINTS,
+        Focus::Detail(_, DetailView::Reading) => action::DETAIL_HINTS,
+        Focus::Detail(_, DetailView::Comments) => action::COMMENTS_HINTS,
     };
     action::BROWSE.hint_bar(specs)
 }
@@ -908,7 +919,18 @@ fn notification_items(notifications: &[NotificationItem]) -> Vec<ListItem<'stati
         .collect()
 }
 
-fn detail_text(detail: &IssueDetail, now: i64) -> Text<'static> {
+struct DetailBody {
+    text: Text<'static>,
+    comment_offsets: Vec<usize>,
+}
+
+impl DetailBody {
+    fn comment_top(&self, index: usize) -> Option<usize> {
+        self.comment_offsets.get(index).copied()
+    }
+}
+
+fn detail_text(detail: &IssueDetail, now: i64, selected: Option<usize>) -> DetailBody {
     let mut lines: Vec<Line> = Vec::new();
 
     lines.push(Line::from(vec![
@@ -961,6 +983,8 @@ fn detail_text(detail: &IssueDetail, now: i64) -> Text<'static> {
         }
     }
 
+    let mut comment_offsets = Vec::new();
+
     if !detail.comments.is_empty() {
         lines.push(Line::from(Span::styled(
             format!("Comments ({})", detail.comments.len()),
@@ -969,51 +993,25 @@ fn detail_text(detail: &IssueDetail, now: i64) -> Text<'static> {
 
         lines.push(Line::from(""));
 
-        append_comments(&mut lines, &detail.comments, now);
-    }
-
-    Text::from(lines)
-}
-
-fn append_comments(lines: &mut Vec<Line<'static>>, comments: &[Comment], now: i64) {
-    let known: HashSet<&str> = comments
-        .iter()
-        .map(|comment| comment.id.as_str())
-        .filter(|id| !id.is_empty())
-        .collect();
-
-    let mut children: HashMap<&str, Vec<&Comment>> = HashMap::new();
-    let mut roots: Vec<&Comment> = Vec::new();
-
-    for comment in comments {
-        match &comment.parent_id {
-            Some(parent) if known.contains(parent.as_str()) => {
-                children.entry(parent.as_str()).or_default().push(comment);
-            }
-            _ => roots.push(comment),
+        for (index, threaded) in detail.threaded_comments().into_iter().enumerate() {
+            comment_offsets.push(lines.len());
+            append_comment(&mut lines, threaded, selected == Some(index), now);
         }
     }
 
-    let by_time = |a: &&Comment, b: &&Comment| a.created_at.epoch().cmp(&b.created_at.epoch());
-
-    roots.sort_by(by_time);
-
-    for replies in children.values_mut() {
-        replies.sort_by(by_time);
-    }
-
-    for root in roots {
-        append_comment(lines, root, 0, &children, now);
+    DetailBody {
+        text: Text::from(lines),
+        comment_offsets,
     }
 }
 
 fn append_comment(
     lines: &mut Vec<Line<'static>>,
-    comment: &Comment,
-    depth: usize,
-    children: &HashMap<&str, Vec<&Comment>>,
+    threaded: ThreadedComment,
+    highlighted: bool,
     now: i64,
 ) {
+    let ThreadedComment { comment, depth } = threaded;
     let indent = "  ".repeat(depth);
     let body_indent = "  ".repeat(depth + 1);
 
@@ -1038,6 +1036,12 @@ fn append_comment(
         Style::default().fg(Color::DarkGray),
     ));
 
+    if highlighted {
+        for span in &mut header {
+            span.style = span.style.add_modifier(Modifier::REVERSED);
+        }
+    }
+
     lines.push(Line::from(header));
 
     for line in markdown::render(&comment.body, Style::default()) {
@@ -1048,12 +1052,6 @@ fn append_comment(
     }
 
     lines.push(Line::from(""));
-
-    if let Some(replies) = children.get(comment.id.as_str()) {
-        for reply in replies {
-            append_comment(lines, reply, depth + 1, children, now);
-        }
-    }
 }
 
 fn priority_indicator(priority: Priority) -> (&'static str, Color) {

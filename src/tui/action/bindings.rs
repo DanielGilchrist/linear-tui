@@ -177,6 +177,31 @@ pub const CTRL: Keymap<Action> = Keymap {
 pub const DETAIL_KEYS: Keymap<Action> = Keymap {
     bindings: &[
         Binding {
+            action: Action::EnterComments,
+            keys: &[Char('m')],
+            label: "comments",
+        },
+        Binding {
+            action: Action::HistoryForward,
+            keys: &[Tab],
+            label: "next issue",
+        },
+        Binding {
+            action: Action::HistoryBack,
+            keys: &[BackTab],
+            label: "prev issue",
+        },
+    ],
+};
+
+pub const COMMENTS_KEYS: Keymap<Action> = Keymap {
+    bindings: &[
+        Binding {
+            action: Action::Reply,
+            keys: &[Char('r')],
+            label: "reply",
+        },
+        Binding {
             action: Action::HistoryForward,
             keys: &[Tab],
             label: "next issue",

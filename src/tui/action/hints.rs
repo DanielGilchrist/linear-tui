@@ -51,12 +51,30 @@ pub const DETAIL_HINTS: &[Hint<Action>] = &[
     Hint::Bound(Action::SetStatus),
     Hint::Bound(Action::Assign),
     Hint::Bound(Action::Comment),
+    Hint::Literal {
+        keys: "m",
+        label: "comments",
+    },
     Hint::Bound(Action::OpenInBrowser),
     Hint::Bound(Action::YankUrl),
     Hint::Literal {
         keys: "tab/S-tab",
         label: "next/prev",
     },
+    Hint::Bound(Action::Ascend),
+    Hint::Bound(Action::Quit),
+];
+
+pub const COMMENTS_HINTS: &[Hint<Action>] = &[
+    Hint::Literal {
+        keys: "j/k",
+        label: "select",
+    },
+    Hint::Literal {
+        keys: "r",
+        label: "reply",
+    },
+    Hint::Bound(Action::Comment),
     Hint::Bound(Action::Ascend),
     Hint::Bound(Action::Quit),
 ];

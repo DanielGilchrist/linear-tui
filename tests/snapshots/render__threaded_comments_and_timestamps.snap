@@ -47,4 +47,4 @@ expression: "render_to_string(&mut app, 90, 46)"
 │Dan's Pizza                     ││                                                      ║
 │Dan's Donuts                    ││  └ dan · 10h ago                                     ↓
 └ 1 of 2 ────────────────────────┘└──────────────────────────────────────────────────────┘
- j/k scroll   C-d/C-u page   s status   a assign   c comment   o bro… Dan's Donuts · @dan
+ j/k scroll   C-d/C-u page   s status   a assign   c comment   m com… Dan's Donuts · @dan

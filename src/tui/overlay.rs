@@ -99,7 +99,7 @@ impl Menu {
         let local = match focus {
             Focus::MyWork => action::MY_WORK_MENU,
             Focus::Recent => action::RECENT_MENU,
-            Focus::Detail(_) => action::DETAIL_MENU,
+            Focus::Detail(..) => action::DETAIL_MENU,
             Focus::Stub(_) => action::STUB_MENU,
         };
 
