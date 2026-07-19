@@ -11,6 +11,7 @@ use super::app::App;
 use super::components::{ScrollableText, StyledList};
 use super::focus::{Focus, LeftPanel};
 use super::layout;
+use super::markdown;
 use super::overlay::{Confirm, Input, Menu, MenuRow, Overlay, Picker, PrefixUnder, Search};
 use super::spinner::Spinner;
 use super::view::{View, ViewKind};
@@ -904,9 +905,7 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
 
     if let Some(description) = &detail.description {
         if !description.is_empty() {
-            for line in description.lines() {
-                lines.push(Line::from(line.to_string()));
-            }
+            lines.extend(markdown::render(description, Style::default()));
             lines.push(Line::from(""));
         }
     }
@@ -925,9 +924,7 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             )));
-            for line in comment.body.lines() {
-                lines.push(Line::from(line.to_string()));
-            }
+            lines.extend(markdown::render(&comment.body, Style::default()));
             lines.push(Line::from(""));
         }
     }

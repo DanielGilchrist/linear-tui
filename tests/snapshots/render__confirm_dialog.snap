@@ -9,16 +9,16 @@ expression: "render_to_string(&mut app, 100, 20)"
 │!!! DAN2-3 Todo Add gluten-free base││https://linear.app/dans-donuts/issue/DAN2-7/wood-fired-oven-█
 │!!  DAN-13 Todo Introduce a maple-ba││runs-too-hot                                                █
 │!!  DAN2-5 Backlog Settle the pineap││                                                            █
-└ 1 of 7 ────────────────┌Confirm─────────────────────────────────────────┐n creeps past 480°C and █
-┌Recently viewed─────────│Set DAN2-7 to "Todo"?                           │.                       █
-│Issues you open land her│                                                │                        █
-└────────────────────────│[y] yes    [n] no                               │480°C. Suspect the flue ║
+└ 1 of 7 ────────────────┌Confirm─────────────────────────────────────────┐                        ║
+┌Recently viewed─────────│Set DAN2-7 to "Todo"?                           │                        ║
+│Issues you open land her│                                                │n creeps past 480°C and ║
+└────────────────────────│[y] yes    [n] no                               │.                       ║
 ┌Saved Views─────────────│                                                │                        ║
 │#payroll                └────────────────────────────────────────────────┘                        ║
-│#nest-sync                          ││Comments (2)                                                ║
-└ 1 of 4 ────────────────────────────┘│                                                            ║
-┌Teams───────────────────────────────┐│dan                                                         ║
-│Dan's Pizza                         ││Swapped the thermocouple this morning. Will watch it        ║
-│Dan's Donuts                        ││tonight.                                                    ↓
+│#nest-sync                          ││• Actual: 470-480°C                                         ║
+└ 1 of 4 ────────────────────────────┘│• Suspect the flue damper is sticking open                  ║
+┌Teams───────────────────────────────┐│                                                            ║
+│Dan's Pizza                         ││Checklist                                                   ║
+│Dan's Donuts                        ││                                                            ↓
 └ 1 of 2 ────────────────────────────┘└────────────────────────────────────────────────────────────┘
  enter confirm   esc cancel                                                     Dan's Donuts · @dan

@@ -9,22 +9,22 @@ expression: "render_to_string(&mut app, 110, 26)"
 │!!! DAN2-3 Todo Add gluten-free base opt││https://linear.app/dans-donuts/issue/DAN2-7/wood-fired-oven-runs-t█
 │!!  DAN-13 Todo Introduce a maple-bacon ││oo-hot                                                            █
 │!!  DAN2-5 Backlog Settle the pineapple-││                                                                  █
-│    DAN-15 Backlog Coffee pairing bundle││During the Friday rush the stone oven creeps past 480°C and bases █
-│                                        ││scorch before the cheese melts.                                   █
+│    DAN-15 Backlog Coffee pairing bundle││Symptoms                                                          █
 │                                        ││                                                                  █
-│                                        ││Expected: steady 430°C. Actual: 470-480°C. Suspect the flue damper█
-│                                        ││is sticking open.                                                 █
-│                                        ││                                                                  █
-└ 1 of 7 ────────────────────────────────┘│Comments (2)                                                      █
-┌Recently viewed─────────────────────────┐│                                                                  ║
-│Issues you open land here               ││dan                                                               ║
-└────────────────────────────────────────┘│Swapped the thermocouple this morning. Will watch it tonight.     ║
+│                                        ││During the Friday rush the stone oven creeps past 480°C and bases █
+│                                        ││scorch before the cheese melts.                                   ║
+│                                        ││                                                                  ║
+│                                        ││• Expected: steady 430°C                                          ║
+└ 1 of 7 ────────────────────────────────┘│• Actual: 470-480°C                                               ║
+┌Recently viewed─────────────────────────┐│• Suspect the flue damper is sticking open                        ║
+│Issues you open land here               ││                                                                  ║
+└────────────────────────────────────────┘│Checklist                                                         ║
 ┌Saved Views─────────────────────────────┐│                                                                  ║
-│#payroll                                ││dan                                                               ║
-│#nest-sync                              ││Still climbing. Confirmed the flue damper is sticking open.       ║
-└ 1 of 4 ────────────────────────────────┘│                                                                  ║
+│#payroll                                ││[x] Swap the thermocouple                                         ║
+│#nest-sync                              ││[ ] Inspect the flue damper                                       ║
+└ 1 of 4 ────────────────────────────────┘│[ ] Recalibrate the PID loop                                      ║
 ┌Teams───────────────────────────────────┐│                                                                  ║
-│Dan's Pizza                             ││                                                                  ║
-│Dan's Donuts                            ││                                                                  ↓
+│Dan's Pizza                             ││▌ Damper was replaced 6 months ago, should still be under         ║
+│Dan's Donuts                            ││warranty.                                                         ↓
 └ 1 of 2 ────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
  j/k scroll   C-d/C-u page   s status   a assign   o browser   y yank   tab/S-tab next/p… Dan's Donuts · @dan
