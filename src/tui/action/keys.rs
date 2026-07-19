@@ -28,6 +28,8 @@ pub enum Action {
     SetStatus,
     Assign,
     Comment,
+    EnterComments,
+    Reply,
     ClearRecent,
     GoPrefix,
     GoToIssue,

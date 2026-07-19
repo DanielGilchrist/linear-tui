@@ -5,7 +5,13 @@ pub enum Focus {
     MyWork,
     Recent,
     Stub(usize),
-    Detail(LeftPanel),
+    Detail(LeftPanel, DetailView),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetailView {
+    Reading,
+    Comments,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,16 +32,12 @@ impl LeftPanel {
 }
 
 impl Focus {
-    pub fn is_detail(self) -> bool {
-        matches!(self, Focus::Detail(_))
-    }
-
     pub fn left(self) -> LeftPanel {
         match self {
             Focus::MyWork => LeftPanel::MyWork,
             Focus::Recent => LeftPanel::Recent,
             Focus::Stub(index) => LeftPanel::Stub(index),
-            Focus::Detail(under) => under,
+            Focus::Detail(under, _) => under,
         }
     }
 }

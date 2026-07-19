@@ -3,7 +3,7 @@ use ratatui::widgets::{ListState, ScrollbarState};
 
 use super::action::{self, Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput};
 use super::app::{App, FocusedIssue, RECENT_CAP, SCROLL_STEP};
-use super::focus::{Direction, Edge, Focus, LeftPanel, Nav, Reveal};
+use super::focus::{DetailView, Direction, Edge, Focus, LeftPanel, Nav, Reveal};
 use super::issue_ref::parse_issue_ref;
 use super::message::{Command, Message};
 use super::overlay::{
@@ -43,7 +43,8 @@ fn resolve_browse(app: &App, key: KeyEvent) -> Option<Action> {
 
 fn context_keymap(focus: Focus) -> Option<&'static action::Keymap<Action>> {
     match focus {
-        Focus::Detail(_) => Some(&action::DETAIL_KEYS),
+        Focus::Detail(_, DetailView::Reading) => Some(&action::DETAIL_KEYS),
+        Focus::Detail(_, DetailView::Comments) => Some(&action::COMMENTS_KEYS),
         Focus::MyWork | Focus::Recent | Focus::Stub(_) => None,
     }
 }
@@ -153,7 +154,7 @@ fn find_step(app: &mut App, direction: Direction) {
 
 fn open_find(app: &mut App) -> Option<Command> {
     match app.focus {
-        Focus::Detail(_) => {
+        Focus::Detail(..) => {
             app.status = Some(Status::FindInList);
             return None;
         }
@@ -436,6 +437,8 @@ fn apply_action(app: &mut App, action: Action) -> Option<Command> {
         Action::SetStatus => open_status_picker(app),
         Action::Assign => open_assign_picker(app),
         Action::Comment => open_comment_input(app),
+        Action::EnterComments => enter_comments(app),
+        Action::Reply => open_reply_editor(app),
         Action::ClearRecent => {
             clear_recent(app);
             None
@@ -572,7 +575,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             app.status = Some(Status::IssueUpdated);
             let reload = load_active_command(app);
             match app.focus {
-                Focus::Detail(_) => {
+                Focus::Detail(..) => {
                     app.detail_loading = true;
                     Some(Command::Batch(vec![
                         reload,
@@ -588,6 +591,10 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
         Message::CommentPosted { id } => {
             app.status = Some(Status::CommentPosted);
             app.detail_loading = true;
+
+            if let Focus::Detail(panel, DetailView::Comments) = app.focus {
+                app.focus = Focus::Detail(panel, DetailView::Reading);
+            }
 
             Some(Command::LoadDetail {
                 id,
@@ -624,7 +631,7 @@ fn load_active_command(app: &App) -> Command {
 
 fn reload(app: &mut App) -> Command {
     match app.focus {
-        Focus::Detail(_) => match &app.detail {
+        Focus::Detail(..) => match &app.detail {
             Some(detail) => {
                 let id = detail.id.clone();
                 app.detail_loading = true;
@@ -655,7 +662,7 @@ fn cycle_panel(app: &mut App, direction: Direction) {
     let next = direction.wrap(current, count + 1);
 
     app.focus = if next == count {
-        Focus::Detail(app.focus.left())
+        Focus::Detail(app.focus.left(), DetailView::Reading)
     } else {
         panels[next].focus()
     };
@@ -673,13 +680,37 @@ fn ascend(app: &mut App) -> Option<Command> {
     }
 
     match app.focus {
-        Focus::Detail(_) => match app.search_return.take() {
+        Focus::Detail(panel, DetailView::Comments) => {
+            app.focus = Focus::Detail(panel, DetailView::Reading);
+        }
+        Focus::Detail(_, DetailView::Reading) => match app.search_return.take() {
             Some(search) => app.overlay = Overlay::Search(search),
             None => app.focus = Focus::MyWork,
         },
         Focus::MyWork | Focus::Recent | Focus::Stub(_) => app.focus = Focus::MyWork,
     }
 
+    None
+}
+
+fn enter_comments(app: &mut App) -> Option<Command> {
+    if !app.has_comments() {
+        app.status = Some(Status::NoComments);
+        return None;
+    }
+
+    app.focus = Focus::Detail(app.focus.left(), DetailView::Comments);
+    app.comment_state.select(Some(0));
+
+    None
+}
+
+fn open_reply_editor(app: &mut App) -> Option<Command> {
+    let detail = app.detail.as_ref()?;
+    let selected = app.comment_state.selected()?;
+    let comment = detail.threaded_comments().get(selected)?.comment;
+
+    app.overlay = Overlay::Editor(Editor::new("Reply", Some(comment.reply_parent())));
     None
 }
 
@@ -690,7 +721,7 @@ fn descend(app: &mut App) -> Option<Command> {
             ViewKind::Inbox => app.selected_notification().and_then(|n| n.issue_id.clone()),
         },
         Focus::Recent => app.selected_recent().map(|i| i.id.clone()),
-        Focus::Stub(_) | Focus::Detail(_) => None,
+        Focus::Stub(_) | Focus::Detail(..) => None,
     }?;
 
     open_issue(app, id)
@@ -698,7 +729,7 @@ fn descend(app: &mut App) -> Option<Command> {
 
 fn open_issue(app: &mut App, id: String) -> Option<Command> {
     app.search_return = None;
-    app.focus = Focus::Detail(app.focus.left());
+    app.focus = Focus::Detail(app.focus.left(), DetailView::Reading);
     app.scroll_position = 0;
     app.scroll_state = ScrollbarState::default();
 
@@ -815,7 +846,7 @@ fn cycle_view(app: &mut App, direction: Direction) -> Option<Command> {
             let next = direction.wrap(app.active_view_index(), app.views.len());
             Some(select_view(app, next))
         }
-        Focus::Recent | Focus::Stub(_) | Focus::Detail(_) => None,
+        Focus::Recent | Focus::Stub(_) | Focus::Detail(..) => None,
     }
 }
 
@@ -838,7 +869,7 @@ fn clear_recent(app: &mut App) {
                 command: Command::ClearRecent,
             });
         }
-        Focus::MyWork | Focus::Recent | Focus::Stub(_) | Focus::Detail(_) => {}
+        Focus::MyWork | Focus::Recent | Focus::Stub(_) | Focus::Detail(..) => {}
     }
 }
 

@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
 use linear_tui::api::{LinearApi, Timestamp};
 use linear_tui::tui::app::App;
-use linear_tui::tui::focus::{Focus, LeftPanel};
+use linear_tui::tui::focus::{DetailView, Focus, LeftPanel};
 use linear_tui::tui::message::Message;
 use linear_tui::tui::overlay::PickerItem;
 use linear_tui::tui::render_to_string;
@@ -23,7 +23,7 @@ async fn home_app(client: &FixtureClient, view: usize) -> App {
 
 async fn opened_detail_app(client: &FixtureClient) -> App {
     let mut app = home_app(client, 0).await;
-    app.focus = Focus::Detail(LeftPanel::MyWork);
+    app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
     app.detail = client.issue_detail("DAN2-7").await.unwrap();
     app
 }
@@ -61,6 +61,19 @@ async fn threaded_comments_and_timestamps() {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await;
     insta::assert_snapshot!(render_to_string(&mut app, 90, 46));
+}
+
+#[tokio::test]
+async fn comments_mode_scrolls_the_selected_comment_to_the_top() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE),
+    );
+
+    insta::assert_snapshot!(render_to_string(&mut app, 90, 20));
 }
 
 #[tokio::test]

@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
 use linear_tui::api::LinearApi;
 use linear_tui::tui::app::App;
-use linear_tui::tui::focus::{Focus, LeftPanel, Reveal};
+use linear_tui::tui::focus::{DetailView, Focus, LeftPanel, Reveal};
 use linear_tui::tui::message::{Command, Message};
 use linear_tui::tui::overlay::{InputPurpose, PickerItem, PickerKind, Search};
 use linear_tui::tui::status::Status;
@@ -176,7 +176,7 @@ fn enter_on_issue_opens_detail() {
 
     let commands = handle_key(&mut app, press(KeyCode::Enter));
 
-    assert!(app.focus.is_detail());
+    assert!(matches!(app.focus, Focus::Detail(..)));
     assert!(app.detail_loading);
     match commands {
         Some(Command::LoadDetail { id, .. }) if id == "i1" => {}
@@ -231,6 +231,105 @@ fn s_opens_status_picker_once_issue_is_loaded() {
     match commands {
         Some(Command::LoadStates { team_id }) if team_id == "t_pizza" => {}
         other => panic!("expected LoadStates for t_pizza, got {other:?}"),
+    }
+}
+
+#[test]
+fn m_enters_comments_mode_and_selects_the_first_comment() {
+    let mut app = detail_app_with_comments();
+
+    let command = handle_key(&mut app, press(KeyCode::Char('m')));
+
+    assert_eq!(
+        app.focus,
+        Focus::Detail(LeftPanel::MyWork, DetailView::Comments)
+    );
+    assert_eq!(app.comment_state.selected(), Some(0));
+    assert!(command.is_none());
+}
+
+#[test]
+fn m_reports_when_there_are_no_comments() {
+    let mut app = detail_app();
+
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    assert_eq!(
+        app.focus,
+        Focus::Detail(LeftPanel::MyWork, DetailView::Reading)
+    );
+    assert_eq!(app.status, Some(Status::NoComments));
+}
+
+#[test]
+fn esc_in_comments_mode_returns_to_reading_then_leaves() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    handle_key(&mut app, press(KeyCode::Esc));
+    assert_eq!(
+        app.focus,
+        Focus::Detail(LeftPanel::MyWork, DetailView::Reading)
+    );
+
+    handle_key(&mut app, press(KeyCode::Esc));
+    assert_eq!(app.focus, Focus::MyWork);
+}
+
+#[test]
+fn j_moves_the_comment_selection_in_comments_mode() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    handle_key(&mut app, press(KeyCode::Char('j')));
+
+    assert_eq!(app.comment_state.selected(), Some(1));
+}
+
+#[test]
+fn r_replies_to_a_reply_using_the_thread_root_as_parent() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+    handle_key(&mut app, press(KeyCode::Char('j')));
+
+    handle_key(&mut app, press(KeyCode::Char('r')));
+
+    let editor = app.editor().expect("reply editor open");
+    assert_eq!(editor.parent_id.as_deref(), Some("c1"));
+}
+
+#[test]
+fn r_replies_to_a_root_using_its_own_id_as_parent() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    handle_key(&mut app, press(KeyCode::Char('r')));
+
+    let editor = app.editor().expect("reply editor open");
+    assert_eq!(editor.parent_id.as_deref(), Some("c1"));
+}
+
+#[test]
+fn submitting_a_reply_posts_with_the_thread_parent() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+    handle_key(&mut app, press(KeyCode::Char('r')));
+    handle_key(&mut app, press(KeyCode::Char('o')));
+    handle_key(&mut app, press(KeyCode::Char('k')));
+
+    let command = handle_key(&mut app, ctrl('s'));
+
+    match command {
+        Some(Command::CreateComment {
+            issue_id,
+            body,
+            parent_id: Some(parent),
+        }) => {
+            assert_eq!(issue_id, "i1");
+            assert_eq!(body, "ok");
+            assert_eq!(parent, "c1");
+        }
+        other => panic!("expected a threaded CreateComment, got {other:?}"),
     }
 }
 
@@ -498,7 +597,7 @@ fn gi_opens_a_jump_input_that_loads_the_referenced_issue() {
     }
     let commands = handle_key(&mut app, press(KeyCode::Enter));
 
-    assert!(app.focus.is_detail());
+    assert!(matches!(app.focus, Focus::Detail(..)));
     assert!(app.detail_loading);
     assert!(app.input().is_none());
     match commands {
@@ -647,7 +746,7 @@ fn gs_searches_then_enter_opens_a_result() {
 
     let open = handle_key(&mut app, press(KeyCode::Enter));
 
-    assert!(app.focus.is_detail());
+    assert!(matches!(app.focus, Focus::Detail(..)));
     assert!(app.search().is_none());
     match open {
         Some(Command::LoadDetail { id, .. }) if id == "i9" => {}
@@ -673,7 +772,7 @@ fn esc_from_a_search_result_returns_to_the_results() {
     );
 
     handle_key(&mut app, press(KeyCode::Enter));
-    assert!(app.focus.is_detail());
+    assert!(matches!(app.focus, Focus::Detail(..)));
     assert!(app.search().is_none());
 
     handle_key(&mut app, press(KeyCode::Esc));
@@ -729,7 +828,10 @@ fn opening_a_detail_keeps_the_source_panel_expanded() {
 
     handle_key(&mut app, press(KeyCode::Enter));
 
-    assert_eq!(app.focus, Focus::Detail(LeftPanel::MyWork));
+    assert_eq!(
+        app.focus,
+        Focus::Detail(LeftPanel::MyWork, DetailView::Reading)
+    );
 }
 
 #[test]
@@ -748,7 +850,10 @@ fn opening_from_recently_viewed_keeps_that_panel_expanded() {
 
     handle_key(&mut app, press(KeyCode::Enter));
 
-    assert_eq!(app.focus, Focus::Detail(LeftPanel::Recent));
+    assert_eq!(
+        app.focus,
+        Focus::Detail(LeftPanel::Recent, DetailView::Reading)
+    );
 }
 
 #[test]
@@ -768,7 +873,7 @@ fn tab_and_shift_tab_walk_history_in_the_detail_pane() {
             reveal: Reveal::Top,
         },
     );
-    app.focus = Focus::Detail(LeftPanel::MyWork);
+    app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
 
     let back = handle_key(&mut app, press(KeyCode::BackTab));
     match back {
@@ -900,7 +1005,7 @@ fn enter_on_recently_viewed_reopens_the_issue() {
 
     let commands = handle_key(&mut app, press(KeyCode::Enter));
 
-    assert!(app.focus.is_detail());
+    assert!(matches!(app.focus, Focus::Detail(..)));
     match commands {
         Some(Command::LoadDetail { id, .. }) if id == "i1" => {}
         other => panic!("expected LoadDetail(i1), got {other:?}"),
@@ -929,7 +1034,7 @@ fn list_app_with_issues() -> App {
 
 fn detail_app() -> App {
     let mut app = list_app_with_issue();
-    app.focus = Focus::Detail(LeftPanel::MyWork);
+    app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
     app.detail = Some(sample_detail("i1", "DAN2-7"));
     app
 }
@@ -970,4 +1075,26 @@ fn sample_detail(id: &str, identifier: &str) -> linear_tui::api::IssueDetail {
         branch_name: format!("dan/{}", identifier.to_lowercase()),
         team_id: "t_pizza".into(),
     }
+}
+
+fn comment(id: &str, parent: Option<&str>, body: &str) -> linear_tui::api::Comment {
+    linear_tui::api::Comment {
+        id: id.into(),
+        parent_id: parent.map(|p| p.into()),
+        author: Some("dan".into()),
+        body: body.into(),
+        created_at: linear_tui::api::Timestamp::from("2026-07-16T09:00:00Z"),
+    }
+}
+
+fn detail_app_with_comments() -> App {
+    let mut app = detail_app();
+    if let Some(detail) = app.detail.as_mut() {
+        detail.comments = vec![
+            comment("c1", None, "root comment"),
+            comment("c1a", Some("c1"), "a reply"),
+            comment("c2", None, "another root"),
+        ];
+    }
+    app
 }

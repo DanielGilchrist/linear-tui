@@ -1,6 +1,6 @@
 use ratatui::widgets::{ListState, ScrollbarState};
 
-use super::focus::{Focus, LeftPanel, Nav};
+use super::focus::{DetailView, Focus, LeftPanel, Nav};
 use super::overlay::{Confirm, Editor, Find, Input, Menu, Overlay, Picker, Prefix, Search};
 use super::spinner::Spinner;
 use super::status::Status;
@@ -66,6 +66,7 @@ pub struct App {
     pub list_state: ListState,
     pub recently_viewed: Vec<IssueSummary>,
     pub recent_state: ListState,
+    pub comment_state: ListState,
     pub stubs: Vec<StubPanel>,
     pub detail: Option<IssueDetail>,
     pub detail_loading: bool,
@@ -101,6 +102,7 @@ impl App {
             issues: Vec::new(),
             notifications: Vec::new(),
             list_state: ListState::default().with_selected(Some(0)),
+            comment_state: ListState::default().with_selected(Some(0)),
             recently_viewed: Vec::new(),
             recent_state: ListState::default().with_selected(Some(0)),
             stubs: vec![
@@ -215,6 +217,12 @@ impl App {
         }
     }
 
+    pub fn has_comments(&self) -> bool {
+        self.detail
+            .as_ref()
+            .is_some_and(|detail| !detail.comments.is_empty())
+    }
+
     pub fn panels(&self) -> Vec<LeftPanel> {
         let mut panels = vec![LeftPanel::MyWork, LeftPanel::Recent];
         panels.extend((0..self.stubs.len()).map(LeftPanel::Stub));
@@ -234,7 +242,7 @@ impl App {
             Focus::MyWork => self.main_len(),
             Focus::Recent => self.recently_viewed.len(),
             Focus::Stub(index) => self.stubs[index].items.len(),
-            Focus::Detail(_) => 0,
+            Focus::Detail(..) => 0,
         }
     }
 
@@ -247,17 +255,29 @@ impl App {
             Focus::MyWork => Some(&mut self.list_state),
             Focus::Recent => Some(&mut self.recent_state),
             Focus::Stub(index) => Some(&mut self.stubs[index].state),
-            Focus::Detail(_) => None,
+            Focus::Detail(..) => None,
         }
     }
 
     pub fn nav(&mut self) -> Nav<'_> {
         let viewport = self.viewport;
         match self.focus {
-            Focus::Detail(_) => Nav::Scroll {
+            Focus::Detail(_, DetailView::Reading) => Nav::Scroll {
                 position: &mut self.scroll_position,
                 viewport,
             },
+            Focus::Detail(_, DetailView::Comments) => {
+                let len = self
+                    .detail
+                    .as_ref()
+                    .map_or(0, |detail| detail.comments.len());
+
+                Nav::List {
+                    state: &mut self.comment_state,
+                    len,
+                    viewport,
+                }
+            }
             Focus::MyWork => {
                 let len = self.main_len();
                 Nav::List {
@@ -290,7 +310,7 @@ impl App {
             Focus::MyWork => self.list_state.selected(),
             Focus::Recent => self.recent_state.selected(),
             Focus::Stub(index) => self.stubs[index].state.selected(),
-            Focus::Detail(_) => None,
+            Focus::Detail(..) => None,
         }
     }
 
@@ -325,7 +345,7 @@ impl App {
             },
             Focus::Recent => self.recently_viewed.iter().map(issue_search_text).collect(),
             Focus::Stub(index) => self.stubs[index].items.clone(),
-            Focus::Detail(_) => Vec::new(),
+            Focus::Detail(..) => Vec::new(),
         }
     }
 
@@ -343,7 +363,7 @@ impl App {
         match self.focus {
             Focus::MyWork => self.selected_issue().map(FocusedIssue::from_summary),
             Focus::Recent => self.selected_recent().map(FocusedIssue::from_summary),
-            Focus::Detail(_) => self
+            Focus::Detail(..) => self
                 .detail
                 .as_ref()
                 .map(FocusedIssue::from_detail)
@@ -354,7 +374,7 @@ impl App {
 
     pub fn action_target(&self) -> Option<FocusedIssue> {
         match self.focus {
-            Focus::Detail(_) => self.detail.as_ref().map(FocusedIssue::from_detail),
+            Focus::Detail(..) => self.detail.as_ref().map(FocusedIssue::from_detail),
             Focus::MyWork | Focus::Recent | Focus::Stub(_) => None,
         }
     }
