@@ -1,73 +1,119 @@
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::widgets::{ListState, ScrollbarState};
 
 use super::action::{Action, ConfirmInput, PickerInput};
 use super::app::{
-    App, Confirm, Focus, FocusedIssue, Overlay, Picker, PickerKind, ViewKind, SCROLL_STEP,
+    App, Confirm, Focus, FocusedIssue, Menu, Overlay, Picker, PickerKind, ViewKind, SCROLL_STEP,
 };
 use super::message::{Command, Message};
 use crate::api::IssueUpdate;
 
-pub fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Command> {
+pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Command> {
     if super::action::is_quit(&key) {
         app.should_quit = true;
-        return vec![];
+        return None;
     }
 
     match std::mem::take(&mut app.overlay) {
         Overlay::Confirm(confirm) => apply_confirm(app, confirm, ConfirmInput::from_key(key)),
         Overlay::Picker(picker) => apply_picker(app, picker, PickerInput::from_key(key)),
-        Overlay::None => match Action::from_key(key) {
-            Some(action) => apply_action(app, action),
-            None => vec![],
-        },
+        Overlay::Menu(menu) => apply_menu(app, menu, key),
+        Overlay::None => Action::from_key(key).and_then(|action| apply_action(app, action)),
     }
 }
 
-fn apply_action(app: &mut App, action: Action) -> Vec<Command> {
+fn apply_menu(app: &mut App, mut menu: Menu, key: KeyEvent) -> Option<Command> {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => None,
+        KeyCode::Char('j') | KeyCode::Down => {
+            menu.move_selection(true);
+            app.overlay = Overlay::Menu(menu);
+            None
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            menu.move_selection(false);
+            app.overlay = Overlay::Menu(menu);
+            None
+        }
+        KeyCode::Tab => {
+            menu.jump_section(true);
+            app.overlay = Overlay::Menu(menu);
+            None
+        }
+        KeyCode::BackTab => {
+            menu.jump_section(false);
+            app.overlay = Overlay::Menu(menu);
+            None
+        }
+        KeyCode::Enter => match menu.selected_action() {
+            Some(action) => apply_action(app, action),
+            None => {
+                app.overlay = Overlay::Menu(menu);
+                None
+            }
+        },
+        _ => {
+            app.overlay = Overlay::Menu(menu);
+            None
+        }
+    }
+}
+
+fn open_menu(app: &mut App) {
+    app.overlay = Overlay::Menu(Menu::for_focus(app.focus));
+}
+
+fn apply_action(app: &mut App, action: Action) -> Option<Command> {
     match action {
         Action::Quit => {
             app.should_quit = true;
-            vec![]
+            None
         }
         Action::NextPanel => {
             cycle_panel(app, true);
-            vec![]
+            None
         }
         Action::PrevPanel => {
             cycle_panel(app, false);
-            vec![]
+            None
         }
-        Action::Descend => descend(app).into_iter().collect(),
+        Action::Descend => descend(app),
         Action::Ascend => {
             ascend(app);
-            vec![]
+            None
         }
         Action::SelectNext => {
             move_selection(app, true);
-            vec![]
+            None
         }
         Action::SelectPrev => {
             move_selection(app, false);
-            vec![]
+            None
         }
-        Action::NextView => cycle_view(app, true).into_iter().collect(),
-        Action::PrevView => cycle_view(app, false).into_iter().collect(),
+        Action::NextView => cycle_view(app, true),
+        Action::PrevView => cycle_view(app, false),
         Action::JumpToPanel(index) => {
             jump_panel(app, index);
-            vec![]
+            None
         }
-        Action::Reload => vec![reload(app)],
-        Action::OpenInBrowser => open_in_browser(app).into_iter().collect(),
-        Action::YankUrl => yank_url(app).into_iter().collect(),
-        Action::SetStatus => open_status_picker(app).into_iter().collect(),
-        Action::Assign => open_assign_picker(app).into_iter().collect(),
+        Action::Reload => Some(reload(app)),
+        Action::OpenInBrowser => open_in_browser(app),
+        Action::YankUrl => yank_url(app),
+        Action::SetStatus => open_status_picker(app),
+        Action::Assign => open_assign_picker(app),
+        Action::Help => {
+            open_menu(app);
+            None
+        }
     }
 }
 
-pub fn apply(app: &mut App, msg: Message) -> Vec<Command> {
+pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
     match msg {
-        Message::SessionLoaded(session) => app.session = Some(session),
+        Message::SessionLoaded(session) => {
+            app.session = Some(session);
+            None
+        }
         Message::IssuesLoaded { view, issues } => {
             if view == app.active_view_index() {
                 app.issues = issues;
@@ -75,6 +121,7 @@ pub fn apply(app: &mut App, msg: Message) -> Vec<Command> {
                 app.status = None;
                 clamp_selection(&mut app.list_state, app.issues.len());
             }
+            None
         }
         Message::InboxLoaded { view, items } => {
             if view == app.active_view_index() {
@@ -83,6 +130,7 @@ pub fn apply(app: &mut App, msg: Message) -> Vec<Command> {
                 app.status = None;
                 clamp_selection(&mut app.list_state, app.notifications.len());
             }
+            None
         }
         Message::DetailLoaded(detail) => {
             app.detail = Some(*detail);
@@ -90,32 +138,38 @@ pub fn apply(app: &mut App, msg: Message) -> Vec<Command> {
             app.status = None;
             app.scroll_position = 0;
             app.scroll_state = ScrollbarState::default();
+            None
         }
         Message::PickerLoaded(items) => {
-            if let Some(picker) = app.picker_mut() {
+            if let Overlay::Picker(picker) = &mut app.overlay {
                 picker.items = items;
                 picker.loading = false;
                 picker.state.select(Some(0));
             }
+            None
         }
         Message::IssueUpdated { id } => {
             app.loading = false;
             app.status = Some("Issue updated".into());
-            let mut commands = vec![load_active_command(app)];
+            let reload = load_active_command(app);
             if app.focus == Focus::Detail {
                 app.detail_loading = true;
-                commands.push(Command::LoadDetail(id));
+                Some(Command::Batch(vec![reload, Command::LoadDetail(id)]))
+            } else {
+                Some(reload)
             }
-            return commands;
         }
-        Message::Status(message) => app.status = Some(message),
+        Message::Status(message) => {
+            app.status = Some(message);
+            None
+        }
         Message::Failed(error) => {
             app.loading = false;
             app.detail_loading = false;
             app.status = Some(error);
+            None
         }
     }
-    vec![]
 }
 
 pub fn initial_commands(app: &App) -> Vec<Command> {
@@ -281,51 +335,51 @@ fn require<T>(app: &mut App, target: Option<T>, message: &str) -> Option<T> {
     target
 }
 
-fn apply_confirm(app: &mut App, confirm: Confirm, input: Option<ConfirmInput>) -> Vec<Command> {
+fn apply_confirm(app: &mut App, confirm: Confirm, input: Option<ConfirmInput>) -> Option<Command> {
     match input {
         Some(ConfirmInput::Accept) => {
             app.loading = true;
             app.status = Some("Applying…".into());
-            vec![confirm.command]
+            Some(confirm.command)
         }
         Some(ConfirmInput::Reject) => {
             app.status = Some("Cancelled".into());
-            vec![]
+            None
         }
         None => {
             app.overlay = Overlay::Confirm(confirm);
-            vec![]
+            None
         }
     }
 }
 
-fn apply_picker(app: &mut App, mut picker: Picker, input: Option<PickerInput>) -> Vec<Command> {
+fn apply_picker(app: &mut App, mut picker: Picker, input: Option<PickerInput>) -> Option<Command> {
     match input {
         Some(PickerInput::Next) => {
             let len = picker.items.len();
             navigate_list(&mut picker.state, len, true);
             app.overlay = Overlay::Picker(picker);
-            vec![]
+            None
         }
         Some(PickerInput::Prev) => {
             let len = picker.items.len();
             navigate_list(&mut picker.state, len, false);
             app.overlay = Overlay::Picker(picker);
-            vec![]
+            None
         }
         Some(PickerInput::Accept) => confirm_picker(app, picker),
-        Some(PickerInput::Cancel) => vec![],
+        Some(PickerInput::Cancel) => None,
         None => {
             app.overlay = Overlay::Picker(picker);
-            vec![]
+            None
         }
     }
 }
 
-fn confirm_picker(app: &mut App, picker: Picker) -> Vec<Command> {
+fn confirm_picker(app: &mut App, picker: Picker) -> Option<Command> {
     let Some(item) = picker.selected() else {
         app.overlay = Overlay::Picker(picker);
-        return vec![];
+        return None;
     };
 
     let (update, message) = match picker.kind {
@@ -352,7 +406,7 @@ fn confirm_picker(app: &mut App, picker: Picker) -> Vec<Command> {
             update,
         },
     });
-    vec![]
+    None
 }
 
 fn navigate_list(state: &mut ListState, len: usize, forward: bool) {

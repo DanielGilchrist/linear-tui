@@ -1,7 +1,10 @@
 use ratatui::widgets::{ListState, ScrollbarState};
 
+use super::action::{self, Action};
 use super::message::Command;
-use crate::api::{IssueDetail, IssueFilter, IssueSummary, NotificationItem, Session, StateOption, User};
+use crate::api::{
+    IssueDetail, IssueFilter, IssueSummary, NotificationItem, Session, StateOption, User,
+};
 
 #[derive(Debug, Clone)]
 pub enum ViewKind {
@@ -83,7 +86,11 @@ impl From<StateOption> for PickerItem {
 impl From<User> for PickerItem {
     fn from(user: User) -> Self {
         Self {
-            hint: if user.is_me { "you".into() } else { String::new() },
+            hint: if user.is_me {
+                "you".into()
+            } else {
+                String::new()
+            },
             id: user.id,
             label: user.display_name,
         }
@@ -117,12 +124,123 @@ pub struct Confirm {
     pub command: Command,
 }
 
+pub enum MenuRow {
+    Header(&'static str),
+    Item {
+        action: Action,
+        keys: String,
+        label: &'static str,
+    },
+}
+
+pub struct Menu {
+    pub rows: Vec<MenuRow>,
+    pub state: ListState,
+}
+
+impl Menu {
+    pub fn new(rows: Vec<MenuRow>) -> Self {
+        let first = rows
+            .iter()
+            .position(|row| matches!(row, MenuRow::Item { .. }));
+
+        Self {
+            rows,
+            state: ListState::default().with_selected(first),
+        }
+    }
+
+    pub fn for_focus(focus: Focus) -> Self {
+        let local = match focus {
+            Focus::MyWork => action::MY_WORK_MENU,
+            Focus::Detail => action::DETAIL_MENU,
+            Focus::Stub(_) => action::STUB_MENU,
+        };
+
+        let mut rows = vec![MenuRow::Header("Local")];
+        Self::push_items(&mut rows, local);
+        rows.push(MenuRow::Header("Global"));
+        Self::push_items(&mut rows, action::GLOBAL_MENU);
+
+        Menu::new(rows)
+    }
+
+    fn push_items(rows: &mut Vec<MenuRow>, actions: &[Action]) {
+        for &action in actions {
+            if let Some((keys, label)) = action::BROWSE.describe(action) {
+                rows.push(MenuRow::Item { action, keys, label });
+            }
+        }
+    }
+
+    pub fn selected_action(&self) -> Option<Action> {
+        match self.rows.get(self.state.selected()?)? {
+            MenuRow::Item { action, .. } => Some(*action),
+            MenuRow::Header(_) => None,
+        }
+    }
+
+    pub fn move_selection(&mut self, forward: bool) {
+        let items: Vec<usize> = self
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| matches!(row, MenuRow::Item { .. }))
+            .map(|(index, _)| index)
+            .collect();
+
+        if items.is_empty() {
+            return;
+        }
+
+        let current = self.state.selected().unwrap_or(items[0]);
+        let position = items.iter().position(|&i| i == current).unwrap_or(0);
+
+        let next = if forward {
+            (position + 1) % items.len()
+        } else {
+            (position + items.len() - 1) % items.len()
+        };
+
+        self.state.select(Some(items[next]));
+    }
+
+    pub fn jump_section(&mut self, forward: bool) {
+        let headers: Vec<usize> = self
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| matches!(row, MenuRow::Header(_)))
+            .map(|(index, _)| index)
+            .collect();
+
+        if headers.is_empty() {
+            return;
+        }
+
+        let current = self.state.selected().unwrap_or(0);
+        let section = headers.iter().rposition(|&h| h <= current).unwrap_or(0);
+        let target = if forward {
+            (section + 1) % headers.len()
+        } else {
+            (section + headers.len() - 1) % headers.len()
+        };
+
+        let first_item = (headers[target] + 1..self.rows.len())
+            .find(|&index| matches!(self.rows[index], MenuRow::Item { .. }));
+        if let Some(index) = first_item {
+            self.state.select(Some(index));
+        }
+    }
+}
+
 #[derive(Default)]
 pub enum Overlay {
     #[default]
     None,
     Picker(Picker),
     Confirm(Confirm),
+    Menu(Menu),
 }
 
 pub struct FocusedIssue {
@@ -221,16 +339,16 @@ impl App {
         }
     }
 
-    pub fn picker_mut(&mut self) -> Option<&mut Picker> {
-        match &mut self.overlay {
-            Overlay::Picker(picker) => Some(picker),
+    pub fn confirm(&self) -> Option<&Confirm> {
+        match &self.overlay {
+            Overlay::Confirm(confirm) => Some(confirm),
             _ => None,
         }
     }
 
-    pub fn confirm(&self) -> Option<&Confirm> {
+    pub fn menu(&self) -> Option<&Menu> {
         match &self.overlay {
-            Overlay::Confirm(confirm) => Some(confirm),
+            Overlay::Menu(menu) => Some(menu),
             _ => None,
         }
     }
@@ -276,6 +394,20 @@ impl App {
             Focus::MyWork
         } else {
             Focus::Stub(index - 1)
+        }
+    }
+
+    pub fn expanded_panel(&self) -> usize {
+        match self.focus {
+            Focus::Stub(index) => index + 1,
+            _ => 0,
+        }
+    }
+
+    pub fn panel_len(&self, index: usize) -> usize {
+        match index {
+            0 => self.main_len(),
+            _ => self.stubs[index - 1].items.len(),
         }
     }
 

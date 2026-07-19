@@ -32,4 +32,5 @@ pub enum Command {
     UpdateIssue { id: String, update: IssueUpdate },
     OpenUrl(String),
     CopyToClipboard(String),
+    Batch(Vec<Command>),
 }

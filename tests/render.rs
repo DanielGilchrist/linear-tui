@@ -60,6 +60,21 @@ async fn loading_placeholder() {
 }
 
 #[tokio::test]
+async fn stub_panel_focused_expands() {
+    let client = FixtureClient::sample();
+    let mut app = home_app(&client, 0).await;
+    app.focus = Focus::Stub(0);
+    insta::assert_snapshot!(render_to_string(&mut app, 84, 24));
+}
+
+#[tokio::test]
+async fn help_overlay() {
+    let mut app = App::new();
+    handle_key(&mut app, KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+    insta::assert_snapshot!(render_to_string(&mut app, 84, 24));
+}
+
+#[tokio::test]
 async fn status_picker_overlay() {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await;
