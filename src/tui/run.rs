@@ -51,6 +51,7 @@ pub async fn run(
                 }
             }
             _ = ticker.tick() => {
+                app.now = super::app::now_epoch();
                 if app.loading {
                     app.spinner.tick();
                 }

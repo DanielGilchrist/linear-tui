@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -15,7 +17,7 @@ use super::markdown;
 use super::overlay::{Confirm, Input, Menu, MenuRow, Overlay, Picker, PrefixUnder, Search};
 use super::spinner::Spinner;
 use super::view::{View, ViewKind};
-use crate::api::{IssueDetail, IssueSummary, NotificationItem, Priority, Rgb, StateType};
+use crate::api::{Comment, IssueDetail, IssueSummary, NotificationItem, Priority, Rgb, StateType};
 
 const LEFT_PCT: u16 = 38;
 const COLLAPSED_PEEK: usize = 2;
@@ -70,7 +72,7 @@ fn render_prefix(keymap: &action::Keymap<action::Action>, title: &str, frame: &m
         })
         .collect();
 
-    let area = layout::centered_rect_fixed(frame.area(), 30, items.len() as u16 + 2);
+    let area = layout::centred_rect_fixed(frame.area(), 30, items.len() as u16 + 2);
     frame.render_widget(Clear, area);
 
     StyledList::new(title)
@@ -82,7 +84,7 @@ fn render_prefix(keymap: &action::Keymap<action::Action>, title: &str, frame: &m
 fn render_input(input: &Input, frame: &mut Frame) {
     use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-    let area = layout::centered_rect_fixed(frame.area(), 60, 3);
+    let area = layout::centred_rect_fixed(frame.area(), 60, 3);
     frame.render_widget(Clear, area);
 
     let block = Block::default()
@@ -113,7 +115,7 @@ fn input_line(input: &Input) -> Line<'static> {
 fn render_search(search: &mut Search, spinner: Spinner, frame: &mut Frame) {
     use ratatui::widgets::Clear;
 
-    let area = layout::centered_rect(frame.area(), 60, 60);
+    let area = layout::centred_rect(frame.area(), 60, 60);
     frame.render_widget(Clear, area);
 
     let items: Vec<ListItem> = search
@@ -160,7 +162,7 @@ fn render_search(search: &mut Search, spinner: Spinner, frame: &mut Frame) {
 fn render_menu(menu: &mut Menu, frame: &mut Frame) {
     use ratatui::widgets::Clear;
 
-    let area = layout::centered_rect(frame.area(), 44, 70);
+    let area = layout::centred_rect(frame.area(), 44, 70);
     let items = menu_items(menu);
 
     frame.render_widget(Clear, area);
@@ -206,7 +208,7 @@ fn menu_items(menu: &Menu) -> Vec<ListItem<'static>> {
 fn render_confirm(confirm: &Confirm, frame: &mut Frame) {
     use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
-    let area = layout::centered_rect_fixed(frame.area(), 50, 6);
+    let area = layout::centred_rect_fixed(frame.area(), 50, 6);
     frame.render_widget(Clear, area);
 
     let block = Block::default()
@@ -232,7 +234,7 @@ fn render_confirm(confirm: &Confirm, frame: &mut Frame) {
 fn render_picker(picker: &mut Picker, spinner: Spinner, frame: &mut Frame) {
     use ratatui::widgets::Clear;
 
-    let area = layout::centered_rect(frame.area(), 44, 55);
+    let area = layout::centred_rect(frame.area(), 44, 55);
     frame.render_widget(Clear, area);
 
     let items: Vec<ListItem> = picker
@@ -497,7 +499,8 @@ fn render_detail_if_loaded(app: &mut App, frame: &mut Frame, area: Rect, border:
     let Some(detail) = app.detail.as_ref() else {
         return false;
     };
-    let content = detail_text(detail);
+
+    let content = detail_text(detail, app.now);
     let title = detail.identifier.clone();
     let clamped = {
         let mut scrollable =
@@ -859,7 +862,7 @@ fn notification_items(notifications: &[NotificationItem]) -> Vec<ListItem<'stati
         .collect()
 }
 
-fn detail_text(detail: &IssueDetail) -> Text<'static> {
+fn detail_text(detail: &IssueDetail, now: i64) -> Text<'static> {
     let mut lines: Vec<Line> = Vec::new();
 
     lines.push(Line::from(vec![
@@ -915,21 +918,94 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
             format!("Comments ({})", detail.comments.len()),
             Style::default().fg(Color::Yellow),
         )));
+
         lines.push(Line::from(""));
-        for comment in &detail.comments {
-            let author = comment.author.clone().unwrap_or_else(|| "unknown".into());
-            lines.push(Line::from(Span::styled(
-                author,
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            lines.extend(markdown::render(&comment.body, Style::default()));
-            lines.push(Line::from(""));
-        }
+
+        append_comments(&mut lines, &detail.comments, now);
     }
 
     Text::from(lines)
+}
+
+fn append_comments(lines: &mut Vec<Line<'static>>, comments: &[Comment], now: i64) {
+    let known: HashSet<&str> = comments
+        .iter()
+        .map(|comment| comment.id.as_str())
+        .filter(|id| !id.is_empty())
+        .collect();
+
+    let mut children: HashMap<&str, Vec<&Comment>> = HashMap::new();
+    let mut roots: Vec<&Comment> = Vec::new();
+
+    for comment in comments {
+        match &comment.parent_id {
+            Some(parent) if known.contains(parent.as_str()) => {
+                children.entry(parent.as_str()).or_default().push(comment);
+            }
+            _ => roots.push(comment),
+        }
+    }
+
+    let by_time = |a: &&Comment, b: &&Comment| a.created_at.epoch().cmp(&b.created_at.epoch());
+
+    roots.sort_by(by_time);
+
+    for replies in children.values_mut() {
+        replies.sort_by(by_time);
+    }
+
+    for root in roots {
+        append_comment(lines, root, 0, &children, now);
+    }
+}
+
+fn append_comment(
+    lines: &mut Vec<Line<'static>>,
+    comment: &Comment,
+    depth: usize,
+    children: &HashMap<&str, Vec<&Comment>>,
+    now: i64,
+) {
+    let indent = "  ".repeat(depth);
+    let body_indent = "  ".repeat(depth + 1);
+
+    let mut header: Vec<Span<'static>> = Vec::new();
+
+    if depth > 0 {
+        header.push(Span::styled(
+            format!("{indent}└ "),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+
+    header.push(Span::styled(
+        comment.author.clone().unwrap_or_else(|| "unknown".into()),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    ));
+
+    header.push(Span::styled(
+        format!(" · {}", comment.created_at.humanise(now)),
+        Style::default().fg(Color::DarkGray),
+    ));
+
+    lines.push(Line::from(header));
+
+    for line in markdown::render(&comment.body, Style::default()) {
+        let mut spans = vec![Span::raw(body_indent.clone())];
+        spans.extend(line.spans);
+
+        lines.push(Line::from(spans));
+    }
+
+    lines.push(Line::from(""));
+
+    if let Some(replies) = children.get(comment.id.as_str()) {
+        for reply in replies {
+            append_comment(lines, reply, depth + 1, children, now);
+        }
+    }
 }
 
 fn priority_indicator(priority: Priority) -> (&'static str, Color) {
@@ -946,7 +1022,7 @@ fn state_type_color(state_type: StateType) -> Color {
     match state_type {
         StateType::Started => Color::Yellow,
         StateType::Completed => Color::Green,
-        StateType::Canceled => Color::Red,
+        StateType::Cancelled => Color::Red,
         StateType::Triage => Color::Magenta,
         StateType::Backlog => Color::DarkGray,
         StateType::Unstarted => Color::Gray,

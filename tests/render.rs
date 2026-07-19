@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
-use linear_tui::api::LinearApi;
+use linear_tui::api::{LinearApi, Timestamp};
 use linear_tui::tui::app::App;
 use linear_tui::tui::focus::{Focus, LeftPanel};
 use linear_tui::tui::message::Message;
@@ -11,6 +11,7 @@ use linear_tui::tui::view::ViewKind;
 
 async fn home_app(client: &FixtureClient, view: usize) -> App {
     let mut app = App::new();
+    app.now = Timestamp::from("2026-07-16T21:00:00Z").epoch();
     app.session = client.session().await.ok();
     app.view_state.select(Some(view));
     match &app.active_view().kind {
@@ -53,6 +54,13 @@ async fn issue_detail() {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await;
     insta::assert_snapshot!(render_to_string(&mut app, 110, 26));
+}
+
+#[tokio::test]
+async fn threaded_comments_and_timestamps() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+    insta::assert_snapshot!(render_to_string(&mut app, 90, 46));
 }
 
 #[tokio::test]

@@ -27,7 +27,8 @@ pub enum StateType {
     Unstarted,
     Started,
     Completed,
-    Canceled,
+    #[serde(rename = "canceled")]
+    Cancelled,
 }
 
 impl StateType {
@@ -37,7 +38,7 @@ impl StateType {
             "unstarted" => StateType::Unstarted,
             "started" => StateType::Started,
             "completed" => StateType::Completed,
-            "canceled" | "cancelled" => StateType::Canceled,
+            "canceled" | "cancelled" => StateType::Cancelled,
             _ => StateType::Backlog,
         }
     }
@@ -49,7 +50,7 @@ impl StateType {
             StateType::Unstarted => "unstarted",
             StateType::Started => "started",
             StateType::Completed => "completed",
-            StateType::Canceled => "canceled",
+            StateType::Cancelled => "canceled",
         }
     }
 }
@@ -192,13 +193,85 @@ impl IssueSummary {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(from = "String", into = "String")]
+pub struct Timestamp(i64);
+
+impl Timestamp {
+    pub fn epoch(self) -> i64 {
+        self.0
+    }
+
+    pub fn humanise(self, now: i64) -> String {
+        let seconds = now - self.0;
+
+        if seconds < 60 {
+            return "just now".into();
+        }
+
+        let minutes = seconds / 60;
+
+        if minutes < 60 {
+            return format!("{minutes}m ago");
+        }
+
+        let hours = minutes / 60;
+
+        if hours < 24 {
+            return format!("{hours}h ago");
+        }
+
+        let days = hours / 24;
+
+        if days < 7 {
+            return format!("{days}d ago");
+        }
+
+        if days < 30 {
+            return format!("{}w ago", days / 7);
+        }
+
+        chrono::DateTime::from_timestamp(self.0, 0)
+            .map(|dt| dt.format("%b %-d, %Y").to_string())
+            .unwrap_or_default()
+    }
+}
+
+impl From<&str> for Timestamp {
+    fn from(raw: &str) -> Self {
+        let epoch = chrono::DateTime::parse_from_rfc3339(raw)
+            .map(|dt| dt.timestamp())
+            .unwrap_or(0);
+
+        Self(epoch)
+    }
+}
+
+impl From<String> for Timestamp {
+    fn from(raw: String) -> Self {
+        raw.as_str().into()
+    }
+}
+
+impl From<Timestamp> for String {
+    fn from(timestamp: Timestamp) -> Self {
+        chrono::DateTime::from_timestamp(timestamp.0, 0)
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_default()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Comment {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub parent_id: Option<String>,
     #[serde(default)]
     pub author: Option<String>,
     pub body: String,
     #[serde(default)]
-    pub created_at: String,
+    pub created_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -268,7 +341,7 @@ impl IssueFilter {
     pub fn assigned_to_me() -> Self {
         Self {
             assigned_to_me: true,
-            state_types_nin: vec![StateType::Completed, StateType::Canceled],
+            state_types_nin: vec![StateType::Completed, StateType::Cancelled],
             ..Default::default()
         }
     }

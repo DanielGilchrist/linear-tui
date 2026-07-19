@@ -8,7 +8,7 @@ pub fn split_horizontal(area: Rect, left_pct: u16) -> [Rect; 2] {
     .areas(area)
 }
 
-pub fn centered_rect(area: Rect, width_pct: u16, height_pct: u16) -> Rect {
+pub fn centred_rect(area: Rect, width_pct: u16, height_pct: u16) -> Rect {
     let [_, row, _] = Layout::vertical([
         Constraint::Percentage((100 - height_pct) / 2),
         Constraint::Percentage(height_pct),
@@ -16,17 +16,17 @@ pub fn centered_rect(area: Rect, width_pct: u16, height_pct: u16) -> Rect {
     ])
     .areas(area);
 
-    let [_, center, _] = Layout::horizontal([
+    let [_, centre, _] = Layout::horizontal([
         Constraint::Percentage((100 - width_pct) / 2),
         Constraint::Percentage(width_pct),
         Constraint::Percentage((100 - width_pct) / 2),
     ])
     .areas(row);
 
-    center
+    centre
 }
 
-pub fn centered_rect_fixed(area: Rect, width_pct: u16, height: u16) -> Rect {
+pub fn centred_rect_fixed(area: Rect, width_pct: u16, height: u16) -> Rect {
     let width = area.width * width_pct / 100;
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
