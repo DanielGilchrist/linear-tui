@@ -57,7 +57,7 @@ impl<'a> ScrollableText<'a> {
 
         let paragraph = Paragraph::new(self.content.clone())
             .block(block)
-            .wrap(Wrap { trim: true })
+            .wrap(Wrap { trim: false })
             .scroll((self.scroll_position as u16, 0));
 
         frame.render_widget(paragraph, area);

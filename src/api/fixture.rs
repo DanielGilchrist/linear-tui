@@ -276,7 +276,30 @@ fn sample_fixture() -> Fixture {
         identifier: "DAN2-7".into(),
         title: Some("Wood-fired oven runs 40°C too hot on Friday nights".into()),
         description: Some(
-            "During the Friday rush the stone oven creeps past 480°C and bases scorch before the cheese melts.\n\nExpected: steady 430°C. Actual: 470-480°C. Suspect the flue damper is sticking open.".into(),
+            r#"## Symptoms
+
+During the Friday rush the stone oven creeps past **480°C** and bases scorch before the cheese melts.
+
+- Expected: steady `430°C`
+- Actual: `470-480°C`
+- Suspect the flue damper is sticking open
+
+### Checklist
+
+- [x] Swap the thermocouple
+- [ ] Inspect the flue damper
+- [ ] Recalibrate the PID loop
+
+> Damper was replaced 6 months ago, should still be under warranty.
+
+See the [vendor runbook](https://example.com/runbook) for the reset steps:
+
+```
+sudo oven-ctl --reset-pid
+oven-ctl --set-target 430
+```
+"#
+            .into(),
         ),
         url: "https://linear.app/dans-donuts/issue/DAN2-7/wood-fired-oven-runs-too-hot".into(),
         state: state("In Progress", StateType::Started),
@@ -289,7 +312,7 @@ fn sample_fixture() -> Fixture {
         comments: vec![
             Comment {
                 author: Some("dan".into()),
-                body: "Swapped the thermocouple this morning. Will watch it tonight.".into(),
+                body: "Swapped the thermocouple this morning. Readings so far:\n\n1. 6pm - `445°C`\n2. 7pm - `462°C`".into(),
                 created_at: "2026-07-16T09:24:00Z".into(),
             },
             Comment {

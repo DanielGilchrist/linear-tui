@@ -4,6 +4,7 @@ pub mod components;
 pub mod focus;
 pub mod issue_ref;
 pub mod layout;
+pub mod markdown;
 pub mod message;
 pub mod overlay;
 pub mod platform;
