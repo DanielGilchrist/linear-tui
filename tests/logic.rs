@@ -29,10 +29,51 @@ fn bracket_cycles_to_next_view_and_requests_load() {
     assert_eq!(app.active_view_index(), 1);
     assert_eq!(app.focus, Focus::MyWork);
     assert!(app.loading);
-    match commands.as_slice() {
-        [Command::LoadIssues { view: 1, .. }] => {}
+    match commands {
+        Some(Command::LoadIssues { view: 1, .. }) => {}
         other => panic!("expected LoadIssues for view 1, got {other:?}"),
     }
+}
+
+#[test]
+fn question_mark_toggles_the_menu_overlay() {
+    let mut app = App::new();
+
+    handle_key(&mut app, press(KeyCode::Char('?')));
+    assert!(app.menu().is_some());
+
+    handle_key(&mut app, press(KeyCode::Esc));
+    assert!(app.menu().is_none());
+}
+
+#[test]
+fn menu_enter_runs_the_selected_action() {
+    let mut app = detail_app();
+
+    handle_key(&mut app, press(KeyCode::Char('?')));
+    assert!(app.menu().is_some());
+
+    let commands = handle_key(&mut app, press(KeyCode::Enter));
+
+    assert!(app.menu().is_none());
+    match commands {
+        Some(Command::LoadStates { .. }) => {}
+        other => panic!("expected the first Detail action (status) to run, got {other:?}"),
+    }
+}
+
+#[test]
+fn tab_in_menu_jumps_between_sections() {
+    let mut app = detail_app();
+    handle_key(&mut app, press(KeyCode::Char('?')));
+
+    let first = app.menu().and_then(|m| m.selected_action());
+    handle_key(&mut app, press(KeyCode::Tab));
+    let after_tab = app.menu().and_then(|m| m.selected_action());
+
+    assert!(app.menu().is_some());
+    assert_ne!(first, after_tab);
+    assert_eq!(after_tab, Some(linear_tui::tui::action::Action::NextPanel));
 }
 
 #[test]
@@ -42,7 +83,7 @@ fn number_key_jumps_to_panel() {
     let commands = handle_key(&mut app, press(KeyCode::Char('2')));
 
     assert_eq!(app.focus, Focus::Stub(0));
-    assert!(commands.is_empty());
+    assert!(commands.is_none());
 }
 
 #[test]
@@ -62,7 +103,7 @@ fn brackets_do_nothing_off_my_work() {
     let commands = handle_key(&mut app, press(KeyCode::Char(']')));
 
     assert_eq!(app.active_view_index(), 0);
-    assert!(commands.is_empty());
+    assert!(commands.is_none());
 }
 
 #[test]
@@ -73,8 +114,8 @@ fn enter_on_issue_opens_detail() {
 
     assert_eq!(app.focus, Focus::Detail);
     assert!(app.detail_loading);
-    match commands.as_slice() {
-        [Command::LoadDetail(id)] if id == "i1" => {}
+    match commands {
+        Some(Command::LoadDetail(id)) if id == "i1" => {}
         other => panic!("expected LoadDetail(i1), got {other:?}"),
     }
 }
@@ -113,7 +154,7 @@ fn status_action_requires_an_opened_issue() {
     let commands = handle_key(&mut app, press(KeyCode::Char('s')));
 
     assert!(app.picker().is_none());
-    assert!(commands.is_empty());
+    assert!(commands.is_none());
 }
 
 #[test]
@@ -123,8 +164,8 @@ fn s_opens_status_picker_once_issue_is_loaded() {
     let commands = handle_key(&mut app, press(KeyCode::Char('s')));
 
     assert_eq!(app.picker().map(|p| p.kind), Some(PickerKind::Status));
-    match commands.as_slice() {
-        [Command::LoadStates { team_id }] if team_id == "t_pizza" => {}
+    match commands {
+        Some(Command::LoadStates { team_id }) if team_id == "t_pizza" => {}
         other => panic!("expected LoadStates for t_pizza, got {other:?}"),
     }
 }
@@ -145,12 +186,12 @@ fn picker_enter_opens_confirmation_then_applies() {
     let no_commands = handle_key(&mut app, press(KeyCode::Enter));
     assert!(app.picker().is_none());
     assert!(app.confirm().is_some());
-    assert!(no_commands.is_empty());
+    assert!(no_commands.is_none());
 
     let commands = handle_key(&mut app, press(KeyCode::Char('y')));
     assert!(app.confirm().is_none());
-    match commands.as_slice() {
-        [Command::UpdateIssue { id, update }]
+    match commands {
+        Some(Command::UpdateIssue { id, update })
             if id == "i1" && update.state_id.as_deref() == Some("s_done") => {}
         other => panic!("expected UpdateIssue with state_id, got {other:?}"),
     }
@@ -173,7 +214,7 @@ fn confirmation_cancel_does_not_write() {
     let commands = handle_key(&mut app, press(KeyCode::Char('n')));
 
     assert!(app.confirm().is_none());
-    assert!(commands.is_empty());
+    assert!(commands.is_none());
 }
 
 #[test]
@@ -181,8 +222,8 @@ fn o_opens_url_from_highlighted_issue() {
     let mut app = list_app_with_issue();
     let commands = handle_key(&mut app, press(KeyCode::Char('o')));
 
-    match commands.as_slice() {
-        [Command::OpenUrl(url)] if url.contains("DAN2-7") => {}
+    match commands {
+        Some(Command::OpenUrl(url)) if url.contains("DAN2-7") => {}
         other => panic!("expected OpenUrl, got {other:?}"),
     }
 }
@@ -193,8 +234,8 @@ fn y_copies_url_from_highlighted_issue() {
     let commands = handle_key(&mut app, press(KeyCode::Char('y')));
 
     assert!(app.status.is_some());
-    match commands.as_slice() {
-        [Command::CopyToClipboard(url)] if url.contains("DAN2-7") => {}
+    match commands {
+        Some(Command::CopyToClipboard(url)) if url.contains("DAN2-7") => {}
         other => panic!("expected CopyToClipboard, got {other:?}"),
     }
 }
@@ -208,7 +249,7 @@ fn esc_closes_picker_without_updating() {
     let commands = handle_key(&mut app, press(KeyCode::Esc));
 
     assert!(app.picker().is_none());
-    assert!(commands.is_empty());
+    assert!(commands.is_none());
 }
 
 #[test]
@@ -220,7 +261,7 @@ fn open_and_yank_do_nothing_without_a_selected_issue() {
 
     for key in ['o', 'y'] {
         let commands = handle_key(&mut app, press(KeyCode::Char(key)));
-        assert!(commands.is_empty(), "{key} should not act without a selection");
+        assert!(commands.is_none(), "{key} should not act without a selection");
     }
 }
 

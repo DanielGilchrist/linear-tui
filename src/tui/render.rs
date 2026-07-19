@@ -7,19 +7,22 @@ use ratatui::{
 };
 
 use super::action;
-use super::app::{App, Focus, View, ViewKind};
+use super::app::{App, Confirm, Focus, Menu, MenuRow, Overlay, Picker, View, ViewKind};
 use super::components::{ScrollableText, StyledList};
 use super::layout;
 use crate::api::{IssueDetail, IssueSummary, NotificationItem};
 
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const LEFT_PCT: u16 = 38;
+const COLLAPSED_PEEK: usize = 2;
+const MENU_HINT: &str = "j/k move   tab section   enter run   esc close";
 
 pub fn render(app: &mut App, frame: &mut Frame) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(frame.area());
+
     let body = chunks[0];
     let footer = chunks[1];
 
@@ -29,19 +32,63 @@ pub fn render(app: &mut App, frame: &mut Frame) {
 
     render_footer(app, frame, footer);
 
-    if app.picker().is_some() {
-        render_picker(app, frame);
-    } else if app.confirm().is_some() {
-        render_confirm(app, frame);
+    let spinner = SPINNER[app.spinner_frame % SPINNER.len()];
+    match &mut app.overlay {
+        Overlay::Picker(picker) => render_picker(picker, spinner, frame),
+        Overlay::Confirm(confirm) => render_confirm(confirm, frame),
+        Overlay::Menu(menu) => render_menu(menu, frame),
+        Overlay::None => {}
     }
 }
 
-fn render_confirm(app: &App, frame: &mut Frame) {
-    use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+fn render_menu(menu: &mut Menu, frame: &mut Frame) {
+    use ratatui::widgets::Clear;
 
-    let Some(confirm) = app.confirm() else {
-        return;
-    };
+    let area = layout::centered_rect(frame.area(), 44, 70);
+    let items = menu_items(menu);
+
+    frame.render_widget(Clear, area);
+    StyledList::new("Keybindings")
+        .items(items)
+        .focused(true)
+        .state(&mut menu.state)
+        .render(frame, area);
+}
+
+fn menu_items(menu: &Menu) -> Vec<ListItem<'static>> {
+    let key_width = menu
+        .rows
+        .iter()
+        .filter_map(|row| match row {
+            MenuRow::Item { keys, .. } => Some(keys.chars().count()),
+            MenuRow::Header(_) => None,
+        })
+        .max()
+        .unwrap_or(0);
+
+    menu.rows
+        .iter()
+        .map(|row| match row {
+            MenuRow::Header(title) => ListItem::new(Line::from(Span::styled(
+                *title,
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ))),
+            MenuRow::Item { keys, label, .. } => ListItem::new(Line::from(vec![
+                Span::styled(
+                    format!("{keys:>key_width$}"),
+                    Style::default().fg(Color::Yellow),
+                ),
+                Span::raw("  "),
+                Span::styled(*label, Style::default().fg(Color::White)),
+            ])),
+        })
+        .collect()
+}
+
+fn render_confirm(confirm: &Confirm, frame: &mut Frame) {
+    use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
     let area = layout::centered_rect_fixed(frame.area(), 50, 6);
     frame.render_widget(Clear, area);
@@ -66,13 +113,8 @@ fn render_confirm(app: &App, frame: &mut Frame) {
     );
 }
 
-fn render_picker(app: &mut App, frame: &mut Frame) {
+fn render_picker(picker: &mut Picker, spinner: &str, frame: &mut Frame) {
     use ratatui::widgets::Clear;
-
-    let spinner = SPINNER[app.spinner_frame % SPINNER.len()];
-    let Some(picker) = app.picker_mut() else {
-        return;
-    };
 
     let area = layout::centered_rect(frame.area(), 44, 55);
     frame.render_widget(Clear, area);
@@ -117,10 +159,17 @@ fn render_picker(app: &mut App, frame: &mut Frame) {
 }
 
 fn render_left(app: &mut App, frame: &mut Frame, area: Rect) {
-    let mut constraints = vec![Constraint::Min(6)];
-    for stub in &app.stubs {
-        constraints.push(Constraint::Length(stub.items.len() as u16 + 2));
-    }
+    let expanded = app.expanded_panel();
+
+    let constraints: Vec<Constraint> = (0..app.panel_count())
+        .map(|panel| {
+            if panel == expanded {
+                Constraint::Min(5)
+            } else {
+                Constraint::Length(app.panel_len(panel).min(COLLAPSED_PEEK) as u16 + 2)
+            }
+        })
+        .collect();
     let rects = Layout::vertical(constraints).split(area);
 
     render_my_work(app, frame, rects[0]);
@@ -149,7 +198,14 @@ fn render_my_work(app: &mut App, frame: &mut Frame, area: Rect) {
     let spinner = SPINNER[app.spinner_frame % SPINNER.len()];
     let focused = app.focus == Focus::MyWork;
     let selected = app.list_state.selected();
-    let title = view_tabs(&app.views, app.active_view_index(), app.loading, spinner);
+    let max_title = area.width.saturating_sub(2) as usize;
+    let title = view_tabs(
+        &app.views,
+        app.active_view_index(),
+        app.loading,
+        spinner,
+        max_title,
+    );
     let is_inbox = matches!(app.active_view().kind, ViewKind::Inbox);
 
     let (items, total, empty) = if is_inbox {
@@ -178,19 +234,49 @@ fn render_my_work(app: &mut App, frame: &mut Frame, area: Rect) {
     list.render(frame, area);
 }
 
-fn view_tabs(views: &[View], active: usize, loading: bool, spinner: &str) -> Line<'static> {
+fn view_tabs(
+    views: &[View],
+    active: usize,
+    loading: bool,
+    spinner: &str,
+    max_width: usize,
+) -> Line<'static> {
+    let active_style = Style::default()
+        .fg(Color::White)
+        .add_modifier(Modifier::BOLD);
+
+    let dim = Style::default().fg(Color::DarkGray);
+    let separator = " · ";
+
+    let spinner_width = if loading {
+        2 + spinner.chars().count()
+    } else {
+        0
+    };
+
+    let strip_width: usize = views.iter().map(|v| v.name.chars().count()).sum::<usize>()
+        + separator.chars().count() * views.len().saturating_sub(1);
+
     let mut spans: Vec<Span> = Vec::new();
-    for (index, view) in views.iter().enumerate() {
-        if index > 0 {
-            spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
+    if strip_width + spinner_width <= max_width {
+        for (index, view) in views.iter().enumerate() {
+            if index > 0 {
+                spans.push(Span::styled(separator.to_string(), dim));
+            }
+            let style = if index == active { active_style } else { dim };
+            spans.push(Span::styled(view.name.clone(), style));
         }
-        let style = if index == active {
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-        spans.push(Span::styled(view.name.clone(), style));
+    } else {
+        let indicator = format!(" {}/{}", active + 1, views.len());
+        let name_budget = max_width.saturating_sub(indicator.chars().count() + spinner_width);
+
+        spans.push(Span::styled(
+            fit(&views[active].name, name_budget),
+            active_style,
+        ));
+        spans.push(Span::styled(indicator, dim));
     }
+
     if loading {
         spans.push(Span::styled(
             format!("  {spinner}"),
@@ -270,13 +356,19 @@ fn render_text_panel(frame: &mut Frame, area: Rect, title: &str, text: Text, bor
         .title(title.to_string())
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border));
-    frame.render_widget(Paragraph::new(text).block(block).wrap(Wrap { trim: false }), area);
+    frame.render_widget(
+        Paragraph::new(text).block(block).wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 fn preview_text(issue: &IssueSummary) -> Text<'static> {
     let mut lines: Vec<Line> = vec![
         Line::from(vec![
-            Span::styled(issue.identifier.clone(), Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                issue.identifier.clone(),
+                Style::default().fg(Color::DarkGray),
+            ),
             Span::raw("  "),
             Span::styled(
                 issue.state.name.clone(),
@@ -290,7 +382,9 @@ fn preview_text(issue: &IssueSummary) -> Text<'static> {
         ]),
         Line::from(Span::styled(
             issue.title.clone().unwrap_or_else(|| "Untitled".into()),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         )),
     ];
 
@@ -330,10 +424,12 @@ fn preview_text(issue: &IssueSummary) -> Text<'static> {
 fn notification_preview_text(notification: &NotificationItem) -> Text<'static> {
     let mut lines = vec![Line::from(Span::styled(
         notification.title.clone(),
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
     ))];
     lines.push(Line::from(Span::styled(
-        if notification.is_read { "read" } else { "unread" }.to_string(),
+        if notification.is_read { "read" } else { "unread" },
         Style::default().fg(Color::DarkGray),
     )));
     lines.push(Line::from(""));
@@ -344,6 +440,21 @@ fn notification_preview_text(notification: &NotificationItem) -> Text<'static> {
         )));
     }
     Text::from(lines)
+}
+
+fn fit(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+
+    if width == 0 {
+        return String::new();
+    }
+
+    let mut output: String = text.chars().take(width - 1).collect();
+    output.push('…');
+
+    output
 }
 
 fn priority_label(priority: u8) -> &'static str {
@@ -365,26 +476,19 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
         None => "connecting… ".to_string(),
     };
 
-    let [left, right] = layout::split_footer(area, workspace.chars().count() as u16);
+    let [left, right] = layout::split_footer(area, workspace.chars().count() as u16 + 1);
 
-    if let Some(status) = &app.status {
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                format!(" {status}"),
-                Style::default().fg(Color::Red),
-            ))),
-            left,
-        );
-    } else {
-        let hint = footer_hint(app);
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                format!(" {hint}"),
-                Style::default().fg(Color::DarkGray),
-            ))),
-            left,
-        );
-    }
+    let (text, color) = match &app.status {
+        Some(status) => (format!(" {status}"), Color::Red),
+        None => (format!(" {}", footer_hint(app)), Color::DarkGray),
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            fit(&text, left.width as usize),
+            Style::default().fg(color),
+        ))),
+        left,
+    );
 
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
@@ -421,12 +525,13 @@ fn buffer_to_string(buffer: &ratatui::buffer::Buffer) -> String {
 }
 
 fn footer_hint(app: &App) -> String {
-    if app.confirm().is_some() {
-        return action::CONFIRM.hint_bar(action::CONFIRM_HINTS);
+    match &app.overlay {
+        Overlay::Menu(_) => return MENU_HINT.to_string(),
+        Overlay::Confirm(_) => return action::CONFIRM.hint_bar(action::CONFIRM_HINTS),
+        Overlay::Picker(_) => return action::PICKER.hint_bar(action::PICKER_HINTS),
+        Overlay::None => {}
     }
-    if app.picker().is_some() {
-        return action::PICKER.hint_bar(action::PICKER_HINTS);
-    }
+
     let specs = match app.focus {
         Focus::MyWork => action::MY_WORK_HINTS,
         Focus::Stub(_) => action::STUB_HINTS,
@@ -445,7 +550,10 @@ fn issue_items(issues: &[IssueSummary]) -> Vec<ListItem<'static>> {
             let mut spans = vec![
                 Span::styled(icon.to_string(), Style::default().fg(priority_color)),
                 Span::raw(" "),
-                Span::styled(issue.identifier.clone(), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    issue.identifier.clone(),
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Span::raw(" "),
                 Span::styled(issue.state.name.clone(), Style::default().fg(state_color)),
                 Span::raw(" "),
@@ -490,7 +598,9 @@ fn notification_items(notifications: &[NotificationItem]) -> Vec<ListItem<'stati
             let title_style = if notification.is_read {
                 Style::default().fg(Color::DarkGray)
             } else {
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
             };
             ListItem::new(Line::from(vec![
                 indicator,
@@ -516,7 +626,9 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
     ]));
     lines.push(Line::from(Span::styled(
         detail.title.clone().unwrap_or_else(|| "Untitled".into()),
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
     )));
 
     let mut meta: Vec<Span> = Vec::new();
@@ -563,7 +675,9 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
             let author = comment.author.clone().unwrap_or_else(|| "unknown".into());
             lines.push(Line::from(Span::styled(
                 author,
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )));
             for line in comment.body.lines() {
                 lines.push(Line::from(line.to_string()));

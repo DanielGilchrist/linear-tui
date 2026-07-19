@@ -38,14 +38,14 @@ pub async fn run(
             maybe_event = events.next() => {
                 if let Some(Ok(Event::Key(key))) = maybe_event {
                     if key.kind == KeyEventKind::Press {
-                        for command in update::handle_key(app, key) {
+                        if let Some(command) = update::handle_key(app, key) {
                             dispatch(&api, &tx, platform, command);
                         }
                     }
                 }
             }
             Some(message) = rx.recv() => {
-                for command in update::apply(app, message) {
+                if let Some(command) = update::apply(app, message) {
                     dispatch(&api, &tx, platform, command);
                 }
             }
@@ -66,11 +66,19 @@ fn dispatch(
     platform: Platform,
     command: Command,
 ) {
+    if let Command::Batch(commands) = command {
+        for command in commands {
+            dispatch(api, tx, platform, command);
+        }
+        return;
+    }
+
     let api = Arc::clone(api);
     let tx = tx.clone();
 
     tokio::spawn(async move {
         let message: Option<Message> = match command {
+            Command::Batch(_) => None,
             Command::LoadSession => Some(match api.session().await {
                 Ok(session) => Message::SessionLoaded(session),
                 Err(error) => Message::Failed(error.to_string()),

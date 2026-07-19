@@ -23,6 +23,7 @@ fn browse_keys_map_to_intents() {
     assert_eq!(Action::from_key(key(KeyCode::Esc)), Some(Action::Ascend));
     assert_eq!(Action::from_key(key(KeyCode::Char(']'))), Some(Action::NextView));
     assert_eq!(Action::from_key(key(KeyCode::Char('2'))), Some(Action::JumpToPanel(1)));
+    assert_eq!(Action::from_key(key(KeyCode::Char('?'))), Some(Action::Help));
     assert_eq!(Action::from_key(key(KeyCode::Char('z'))), None);
 }
 

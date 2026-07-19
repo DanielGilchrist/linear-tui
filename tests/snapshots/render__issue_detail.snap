@@ -11,17 +11,17 @@ expression: "render_to_string(&mut app, 110, 26)"
 │!!  DAN2-5 Backlog Settle the pineapple-││                                                                  █
 │    DAN-15 Backlog Coffee pairing bundle││During the Friday rush the stone oven creeps past 480°C and bases █
 │                                        ││scorch before the cheese melts.                                   █
+│                                        ││                                                                  █
+│                                        ││Expected: steady 430°C. Actual: 470-480°C. Suspect the flue damper█
+│                                        ││is sticking open.                                                 █
 └ 1 of 7 ────────────────────────────────┘│                                                                  █
-┌Saved Views─────────────────────────────┐│Expected: steady 430°C. Actual: 470-480°C. Suspect the flue damper█
-│#payroll                                ││is sticking open.                                                 █
-│#nest-sync                              ││                                                                  █
-│High priority                           ││Comments (2)                                                      █
-│Created by me                           ││                                                                  ║
-└ 1 of 4 ────────────────────────────────┘│dan                                                               ║
-┌Recently viewed─────────────────────────┐│Swapped the thermocouple this morning. Will watch it tonight.     ║
-│DAN2-7 Wood-fired oven                  ││                                                                  ║
-│DAN-10 Sprinkle dispenser               ││dan                                                               ║
-│DAN2-5 Pineapple debate                 ││Still climbing. Confirmed the flue damper is sticking open.       ║
+┌Saved Views─────────────────────────────┐│Comments (2)                                                      █
+│#payroll                                ││                                                                  ║
+│#nest-sync                              ││dan                                                               ║
+└ 1 of 4 ────────────────────────────────┘│Swapped the thermocouple this morning. Will watch it tonight.     ║
+┌Recently viewed─────────────────────────┐│                                                                  ║
+│DAN2-7 Wood-fired oven                  ││dan                                                               ║
+│DAN-10 Sprinkle dispenser               ││Still climbing. Confirmed the flue damper is sticking open.       ║
 └ 1 of 3 ────────────────────────────────┘│                                                                  ║
 ┌Teams───────────────────────────────────┐│                                                                  ║
 │Dan's Pizza                             ││                                                                  ║
