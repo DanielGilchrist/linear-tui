@@ -1,4 +1,5 @@
-use crate::api::{IssueDetail, IssueFilter, IssueSummary, NotificationItem, Session};
+use super::app::PickerItem;
+use crate::api::{IssueDetail, IssueFilter, IssueSummary, IssueUpdate, NotificationItem, Session};
 
 #[derive(Debug)]
 pub enum Message {
@@ -12,13 +13,23 @@ pub enum Message {
         items: Vec<NotificationItem>,
     },
     DetailLoaded(Box<IssueDetail>),
+    PickerLoaded(Vec<PickerItem>),
+    IssueUpdated {
+        id: String,
+    },
+    Status(String),
     Failed(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Command {
     LoadSession,
     LoadIssues { view: usize, filter: IssueFilter },
     LoadInbox { view: usize },
     LoadDetail(String),
+    LoadStates { team_id: String },
+    LoadMembers { team_id: String },
+    UpdateIssue { id: String, update: IssueUpdate },
+    OpenUrl(String),
+    CopyToClipboard(String),
 }

@@ -50,14 +50,22 @@ pub struct CommentConnection {
 
 #[derive(Debug, Clone, QueryFragment)]
 #[cynic(schema_path = "schema.graphql")]
+pub struct Team {
+    pub id: cynic::Id,
+}
+
+#[derive(Debug, Clone, QueryFragment)]
+#[cynic(schema_path = "schema.graphql")]
 pub struct Issue {
     pub id: cynic::Id,
     pub identifier: String,
     pub title: Option<String>,
     pub description: Option<String>,
     pub url: String,
+    pub branch_name: String,
     pub priority: f64,
     pub state: WorkflowState,
+    pub team: Team,
     pub assignee: Option<User>,
     pub labels: IssueLabelConnection,
     pub comments: CommentConnection,

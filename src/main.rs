@@ -13,7 +13,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use linear_tui::api::{self, fixture::FixtureClient, Client, LinearApi};
 use linear_tui::tui::{
     self,
-    app::{App, Screen, ViewKind},
+    app::{App, Focus, ViewKind},
 };
 
 #[derive(Parser)]
@@ -93,16 +93,16 @@ async fn headless_render(args: RenderArgs) -> Result<()> {
     let mut app = App::new();
     app.session = api.session().await.ok();
 
+    let index = view_index(&args.view);
+    app.view_state.select(Some(index));
+    match &app.active_view().kind {
+        ViewKind::Issues(filter) => app.issues = api.issues(&filter.clone()).await?,
+        ViewKind::Inbox => app.notifications = api.notifications().await?,
+    }
+
     if let Some(id) = &args.detail {
-        app.screen = Screen::Detail;
+        app.focus = Focus::Detail;
         app.detail = api.issue_detail(id).await?;
-    } else {
-        let index = view_index(&args.view);
-        app.view_state.select(Some(index));
-        match &app.active_view().kind {
-            ViewKind::Issues(filter) => app.issues = api.issues(&filter.clone()).await?,
-            ViewKind::Inbox => app.notifications = api.notifications().await?,
-        }
     }
 
     let output = tui::render_to_string(&mut app, args.width, args.height);

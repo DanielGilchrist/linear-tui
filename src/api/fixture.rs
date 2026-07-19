@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::api::model::{
-    Comment, IssueDetail, IssueFilter, IssueSummary, Label, NotificationItem, Session, User,
-    WorkflowState,
+    Comment, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, Label, NotificationItem, Session,
+    StateOption, User, WorkflowState,
 };
 use crate::api::LinearApi;
 
@@ -90,6 +90,48 @@ impl LinearApi for FixtureClient {
     async fn notifications(&self) -> Result<Vec<NotificationItem>> {
         Ok(self.fixture.notifications.clone())
     }
+
+    async fn workflow_states(&self, _team_id: &str) -> Result<Vec<StateOption>> {
+        Ok(vec![
+            StateOption {
+                id: "s_backlog".into(),
+                name: "Backlog".into(),
+                state_type: "backlog".into(),
+            },
+            StateOption {
+                id: "s_todo".into(),
+                name: "Todo".into(),
+                state_type: "unstarted".into(),
+            },
+            StateOption {
+                id: "s_started".into(),
+                name: "In Progress".into(),
+                state_type: "started".into(),
+            },
+            StateOption {
+                id: "s_done".into(),
+                name: "Done".into(),
+                state_type: "completed".into(),
+            },
+            StateOption {
+                id: "s_canceled".into(),
+                name: "Canceled".into(),
+                state_type: "canceled".into(),
+            },
+        ])
+    }
+
+    async fn team_members(&self, _team_id: &str) -> Result<Vec<User>> {
+        Ok(vec![
+            person("dan", true),
+            person("sam", false),
+            person("alex", false),
+        ])
+    }
+
+    async fn update_issue(&self, _id: &str, _update: IssueUpdate) -> Result<()> {
+        Ok(())
+    }
 }
 
 fn state(name: &str, ty: &str) -> WorkflowState {
@@ -131,6 +173,17 @@ fn summary(
                 color: (*color).into(),
             })
             .collect(),
+        url: format!("https://linear.app/dans-donuts/issue/{identifier}"),
+        branch_name: format!("dan/{}", identifier.to_lowercase()),
+        team_id: team_for(identifier),
+    }
+}
+
+fn team_for(identifier: &str) -> String {
+    if identifier.starts_with("DAN2") {
+        "t_pizza".into()
+    } else {
+        "t_donut".into()
     }
 }
 
@@ -228,6 +281,8 @@ fn sample_fixture() -> Fixture {
                 created_at: "2026-07-16T18:40:00Z".into(),
             },
         ],
+        branch_name: "dan/dan2-7".into(),
+        team_id: "t_pizza".into(),
     }];
 
     let notifications = vec![
