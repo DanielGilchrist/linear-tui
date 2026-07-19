@@ -270,6 +270,113 @@ impl Input {
     }
 }
 
+pub struct Editor {
+    pub title: &'static str,
+    pub lines: Vec<String>,
+    pub row: usize,
+    pub col: usize,
+    pub parent_id: Option<String>,
+}
+
+impl Editor {
+    pub fn new(title: &'static str, parent_id: Option<String>) -> Self {
+        Self {
+            title,
+            lines: vec![String::new()],
+            row: 0,
+            col: 0,
+            parent_id,
+        }
+    }
+
+    pub fn text(&self) -> String {
+        self.lines.join("\n")
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.lines.iter().all(|line| line.is_empty())
+    }
+
+    fn chars(&self, row: usize) -> Vec<char> {
+        self.lines[row].chars().collect()
+    }
+
+    fn line_len(&self, row: usize) -> usize {
+        self.lines[row].chars().count()
+    }
+
+    pub fn insert(&mut self, c: char) {
+        let mut chars = self.chars(self.row);
+        let col = self.col.min(chars.len());
+
+        chars.insert(col, c);
+
+        self.lines[self.row] = chars.into_iter().collect();
+        self.col = col + 1;
+    }
+
+    pub fn newline(&mut self) {
+        let chars = self.chars(self.row);
+        let col = self.col.min(chars.len());
+        let head: String = chars[..col].iter().collect();
+        let tail: String = chars[col..].iter().collect();
+
+        self.lines[self.row] = head;
+        self.lines.insert(self.row + 1, tail);
+        self.row += 1;
+        self.col = 0;
+    }
+
+    pub fn backspace(&mut self) {
+        if self.col > 0 {
+            let mut chars = self.chars(self.row);
+
+            chars.remove(self.col - 1);
+
+            self.col -= 1;
+            self.lines[self.row] = chars.into_iter().collect();
+        } else if self.row > 0 {
+            let current = self.lines.remove(self.row);
+
+            self.row -= 1;
+            self.col = self.line_len(self.row);
+            self.lines[self.row].push_str(&current);
+        }
+    }
+
+    pub fn move_left(&mut self) {
+        if self.col > 0 {
+            self.col -= 1;
+        } else if self.row > 0 {
+            self.row -= 1;
+            self.col = self.line_len(self.row);
+        }
+    }
+
+    pub fn move_right(&mut self) {
+        if self.col < self.line_len(self.row) {
+            self.col += 1;
+        } else if self.row + 1 < self.lines.len() {
+            self.row += 1;
+            self.col = 0;
+        }
+    }
+
+    pub fn move_up(&mut self) {
+        if self.row > 0 {
+            self.row -= 1;
+            self.col = self.col.min(self.line_len(self.row));
+        }
+    }
+
+    pub fn move_down(&mut self) {
+        if self.row + 1 < self.lines.len() {
+            self.row += 1;
+            self.col = self.col.min(self.line_len(self.row));
+        }
+    }
+}
+
 pub struct Search {
     pub query: String,
     pub results: Vec<IssueSummary>,
@@ -301,6 +408,7 @@ pub enum Overlay {
     Menu(Menu),
     Prefix(Prefix),
     Input(Input),
+    Editor(Editor),
     Search(Search),
     Find(Find),
 }

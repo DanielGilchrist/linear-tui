@@ -61,6 +61,12 @@ pub enum Edge {
     Bottom,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reveal {
+    Top,
+    Bottom,
+}
+
 pub enum Nav<'a> {
     List {
         state: &'a mut ListState,

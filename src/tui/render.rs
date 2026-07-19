@@ -14,7 +14,7 @@ use super::components::{ScrollableText, StyledList};
 use super::focus::{Focus, LeftPanel};
 use super::layout;
 use super::markdown;
-use super::overlay::{Confirm, Input, Menu, MenuRow, Overlay, Picker, PrefixUnder, Search};
+use super::overlay::{Confirm, Editor, Input, Menu, MenuRow, Overlay, Picker, PrefixUnder, Search};
 use super::spinner::Spinner;
 use super::view::{View, ViewKind};
 use crate::api::{Comment, IssueDetail, IssueSummary, NotificationItem, Priority, Rgb, StateType};
@@ -46,6 +46,7 @@ fn render_overlay(overlay: &mut Overlay, spinner: Spinner, frame: &mut Frame) {
         Overlay::Confirm(confirm) => render_confirm(confirm, frame),
         Overlay::Menu(menu) => render_menu(menu, frame),
         Overlay::Input(input) => render_input(input, frame),
+        Overlay::Editor(editor) => render_editor(editor, frame),
         Overlay::Search(search) => render_search(search, spinner, frame),
         Overlay::Prefix(prefix) => match &mut prefix.under {
             PrefixUnder::Modal(modal) => render_overlay(modal, spinner, frame),
@@ -92,12 +93,47 @@ fn render_input(input: &Input, frame: &mut Frame) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Yellow));
 
-    frame.render_widget(Paragraph::new(input_line(input)).block(block), area);
+    frame.render_widget(
+        Paragraph::new(cursor_line(&input.buffer, input.cursor)).block(block),
+        area,
+    );
 }
 
-fn input_line(input: &Input) -> Line<'static> {
-    let chars: Vec<char> = input.buffer.chars().collect();
-    let cursor = input.cursor.min(chars.len());
+fn render_editor(editor: &Editor, frame: &mut Frame) {
+    use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+
+    let area = layout::centred_rect(frame.area(), 70, 50);
+    frame.render_widget(Clear, area);
+
+    let block = Block::default()
+        .title(editor.title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow));
+
+    let inner_height = (area.height.saturating_sub(2) as usize).max(1);
+    let offset = editor.row.saturating_sub(inner_height - 1);
+
+    let lines: Vec<Line> = editor
+        .lines
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(inner_height)
+        .map(|(row, text)| {
+            if row == editor.row {
+                cursor_line(text, editor.col)
+            } else {
+                Line::from(format!(" {text}"))
+            }
+        })
+        .collect();
+
+    frame.render_widget(Paragraph::new(Text::from(lines)).block(block), area);
+}
+
+fn cursor_line(text: &str, col: usize) -> Line<'static> {
+    let chars: Vec<char> = text.chars().collect();
+    let cursor = col.min(chars.len());
     let before: String = chars[..cursor].iter().collect();
     let under = chars.get(cursor).copied().unwrap_or(' ').to_string();
     let after: String = chars
@@ -506,7 +542,7 @@ fn render_detail_if_loaded(app: &mut App, frame: &mut Frame, area: Rect, border:
         let mut scrollable =
             ScrollableText::new(content, app.scroll_position, &mut app.scroll_state)
                 .title(&title)
-                .border_color(border);
+                .border_colour(border);
         scrollable.render(frame, area);
         scrollable.clamped_scroll_position()
     };
@@ -554,7 +590,7 @@ fn preview_text(issue: &IssueSummary) -> Text<'static> {
             Span::raw("  "),
             Span::styled(
                 issue.state.name.clone(),
-                Style::default().fg(state_type_color(issue.state.state_type)),
+                Style::default().fg(state_type_colour(issue.state.state_type)),
             ),
             Span::raw("  "),
             Span::styled(
@@ -581,7 +617,9 @@ fn preview_text(issue: &IssueSummary) -> Text<'static> {
         meta.push(Span::raw(" "));
         meta.push(Span::styled(
             format!(" {} ", label.name),
-            Style::default().fg(Color::Black).bg(rgb_color(label.color)),
+            Style::default()
+                .fg(Color::Black)
+                .bg(rgb_colour(label.colour)),
         ));
     }
     if !meta.is_empty() {
@@ -761,9 +799,14 @@ fn buffer_to_string(buffer: &ratatui::buffer::Buffer) -> String {
 
 fn footer_left(app: &App, width: usize) -> Line<'static> {
     if let Some(status) = &app.status {
+        let colour = if status.is_error() {
+            Color::Red
+        } else {
+            Color::Yellow
+        };
         return Line::from(Span::styled(
             fit(&format!(" {status}"), width),
-            Style::default().fg(Color::Red),
+            Style::default().fg(colour),
         ));
     }
 
@@ -782,6 +825,7 @@ fn footer_hint(app: &App) -> String {
         }
         Overlay::Prefix(prefix) => return format!("{}   esc cancel", prefix.keymap.summary()),
         Overlay::Input(_) => return action::INPUT.hint_bar(action::INPUT_HINTS),
+        Overlay::Editor(_) => return action::EDITOR.hint_bar(action::EDITOR_HINTS),
         Overlay::Find(_) | Overlay::None => {}
     }
 
@@ -798,18 +842,18 @@ fn issue_items(issues: &[IssueSummary]) -> Vec<ListItem<'static>> {
     issues
         .iter()
         .map(|issue| {
-            let (icon, priority_color) = priority_indicator(issue.priority);
-            let state_color = state_type_color(issue.state.state_type);
+            let (icon, priority_colour) = priority_indicator(issue.priority);
+            let state_colour = state_type_colour(issue.state.state_type);
 
             let mut spans = vec![
-                Span::styled(icon.to_string(), Style::default().fg(priority_color)),
+                Span::styled(icon.to_string(), Style::default().fg(priority_colour)),
                 Span::raw(" "),
                 Span::styled(
                     issue.identifier.clone(),
                     Style::default().fg(Color::DarkGray),
                 ),
                 Span::raw(" "),
-                Span::styled(issue.state.name.clone(), Style::default().fg(state_color)),
+                Span::styled(issue.state.name.clone(), Style::default().fg(state_colour)),
                 Span::raw(" "),
                 Span::styled(
                     issue.title.clone().unwrap_or_else(|| "Untitled".into()),
@@ -829,7 +873,9 @@ fn issue_items(issues: &[IssueSummary]) -> Vec<ListItem<'static>> {
                 spans.push(Span::raw(" "));
                 spans.push(Span::styled(
                     format!(" {} ", label.name),
-                    Style::default().fg(Color::Black).bg(rgb_color(label.color)),
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(rgb_colour(label.colour)),
                 ));
             }
 
@@ -873,7 +919,7 @@ fn detail_text(detail: &IssueDetail, now: i64) -> Text<'static> {
         Span::raw("  "),
         Span::styled(
             detail.state.name.clone(),
-            Style::default().fg(state_type_color(detail.state.state_type)),
+            Style::default().fg(state_type_colour(detail.state.state_type)),
         ),
     ]));
     lines.push(Line::from(Span::styled(
@@ -894,7 +940,9 @@ fn detail_text(detail: &IssueDetail, now: i64) -> Text<'static> {
         meta.push(Span::raw(" "));
         meta.push(Span::styled(
             format!(" {} ", label.name),
-            Style::default().fg(Color::Black).bg(rgb_color(label.color)),
+            Style::default()
+                .fg(Color::Black)
+                .bg(rgb_colour(label.colour)),
         ));
     }
     if !meta.is_empty() {
@@ -1018,7 +1066,7 @@ fn priority_indicator(priority: Priority) -> (&'static str, Color) {
     }
 }
 
-fn state_type_color(state_type: StateType) -> Color {
+fn state_type_colour(state_type: StateType) -> Color {
     match state_type {
         StateType::Started => Color::Yellow,
         StateType::Completed => Color::Green,
@@ -1029,6 +1077,6 @@ fn state_type_color(state_type: StateType) -> Color {
     }
 }
 
-fn rgb_color(color: Rgb) -> Color {
-    Color::Rgb(color.r, color.g, color.b)
+fn rgb_colour(colour: Rgb) -> Color {
+    Color::Rgb(colour.r, colour.g, colour.b)
 }

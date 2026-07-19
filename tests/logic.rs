@@ -2,13 +2,18 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
 use linear_tui::api::LinearApi;
 use linear_tui::tui::app::App;
-use linear_tui::tui::focus::{Focus, LeftPanel};
+use linear_tui::tui::focus::{Focus, LeftPanel, Reveal};
 use linear_tui::tui::message::{Command, Message};
 use linear_tui::tui::overlay::{InputPurpose, PickerItem, PickerKind, Search};
+use linear_tui::tui::status::Status;
 use linear_tui::tui::update::{apply, handle_key};
 
 fn press(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
+}
+
+fn ctrl(c: char) -> KeyEvent {
+    KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
 }
 
 #[tokio::test]
@@ -119,7 +124,10 @@ fn clearing_recently_viewed_confirms_first() {
     let mut app = App::new();
     apply(
         &mut app,
-        Message::DetailLoaded(Box::new(sample_detail("i1", "DAN-1"))),
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i1", "DAN-1")),
+            reveal: Reveal::Top,
+        },
     );
     handle_key(&mut app, press(KeyCode::Char('2')));
     assert_eq!(app.focus, Focus::Recent);
@@ -171,7 +179,7 @@ fn enter_on_issue_opens_detail() {
     assert!(app.focus.is_detail());
     assert!(app.detail_loading);
     match commands {
-        Some(Command::LoadDetail(id)) if id == "i1" => {}
+        Some(Command::LoadDetail { id, .. }) if id == "i1" => {}
         other => panic!("expected LoadDetail(i1), got {other:?}"),
     }
 }
@@ -224,6 +232,121 @@ fn s_opens_status_picker_once_issue_is_loaded() {
         Some(Command::LoadStates { team_id }) if team_id == "t_pizza" => {}
         other => panic!("expected LoadStates for t_pizza, got {other:?}"),
     }
+}
+
+#[test]
+fn comment_action_requires_an_opened_issue() {
+    let mut app = list_app_with_issue();
+
+    let commands = handle_key(&mut app, press(KeyCode::Char('c')));
+
+    assert!(app.editor().is_none());
+    assert!(commands.is_none());
+}
+
+#[test]
+fn c_opens_the_comment_editor_once_issue_is_loaded() {
+    let mut app = detail_app();
+
+    let commands = handle_key(&mut app, press(KeyCode::Char('c')));
+
+    assert!(app.editor().is_some());
+    assert!(commands.is_none());
+}
+
+#[test]
+fn enter_inserts_a_newline_and_does_not_submit() {
+    let mut app = detail_app();
+    handle_key(&mut app, press(KeyCode::Char('c')));
+
+    handle_key(&mut app, press(KeyCode::Char('a')));
+    let command = handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Char('b')));
+
+    assert!(command.is_none());
+    assert_eq!(app.editor().map(|e| e.text()), Some("a\nb".to_string()));
+}
+
+#[test]
+fn ctrl_s_posts_the_multiline_comment_for_the_open_issue() {
+    let mut app = detail_app();
+    handle_key(&mut app, press(KeyCode::Char('c')));
+    handle_key(&mut app, press(KeyCode::Char('a')));
+    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Char('b')));
+
+    let command = handle_key(&mut app, ctrl('s'));
+
+    match command {
+        Some(Command::CreateComment {
+            issue_id,
+            body,
+            parent_id,
+        }) => {
+            assert_eq!(issue_id, "i1");
+            assert_eq!(body, "a\nb");
+            assert_eq!(parent_id, None);
+        }
+        other => panic!("expected CreateComment, got {other:?}"),
+    }
+    assert!(app.editor().is_none());
+}
+
+#[test]
+fn an_empty_comment_posts_nothing() {
+    let mut app = detail_app();
+    handle_key(&mut app, press(KeyCode::Char('c')));
+
+    let command = handle_key(&mut app, ctrl('s'));
+
+    assert!(command.is_none());
+}
+
+#[test]
+fn comment_posted_refetches_the_thread_and_reveals_the_bottom() {
+    let mut app = detail_app();
+
+    let command = apply(&mut app, Message::CommentPosted { id: "i1".into() });
+
+    assert!(app.detail_loading);
+    match command {
+        Some(Command::LoadDetail {
+            id,
+            reveal: Reveal::Bottom,
+        }) if id == "i1" => {}
+        other => panic!("expected LoadDetail for i1 revealing the bottom, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_bottom_reveal_scrolls_to_the_new_comment() {
+    let mut app = detail_app();
+
+    apply(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i1", "DAN-1")),
+            reveal: Reveal::Bottom,
+        },
+    );
+
+    assert_eq!(app.scroll_position, usize::MAX);
+}
+
+#[test]
+fn opening_a_detail_starts_at_the_top() {
+    let mut app = detail_app();
+    app.scroll_position = 42;
+
+    apply(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i1", "DAN-1")),
+            reveal: Reveal::Top,
+        },
+    );
+
+    assert_eq!(app.scroll_position, 0);
 }
 
 #[test]
@@ -379,7 +502,7 @@ fn gi_opens_a_jump_input_that_loads_the_referenced_issue() {
     assert!(app.detail_loading);
     assert!(app.input().is_none());
     match commands {
-        Some(Command::LoadDetail(id)) if id == "DAN2-7" => {}
+        Some(Command::LoadDetail { id, .. }) if id == "DAN2-7" => {}
         other => panic!("expected LoadDetail(DAN2-7), got {other:?}"),
     }
 }
@@ -527,7 +650,7 @@ fn gs_searches_then_enter_opens_a_result() {
     assert!(app.focus.is_detail());
     assert!(app.search().is_none());
     match open {
-        Some(Command::LoadDetail(id)) if id == "i9" => {}
+        Some(Command::LoadDetail { id, .. }) if id == "i9" => {}
         other => panic!("expected LoadDetail(i9), got {other:?}"),
     }
 }
@@ -573,7 +696,7 @@ fn esc_from_a_list_opened_detail_goes_home_not_search() {
 #[test]
 fn transient_status_clears_on_the_next_key() {
     let mut app = list_app_with_issue();
-    app.status = Some("stale notice".into());
+    app.status = Some(Status::Cancelled);
 
     handle_key(&mut app, press(KeyCode::Char('j')));
 
@@ -585,7 +708,10 @@ fn history_boundary_sets_no_status() {
     let mut app = App::new();
     apply(
         &mut app,
-        Message::DetailLoaded(Box::new(sample_detail("i1", "DAN-1"))),
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i1", "DAN-1")),
+            reveal: Reveal::Top,
+        },
     );
 
     let command = handle_key(
@@ -611,7 +737,10 @@ fn opening_from_recently_viewed_keeps_that_panel_expanded() {
     let mut app = App::new();
     apply(
         &mut app,
-        Message::DetailLoaded(Box::new(sample_detail("i1", "DAN-1"))),
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i1", "DAN-1")),
+            reveal: Reveal::Top,
+        },
     );
 
     handle_key(&mut app, press(KeyCode::Char('2')));
@@ -627,27 +756,36 @@ fn tab_and_shift_tab_walk_history_in_the_detail_pane() {
     let mut app = App::new();
     apply(
         &mut app,
-        Message::DetailLoaded(Box::new(sample_detail("i1", "DAN-1"))),
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i1", "DAN-1")),
+            reveal: Reveal::Top,
+        },
     );
     apply(
         &mut app,
-        Message::DetailLoaded(Box::new(sample_detail("i2", "DAN-2"))),
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i2", "DAN-2")),
+            reveal: Reveal::Top,
+        },
     );
     app.focus = Focus::Detail(LeftPanel::MyWork);
 
     let back = handle_key(&mut app, press(KeyCode::BackTab));
     match back {
-        Some(Command::LoadDetail(id)) if id == "i1" => {}
+        Some(Command::LoadDetail { id, .. }) if id == "i1" => {}
         other => panic!("expected Shift-Tab to load i1, got {other:?}"),
     }
     apply(
         &mut app,
-        Message::DetailLoaded(Box::new(sample_detail("i1", "DAN-1"))),
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i1", "DAN-1")),
+            reveal: Reveal::Top,
+        },
     );
 
     let forward = handle_key(&mut app, press(KeyCode::Tab));
     match forward {
-        Some(Command::LoadDetail(id)) if id == "i2" => {}
+        Some(Command::LoadDetail { id, .. }) if id == "i2" => {}
         other => panic!("expected Tab to load i2, got {other:?}"),
     }
 }
@@ -705,11 +843,17 @@ fn opening_issues_records_history_and_ctrl_o_goes_back() {
 
     apply(
         &mut app,
-        Message::DetailLoaded(Box::new(sample_detail("i1", "DAN-1"))),
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i1", "DAN-1")),
+            reveal: Reveal::Top,
+        },
     );
     apply(
         &mut app,
-        Message::DetailLoaded(Box::new(sample_detail("i2", "DAN-2"))),
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i2", "DAN-2")),
+            reveal: Reveal::Top,
+        },
     );
 
     assert_eq!(app.recently_viewed.len(), 2);
@@ -721,13 +865,16 @@ fn opening_issues_records_history_and_ctrl_o_goes_back() {
         KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
     );
     match back {
-        Some(Command::LoadDetail(id)) if id == "i1" => {}
+        Some(Command::LoadDetail { id, .. }) if id == "i1" => {}
         other => panic!("expected Ctrl-o to load i1, got {other:?}"),
     }
 
     apply(
         &mut app,
-        Message::DetailLoaded(Box::new(sample_detail("i1", "DAN-1"))),
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i1", "DAN-1")),
+            reveal: Reveal::Top,
+        },
     );
     assert_eq!(
         app.recently_viewed.len(),
@@ -742,7 +889,10 @@ fn enter_on_recently_viewed_reopens_the_issue() {
     let mut app = App::new();
     apply(
         &mut app,
-        Message::DetailLoaded(Box::new(sample_detail("i1", "DAN-1"))),
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i1", "DAN-1")),
+            reveal: Reveal::Top,
+        },
     );
     app.detail = None;
     app.focus = Focus::Recent;
@@ -752,7 +902,7 @@ fn enter_on_recently_viewed_reopens_the_issue() {
 
     assert!(app.focus.is_detail());
     match commands {
-        Some(Command::LoadDetail(id)) if id == "i1" => {}
+        Some(Command::LoadDetail { id, .. }) if id == "i1" => {}
         other => panic!("expected LoadDetail(i1), got {other:?}"),
     }
 }

@@ -1,8 +1,9 @@
 use ratatui::widgets::{ListState, ScrollbarState};
 
 use super::focus::{Focus, LeftPanel, Nav};
-use super::overlay::{Confirm, Find, Input, Menu, Overlay, Picker, Prefix, Search};
+use super::overlay::{Confirm, Editor, Find, Input, Menu, Overlay, Picker, Prefix, Search};
 use super::spinner::Spinner;
+use super::status::Status;
 use super::view::{View, ViewKind};
 use crate::api::{IssueDetail, IssueSummary, NotificationItem, Session};
 
@@ -70,7 +71,7 @@ pub struct App {
     pub detail_loading: bool,
     pub focus: Focus,
     pub loading: bool,
-    pub status: Option<String>,
+    pub status: Option<Status>,
     pub spinner: Spinner,
     pub scroll_position: usize,
     pub scroll_state: ScrollbarState,
@@ -157,6 +158,13 @@ impl App {
     pub fn input(&self) -> Option<&Input> {
         match &self.overlay {
             Overlay::Input(input) => Some(input),
+            _ => None,
+        }
+    }
+
+    pub fn editor(&self) -> Option<&Editor> {
+        match &self.overlay {
+            Overlay::Editor(editor) => Some(editor),
             _ => None,
         }
     }

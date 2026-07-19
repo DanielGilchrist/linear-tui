@@ -1,15 +1,16 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::{ListState, ScrollbarState};
 
-use super::action::{self, Action, ConfirmInput, InputInput, MenuInput, PickerInput};
+use super::action::{self, Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput};
 use super::app::{App, FocusedIssue, RECENT_CAP, SCROLL_STEP};
-use super::focus::{Direction, Edge, Focus, LeftPanel, Nav};
+use super::focus::{Direction, Edge, Focus, LeftPanel, Nav, Reveal};
 use super::issue_ref::parse_issue_ref;
 use super::message::{Command, Message};
 use super::overlay::{
-    Confirm, Find, Input, InputPurpose, Menu, Overlay, Picker, PickerKind, Prefix, PrefixUnder,
-    Search,
+    Confirm, Editor, Find, Input, InputPurpose, Menu, Overlay, Picker, PickerKind, Prefix,
+    PrefixUnder, Search,
 };
+use super::status::Status;
 use super::view::ViewKind;
 use crate::api::{IssueSummary, IssueUpdate};
 
@@ -27,6 +28,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Command> {
         Overlay::Menu(menu) => apply_menu(app, menu, key),
         Overlay::Prefix(prefix) => apply_prefix(app, prefix, key),
         Overlay::Input(input) => apply_input(app, input, key),
+        Overlay::Editor(editor) => apply_editor(app, editor, key),
         Overlay::Search(search) => apply_search(app, search, key),
         Overlay::Find(find) => apply_find(app, find, key),
         Overlay::None => resolve_browse(app, key).and_then(|action| apply_action(app, action)),
@@ -118,7 +120,7 @@ fn refresh_find(app: &mut App, query: &str) {
 
 fn find_step(app: &mut App, direction: Direction) {
     let Some(query) = app.find_query.clone() else {
-        app.status = Some("No active search (press /)".into());
+        app.status = Some(Status::NoActiveSearch);
         return;
     };
 
@@ -152,14 +154,14 @@ fn find_step(app: &mut App, direction: Direction) {
 fn open_find(app: &mut App) -> Option<Command> {
     match app.focus {
         Focus::Detail(_) => {
-            app.status = Some("Find works in a list".into());
+            app.status = Some(Status::FindInList);
             return None;
         }
         Focus::MyWork | Focus::Recent | Focus::Stub(_) => {}
     }
 
     if app.focused_list_len() == 0 {
-        app.status = Some("Nothing to search".into());
+        app.status = Some(Status::NothingToSearch);
         return None;
     }
 
@@ -174,7 +176,7 @@ fn open_find(app: &mut App) -> Option<Command> {
 fn apply_input(app: &mut App, mut input: Input, key: KeyEvent) -> Option<Command> {
     match InputInput::from_key(key) {
         Some(InputInput::Cancel) => {
-            app.status = Some("Cancelled".into());
+            app.status = Some(Status::Cancelled);
             None
         }
         Some(InputInput::Submit) => submit_input(app, input),
@@ -223,6 +225,74 @@ fn submit_input(app: &mut App, input: Input) -> Option<Command> {
             Some(Command::Search(query))
         }
     }
+}
+
+fn apply_editor(app: &mut App, mut editor: Editor, key: KeyEvent) -> Option<Command> {
+    if action::is_editor_submit(key) {
+        return submit_editor(app, editor);
+    }
+
+    match EditorInput::from_key(key) {
+        Some(EditorInput::Cancel) => {
+            app.status = Some(Status::Cancelled);
+            None
+        }
+        Some(EditorInput::Newline) => {
+            editor.newline();
+            restore_editor(app, editor)
+        }
+        Some(EditorInput::Erase) => {
+            editor.backspace();
+            restore_editor(app, editor)
+        }
+        Some(EditorInput::MoveLeft) => {
+            editor.move_left();
+            restore_editor(app, editor)
+        }
+        Some(EditorInput::MoveRight) => {
+            editor.move_right();
+            restore_editor(app, editor)
+        }
+        Some(EditorInput::MoveUp) => {
+            editor.move_up();
+            restore_editor(app, editor)
+        }
+        Some(EditorInput::MoveDown) => {
+            editor.move_down();
+            restore_editor(app, editor)
+        }
+        None => match key.code {
+            KeyCode::Char(c)
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                editor.insert(c);
+                restore_editor(app, editor)
+            }
+            _ => restore_editor(app, editor),
+        },
+    }
+}
+
+fn restore_editor(app: &mut App, editor: Editor) -> Option<Command> {
+    app.overlay = Overlay::Editor(editor);
+    None
+}
+
+fn submit_editor(app: &mut App, editor: Editor) -> Option<Command> {
+    if editor.is_empty() {
+        return None;
+    }
+
+    let issue_id = app.detail.as_ref().map(|detail| detail.id.clone())?;
+    app.status = Some(Status::PostingComment);
+
+    Some(Command::CreateComment {
+        issue_id,
+        body: editor.text(),
+        parent_id: editor.parent_id,
+    })
 }
 
 fn apply_search(app: &mut App, mut search: Search, key: KeyEvent) -> Option<Command> {
@@ -365,6 +435,7 @@ fn apply_action(app: &mut App, action: Action) -> Option<Command> {
         Action::YankUrl => yank_url(app),
         Action::SetStatus => open_status_picker(app),
         Action::Assign => open_assign_picker(app),
+        Action::Comment => open_comment_input(app),
         Action::ClearRecent => {
             clear_recent(app);
             None
@@ -440,17 +511,24 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             }
             None
         }
-        Message::DetailLoaded(detail) => {
+        Message::DetailLoaded { detail, reveal } => {
             app.detail = Some(*detail);
             app.detail_loading = false;
             app.status = None;
-            app.scroll_position = 0;
+
+            app.scroll_position = match reveal {
+                Reveal::Top => 0,
+                Reveal::Bottom => usize::MAX,
+            };
+
             app.scroll_state = ScrollbarState::default();
+
             let Some(detail) = &app.detail else {
                 return None;
             };
 
             app.record_recent(IssueSummary::from_detail(detail));
+
             Some(Command::SaveRecent(app.recently_viewed.clone()))
         }
         Message::RecentLoaded(mut issues) => {
@@ -465,7 +543,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
         Message::RecentCleared => {
             app.recently_viewed.clear();
             app.recent_state.select(Some(0));
-            app.status = Some("Recently viewed cleared".into());
+            app.status = Some(Status::RecentCleared);
 
             if app.focus.left() == LeftPanel::Recent {
                 app.focus = Focus::MyWork;
@@ -491,24 +569,35 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             None
         }
         Message::IssueUpdated { id } => {
-            app.status = Some("Issue updated".into());
+            app.status = Some(Status::IssueUpdated);
             let reload = load_active_command(app);
             match app.focus {
                 Focus::Detail(_) => {
                     app.detail_loading = true;
-                    Some(Command::Batch(vec![reload, Command::LoadDetail(id)]))
+                    Some(Command::Batch(vec![
+                        reload,
+                        Command::LoadDetail {
+                            id,
+                            reveal: Reveal::Top,
+                        },
+                    ]))
                 }
                 Focus::MyWork | Focus::Recent | Focus::Stub(_) => Some(reload),
             }
         }
-        Message::Status(message) => {
-            app.status = Some(message);
-            None
+        Message::CommentPosted { id } => {
+            app.status = Some(Status::CommentPosted);
+            app.detail_loading = true;
+
+            Some(Command::LoadDetail {
+                id,
+                reveal: Reveal::Bottom,
+            })
         }
         Message::Failed(error) => {
             app.loading = false;
             app.detail_loading = false;
-            app.status = Some(error);
+            app.status = Some(Status::Error(error));
             None
         }
     }
@@ -539,7 +628,10 @@ fn reload(app: &mut App) -> Command {
             Some(detail) => {
                 let id = detail.id.clone();
                 app.detail_loading = true;
-                Command::LoadDetail(id)
+                Command::LoadDetail {
+                    id,
+                    reveal: Reveal::Top,
+                }
             }
             None => reload_list(app),
         },
@@ -616,7 +708,10 @@ fn open_issue(app: &mut App, id: String) -> Option<Command> {
 
     app.detail = None;
     app.detail_loading = true;
-    Some(Command::LoadDetail(id))
+    Some(Command::LoadDetail {
+        id,
+        reveal: Reveal::Top,
+    })
 }
 
 fn history_step(app: &mut App, direction: Direction) -> Option<Command> {
@@ -748,13 +843,19 @@ fn clear_recent(app: &mut App) {
 }
 
 fn open_status_picker(app: &mut App) -> Option<Command> {
-    let target = require(app, app.action_target(), "Open the issue first (enter)")?;
+    let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
     Some(open_picker(app, PickerKind::Status, target))
 }
 
 fn open_assign_picker(app: &mut App) -> Option<Command> {
-    let target = require(app, app.action_target(), "Open the issue first (enter)")?;
+    let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
     Some(open_picker(app, PickerKind::Assign, target))
+}
+
+fn open_comment_input(app: &mut App) -> Option<Command> {
+    require(app, app.action_target(), Status::NeedOpenIssue)?;
+    app.overlay = Overlay::Editor(Editor::new("Comment", None));
+    None
 }
 
 fn open_picker(app: &mut App, kind: PickerKind, target: FocusedIssue) -> Command {
@@ -774,21 +875,21 @@ fn open_picker(app: &mut App, kind: PickerKind, target: FocusedIssue) -> Command
 }
 
 fn open_in_browser(app: &mut App) -> Option<Command> {
-    let target = require(app, app.open_target(), "Highlight an issue first")?;
+    let target = require(app, app.open_target(), Status::NeedHighlightedIssue)?;
     Some(Command::OpenUrl(target.url))
 }
 
 fn yank_url(app: &mut App) -> Option<Command> {
-    let target = require(app, app.open_target(), "Highlight an issue first")?;
-    app.status = Some("Copied issue URL to clipboard".into());
+    let target = require(app, app.open_target(), Status::NeedHighlightedIssue)?;
+    app.status = Some(Status::CopiedUrl);
     Some(Command::CopyToClipboard(target.url))
 }
 
-fn require<T>(app: &mut App, target: Option<T>, message: &str) -> Option<T> {
+fn require<T>(app: &mut App, target: Option<T>, status: Status) -> Option<T> {
     match target {
         some @ Some(_) => some,
         None => {
-            app.status = Some(message.into());
+            app.status = Some(status);
             None
         }
     }
@@ -797,11 +898,11 @@ fn require<T>(app: &mut App, target: Option<T>, message: &str) -> Option<T> {
 fn apply_confirm(app: &mut App, confirm: Confirm, input: Option<ConfirmInput>) -> Option<Command> {
     match input {
         Some(ConfirmInput::Accept) => {
-            app.status = Some("Applying…".into());
+            app.status = Some(Status::Applying);
             Some(confirm.command)
         }
         Some(ConfirmInput::Reject) => {
-            app.status = Some("Cancelled".into());
+            app.status = Some(Status::Cancelled);
             None
         }
         None => {

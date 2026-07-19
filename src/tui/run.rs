@@ -93,8 +93,11 @@ fn dispatch(
                 Ok(items) => Message::InboxLoaded { view, items },
                 Err(error) => Message::Failed(error.to_string()),
             }),
-            Command::LoadDetail(id) => Some(match api.issue_detail(&id).await {
-                Ok(Some(detail)) => Message::DetailLoaded(Box::new(detail)),
+            Command::LoadDetail { id, reveal } => Some(match api.issue_detail(&id).await {
+                Ok(Some(detail)) => Message::DetailLoaded {
+                    detail: Box::new(detail),
+                    reveal,
+                },
                 Ok(None) => Message::Failed(format!("Issue {id} not found")),
                 Err(error) => Message::Failed(error.to_string()),
             }),
@@ -129,6 +132,19 @@ fn dispatch(
                     Err(error) => Message::Failed(error.to_string()),
                 })
             }
+            Command::CreateComment {
+                issue_id,
+                body,
+                parent_id,
+            } => Some(
+                match api
+                    .create_comment(&issue_id, &body, parent_id.as_deref())
+                    .await
+                {
+                    Ok(()) => Message::CommentPosted { id: issue_id },
+                    Err(error) => Message::Failed(error.to_string()),
+                },
+            ),
             Command::OpenUrl(url) => {
                 match tokio::task::spawn_blocking(move || platform.open_url(&url)).await {
                     Ok(Ok(())) => None,

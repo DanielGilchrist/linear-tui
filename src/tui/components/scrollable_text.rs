@@ -11,7 +11,7 @@ pub struct ScrollableText<'a> {
     scroll_position: usize,
     scroll_state: &'a mut ScrollbarState,
     title: Option<&'a str>,
-    border_color: Color,
+    border_colour: Color,
 }
 
 impl<'a> ScrollableText<'a> {
@@ -25,7 +25,7 @@ impl<'a> ScrollableText<'a> {
             scroll_position,
             scroll_state,
             title: None,
-            border_color: Color::Yellow,
+            border_colour: Color::Yellow,
         }
     }
 
@@ -34,8 +34,8 @@ impl<'a> ScrollableText<'a> {
         self
     }
 
-    pub fn border_color(mut self, color: Color) -> Self {
-        self.border_color = color;
+    pub fn border_colour(mut self, colour: Color) -> Self {
+        self.border_colour = colour;
         self
     }
 
@@ -44,12 +44,13 @@ impl<'a> ScrollableText<'a> {
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
-        let max_scroll = self.content.lines.len();
+        let text_height = area.height.saturating_sub(2) as usize;
+        let max_scroll = self.content.lines.len().saturating_sub(text_height);
         self.scroll_position = self.scroll_position.min(max_scroll);
 
         let mut block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.border_color));
+            .border_style(Style::default().fg(self.border_colour));
 
         if let Some(title) = self.title {
             block = block.title(title);

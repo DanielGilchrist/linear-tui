@@ -496,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn heading_levels_get_distinct_colors() {
+    fn heading_levels_get_distinct_colours() {
         assert_eq!(span_style("# One", "One").fg, Some(Color::White));
         assert_eq!(span_style("## Two", "Two").fg, Some(Color::Cyan));
         assert_eq!(

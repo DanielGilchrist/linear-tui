@@ -28,7 +28,8 @@ pub struct User {
 #[cynic(schema_path = "schema.graphql")]
 pub struct IssueLabel {
     pub name: String,
-    pub color: String,
+    #[cynic(rename = "color")]
+    pub colour: String,
 }
 
 #[derive(Debug, Clone, QueryFragment)]
