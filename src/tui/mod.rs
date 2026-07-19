@@ -1,7 +1,9 @@
+pub mod action;
 pub mod app;
 pub mod components;
 pub mod layout;
 pub mod message;
+pub mod platform;
 pub mod render;
 pub mod run;
 pub mod update;

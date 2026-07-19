@@ -6,13 +6,14 @@ use ratatui::{
     Frame,
 };
 
-use super::app::{App, Pane, Screen, ViewKind};
+use super::action;
+use super::app::{App, Focus, View, ViewKind};
 use super::components::{ScrollableText, StyledList};
 use super::layout;
 use crate::api::{IssueDetail, IssueSummary, NotificationItem};
 
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const SIDEBAR_PCT: u16 = 26;
+const LEFT_PCT: u16 = 38;
 
 pub fn render(app: &mut App, frame: &mut Frame) {
     let chunks = Layout::default()
@@ -22,93 +23,337 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     let body = chunks[0];
     let footer = chunks[1];
 
-    match app.screen {
-        Screen::Home => render_home(app, frame, body),
-        Screen::Detail => render_detail(app, frame, body),
-    }
+    let [left, right] = layout::split_horizontal(body, LEFT_PCT);
+    render_left(app, frame, left);
+    render_right(app, frame, right);
 
     render_footer(app, frame, footer);
-}
 
-fn render_home(app: &mut App, frame: &mut Frame, area: Rect) {
-    let [sidebar_area, main_area] = layout::split_horizontal(area, SIDEBAR_PCT);
-
-    let view_items: Vec<ListItem> = app
-        .views
-        .iter()
-        .map(|view| ListItem::new(Line::from(view.name.clone())))
-        .collect();
-
-    StyledList::new("Views")
-        .items(view_items)
-        .focused(app.pane == Pane::Sidebar)
-        .state(&mut app.view_state)
-        .render(frame, sidebar_area);
-
-    let spinner = SPINNER[app.spinner_frame % SPINNER.len()];
-    let focused = app.pane == Pane::Main;
-    let selected = app.list_state.selected();
-
-    match app.active_view().kind {
-        ViewKind::Issues(_) => {
-            let title = title_with_spinner(&app.active_view().name, app.loading, spinner);
-            let items = issue_items(&app.issues);
-            let total = app.issues.len();
-            let mut list = StyledList::new(&title)
-                .items(items)
-                .focused(focused)
-                .state(&mut app.list_state)
-                .position(selected, total);
-            if total == 0 {
-                list = list.placeholder(if app.loading {
-                    "Loading…"
-                } else {
-                    "No issues in this view"
-                });
-            }
-            list.render(frame, main_area);
-        }
-        ViewKind::Inbox => {
-            let title = title_with_spinner("Inbox", app.loading, spinner);
-            let items = notification_items(&app.notifications);
-            let total = app.notifications.len();
-            let mut list = StyledList::new(&title)
-                .items(items)
-                .focused(focused)
-                .state(&mut app.list_state)
-                .position(selected, total);
-            if total == 0 {
-                list = list.placeholder(if app.loading {
-                    "Loading…"
-                } else {
-                    "Inbox empty"
-                });
-            }
-            list.render(frame, main_area);
-        }
+    if app.picker().is_some() {
+        render_picker(app, frame);
+    } else if app.confirm().is_some() {
+        render_confirm(app, frame);
     }
 }
 
-fn render_detail(app: &mut App, frame: &mut Frame, area: Rect) {
-    let Some(detail) = &app.detail else {
-        let spinner = SPINNER[app.spinner_frame % SPINNER.len()];
-        let placeholder = if app.loading {
-            format!("{spinner}  Loading…")
-        } else {
-            "No issue".to_string()
-        };
-        StyledList::new("Issue")
-            .placeholder(&placeholder)
-            .render(frame, area);
+fn render_confirm(app: &App, frame: &mut Frame) {
+    use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+
+    let Some(confirm) = app.confirm() else {
         return;
     };
 
-    let content = detail_text(detail);
-    let title = detail.identifier.clone();
-    ScrollableText::new(content, app.scroll_position, &mut app.scroll_state)
-        .title(&title)
-        .border_color(Color::Yellow)
-        .render(frame, area);
+    let area = layout::centered_rect_fixed(frame.area(), 50, 6);
+    frame.render_widget(Clear, area);
+
+    let block = Block::default()
+        .title("Confirm")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow));
+
+    let text = Text::from(vec![
+        Line::from(confirm.message.clone()),
+        Line::from(""),
+        Line::from(Span::styled(
+            "[y] yes    [n] no",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ]);
+
+    frame.render_widget(
+        Paragraph::new(text).block(block).wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
+fn render_picker(app: &mut App, frame: &mut Frame) {
+    use ratatui::widgets::Clear;
+
+    let spinner = SPINNER[app.spinner_frame % SPINNER.len()];
+    let Some(picker) = app.picker_mut() else {
+        return;
+    };
+
+    let area = layout::centered_rect(frame.area(), 44, 55);
+    frame.render_widget(Clear, area);
+
+    let items: Vec<ListItem> = picker
+        .items
+        .iter()
+        .map(|item| {
+            let mut spans = vec![Span::styled(
+                item.label.clone(),
+                Style::default().fg(Color::White),
+            )];
+            if !item.hint.is_empty() {
+                spans.push(Span::raw("  "));
+                spans.push(Span::styled(
+                    item.hint.clone(),
+                    Style::default().fg(state_type_color(&item.hint)),
+                ));
+            }
+            ListItem::new(Line::from(spans))
+        })
+        .collect();
+
+    let title = format!("{}  {}", picker.verb(), picker.target_label);
+    let mut list = StyledList::new(&title).items(items).focused(true);
+
+    if picker.items.is_empty() {
+        let placeholder = if picker.loading {
+            format!("{spinner}  Loading…")
+        } else {
+            "Nothing to choose".to_string()
+        };
+        list = list.placeholder(&placeholder);
+        list.render(frame, area);
+    } else {
+        let selected = picker.state.selected();
+        let total = picker.items.len();
+        list.state(&mut picker.state)
+            .position(selected, total)
+            .render(frame, area);
+    }
+}
+
+fn render_left(app: &mut App, frame: &mut Frame, area: Rect) {
+    let mut constraints = vec![Constraint::Min(6)];
+    for stub in &app.stubs {
+        constraints.push(Constraint::Length(stub.items.len() as u16 + 2));
+    }
+    let rects = Layout::vertical(constraints).split(area);
+
+    render_my_work(app, frame, rects[0]);
+
+    for index in 0..app.stubs.len() {
+        let focused = app.focus == Focus::Stub(index);
+        let rect = rects[index + 1];
+        let stub = &mut app.stubs[index];
+        let items: Vec<ListItem> = stub
+            .items
+            .iter()
+            .map(|item| ListItem::new(Line::from(item.clone())))
+            .collect();
+        let selected = stub.state.selected();
+        let total = stub.items.len();
+        StyledList::new(&stub.title)
+            .items(items)
+            .focused(focused)
+            .state(&mut stub.state)
+            .position(selected, total)
+            .render(frame, rect);
+    }
+}
+
+fn render_my_work(app: &mut App, frame: &mut Frame, area: Rect) {
+    let spinner = SPINNER[app.spinner_frame % SPINNER.len()];
+    let focused = app.focus == Focus::MyWork;
+    let selected = app.list_state.selected();
+    let title = view_tabs(&app.views, app.active_view_index(), app.loading, spinner);
+    let is_inbox = matches!(app.active_view().kind, ViewKind::Inbox);
+
+    let (items, total, empty) = if is_inbox {
+        (
+            notification_items(&app.notifications),
+            app.notifications.len(),
+            "Inbox empty",
+        )
+    } else {
+        (
+            issue_items(&app.issues),
+            app.issues.len(),
+            "No issues in this view",
+        )
+    };
+
+    let mut list = StyledList::new("My Work")
+        .title_line(title)
+        .items(items)
+        .focused(focused)
+        .state(&mut app.list_state)
+        .position(selected, total);
+    if total == 0 {
+        list = list.placeholder(if app.loading { "Loading…" } else { empty });
+    }
+    list.render(frame, area);
+}
+
+fn view_tabs(views: &[View], active: usize, loading: bool, spinner: &str) -> Line<'static> {
+    let mut spans: Vec<Span> = Vec::new();
+    for (index, view) in views.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
+        }
+        let style = if index == active {
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        spans.push(Span::styled(view.name.clone(), style));
+    }
+    if loading {
+        spans.push(Span::styled(
+            format!("  {spinner}"),
+            Style::default().fg(Color::Yellow),
+        ));
+    }
+    Line::from(spans)
+}
+
+fn render_right(app: &mut App, frame: &mut Frame, area: Rect) {
+    if let Focus::Stub(index) = app.focus {
+        let stub = &app.stubs[index];
+        let selected = stub
+            .state
+            .selected()
+            .and_then(|i| stub.items.get(i))
+            .cloned()
+            .unwrap_or_default();
+        let text = Text::from(vec![
+            Line::from(Span::styled(
+                "Not implemented yet",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(selected),
+        ]);
+        render_text_panel(frame, area, &stub.title, text, Color::Yellow);
+        return;
+    }
+
+    let focused = app.focus == Focus::Detail;
+    let border = if focused { Color::Yellow } else { Color::Gray };
+    let spinner = SPINNER[app.spinner_frame % SPINNER.len()];
+
+    if app.detail.is_some() && (focused || app.detail_ready()) {
+        let detail = app.detail.as_ref().unwrap();
+        let content = detail_text(detail);
+        let title = detail.identifier.clone();
+        ScrollableText::new(content, app.scroll_position, &mut app.scroll_state)
+            .title(&title)
+            .border_color(border)
+            .render(frame, area);
+        return;
+    }
+
+    if focused && app.detail_loading {
+        render_text_panel(
+            frame,
+            area,
+            "Issue",
+            Text::from(format!("{spinner}  Loading issue…")),
+            border,
+        );
+        return;
+    }
+
+    let (title, text) = match app.active_view().kind {
+        ViewKind::Issues(_) => match app.selected_issue() {
+            Some(issue) => (issue.identifier.clone(), preview_text(issue)),
+            None => ("Preview".to_string(), Text::from("No issue selected")),
+        },
+        ViewKind::Inbox => match app.selected_notification() {
+            Some(notification) => (
+                "Notification".to_string(),
+                notification_preview_text(notification),
+            ),
+            None => ("Notification".to_string(), Text::from("Nothing selected")),
+        },
+    };
+    render_text_panel(frame, area, &title, text, border);
+}
+
+fn render_text_panel(frame: &mut Frame, area: Rect, title: &str, text: Text, border: Color) {
+    use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+
+    let block = Block::default()
+        .title(title.to_string())
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border));
+    frame.render_widget(Paragraph::new(text).block(block).wrap(Wrap { trim: false }), area);
+}
+
+fn preview_text(issue: &IssueSummary) -> Text<'static> {
+    let mut lines: Vec<Line> = vec![
+        Line::from(vec![
+            Span::styled(issue.identifier.clone(), Style::default().fg(Color::DarkGray)),
+            Span::raw("  "),
+            Span::styled(
+                issue.state.name.clone(),
+                Style::default().fg(state_type_color(&issue.state.state_type)),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                priority_label(issue.priority).to_string(),
+                Style::default().fg(priority_indicator(issue.priority).1),
+            ),
+        ]),
+        Line::from(Span::styled(
+            issue.title.clone().unwrap_or_else(|| "Untitled".into()),
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        )),
+    ];
+
+    let mut meta: Vec<Span> = Vec::new();
+    if let Some(assignee) = &issue.assignee {
+        meta.push(Span::styled(
+            format!("@{}", assignee.display_name),
+            Style::default().fg(Color::Blue),
+        ));
+    }
+    for label in &issue.labels {
+        meta.push(Span::raw(" "));
+        meta.push(Span::styled(
+            format!(" {} ", label.name),
+            Style::default()
+                .fg(Color::Black)
+                .bg(parse_hex_color(&label.color)),
+        ));
+    }
+    if !meta.is_empty() {
+        lines.push(Line::from(meta));
+    }
+
+    lines.push(Line::from(Span::styled(
+        issue.url.clone(),
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Press enter to load the description and comments",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    Text::from(lines)
+}
+
+fn notification_preview_text(notification: &NotificationItem) -> Text<'static> {
+    let mut lines = vec![Line::from(Span::styled(
+        notification.title.clone(),
+        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+    ))];
+    lines.push(Line::from(Span::styled(
+        if notification.is_read { "read" } else { "unread" }.to_string(),
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(""));
+    if notification.issue_id.is_some() {
+        lines.push(Line::from(Span::styled(
+            "Press enter to open the linked issue",
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    Text::from(lines)
+}
+
+fn priority_label(priority: u8) -> &'static str {
+    match priority {
+        1 => "Urgent",
+        2 => "High",
+        3 => "Medium",
+        4 => "Low",
+        _ => "No priority",
+    }
 }
 
 fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
@@ -131,15 +376,10 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
             left,
         );
     } else {
-        let hint = match app.screen {
-            Screen::Home => {
-                " j/k move   tab switch pane   enter open   1-3 views   r refresh   q quit"
-            }
-            Screen::Detail => " j/k scroll   esc back   r refresh   q quit",
-        };
+        let hint = footer_hint(app);
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                hint,
+                format!(" {hint}"),
                 Style::default().fg(Color::DarkGray),
             ))),
             left,
@@ -180,12 +420,19 @@ fn buffer_to_string(buffer: &ratatui::buffer::Buffer) -> String {
     out
 }
 
-fn title_with_spinner(name: &str, loading: bool, spinner: &str) -> String {
-    if loading {
-        format!("{name}  {spinner}")
-    } else {
-        name.to_string()
+fn footer_hint(app: &App) -> String {
+    if app.confirm().is_some() {
+        return action::CONFIRM.hint_bar(action::CONFIRM_HINTS);
     }
+    if app.picker().is_some() {
+        return action::PICKER.hint_bar(action::PICKER_HINTS);
+    }
+    let specs = match app.focus {
+        Focus::MyWork => action::MY_WORK_HINTS,
+        Focus::Stub(_) => action::STUB_HINTS,
+        Focus::Detail => action::DETAIL_HINTS,
+    };
+    action::BROWSE.hint_bar(specs)
 }
 
 fn issue_items(issues: &[IssueSummary]) -> Vec<ListItem<'static>> {

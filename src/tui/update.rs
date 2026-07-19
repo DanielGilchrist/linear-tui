@@ -1,41 +1,67 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::KeyEvent;
 use ratatui::widgets::{ListState, ScrollbarState};
 
-use super::app::{App, Pane, Screen, ViewKind, SCROLL_STEP};
+use super::action::{Action, ConfirmInput, PickerInput};
+use super::app::{
+    App, Confirm, Focus, FocusedIssue, Overlay, Picker, PickerKind, ViewKind, SCROLL_STEP,
+};
 use super::message::{Command, Message};
+use crate::api::IssueUpdate;
 
 pub fn handle_key(app: &mut App, key: KeyEvent) -> Vec<Command> {
-    match (key.modifiers, key.code) {
-        (_, KeyCode::Char('q')) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+    if super::action::is_quit(&key) {
+        app.should_quit = true;
+        return vec![];
+    }
+
+    match std::mem::take(&mut app.overlay) {
+        Overlay::Confirm(confirm) => apply_confirm(app, confirm, ConfirmInput::from_key(key)),
+        Overlay::Picker(picker) => apply_picker(app, picker, PickerInput::from_key(key)),
+        Overlay::None => match Action::from_key(key) {
+            Some(action) => apply_action(app, action),
+            None => vec![],
+        },
+    }
+}
+
+fn apply_action(app: &mut App, action: Action) -> Vec<Command> {
+    match action {
+        Action::Quit => {
             app.should_quit = true;
             vec![]
         }
-        (_, KeyCode::Char('r')) => reload(app),
-        (_, KeyCode::Tab) => {
-            toggle_pane(app);
+        Action::NextPanel => {
+            cycle_panel(app, true);
             vec![]
         }
-        (_, KeyCode::Char('h')) | (_, KeyCode::Left) => {
-            if app.screen == Screen::Home {
-                app.pane = Pane::Sidebar;
-            }
+        Action::PrevPanel => {
+            cycle_panel(app, false);
             vec![]
         }
-        (_, KeyCode::Char('l')) | (_, KeyCode::Right) => {
-            if app.screen == Screen::Home {
-                app.pane = Pane::Main;
-            }
+        Action::Descend => descend(app).into_iter().collect(),
+        Action::Ascend => {
+            ascend(app);
             vec![]
         }
-        (_, KeyCode::Char('j')) | (_, KeyCode::Down) => down(app),
-        (_, KeyCode::Char('k')) | (_, KeyCode::Up) => up(app),
-        (_, KeyCode::Enter) => enter(app),
-        (_, KeyCode::Esc) | (_, KeyCode::Backspace) => {
-            back(app);
+        Action::SelectNext => {
+            move_selection(app, true);
             vec![]
         }
-        (_, KeyCode::Char(c @ '1'..='9')) => jump_view(app, c as usize - '1' as usize),
-        _ => vec![],
+        Action::SelectPrev => {
+            move_selection(app, false);
+            vec![]
+        }
+        Action::NextView => cycle_view(app, true).into_iter().collect(),
+        Action::PrevView => cycle_view(app, false).into_iter().collect(),
+        Action::JumpToPanel(index) => {
+            jump_panel(app, index);
+            vec![]
+        }
+        Action::Reload => vec![reload(app)],
+        Action::OpenInBrowser => open_in_browser(app).into_iter().collect(),
+        Action::YankUrl => yank_url(app).into_iter().collect(),
+        Action::SetStatus => open_status_picker(app).into_iter().collect(),
+        Action::Assign => open_assign_picker(app).into_iter().collect(),
     }
 }
 
@@ -60,13 +86,32 @@ pub fn apply(app: &mut App, msg: Message) -> Vec<Command> {
         }
         Message::DetailLoaded(detail) => {
             app.detail = Some(*detail);
-            app.loading = false;
+            app.detail_loading = false;
             app.status = None;
             app.scroll_position = 0;
             app.scroll_state = ScrollbarState::default();
         }
+        Message::PickerLoaded(items) => {
+            if let Some(picker) = app.picker_mut() {
+                picker.items = items;
+                picker.loading = false;
+                picker.state.select(Some(0));
+            }
+        }
+        Message::IssueUpdated { id } => {
+            app.loading = false;
+            app.status = Some("Issue updated".into());
+            let mut commands = vec![load_active_command(app)];
+            if app.focus == Focus::Detail {
+                app.detail_loading = true;
+                commands.push(Command::LoadDetail(id));
+            }
+            return commands;
+        }
+        Message::Status(message) => app.status = Some(message),
         Message::Failed(error) => {
             app.loading = false;
+            app.detail_loading = false;
             app.status = Some(error);
         }
     }
@@ -88,120 +133,226 @@ fn load_active_command(app: &App) -> Command {
     }
 }
 
-fn reload(app: &mut App) -> Vec<Command> {
-    if app.screen == Screen::Detail {
+fn reload(app: &mut App) -> Command {
+    if app.focus == Focus::Detail {
         if let Some(detail) = &app.detail {
-            app.loading = true;
-            return vec![Command::LoadDetail(detail.id.clone())];
+            app.detail_loading = true;
+            return Command::LoadDetail(detail.id.clone());
         }
     }
     app.loading = true;
-    vec![load_active_command(app)]
+    load_active_command(app)
 }
 
-fn toggle_pane(app: &mut App) {
-    if app.screen != Screen::Home {
+fn cycle_panel(app: &mut App, forward: bool) {
+    let order = focus_cycle(app);
+    let current = order.iter().position(|&f| f == app.focus).unwrap_or(0);
+    let len = order.len();
+    let next = if forward {
+        (current + 1) % len
+    } else {
+        (current + len - 1) % len
+    };
+    app.focus = order[next];
+}
+
+fn focus_cycle(app: &App) -> Vec<Focus> {
+    let mut order: Vec<Focus> = (0..app.panel_count()).map(|i| app.focus_at(i)).collect();
+    order.push(Focus::Detail);
+    order
+}
+
+fn jump_panel(app: &mut App, index: usize) {
+    if index < app.panel_count() {
+        app.focus = app.focus_at(index);
+    }
+}
+
+fn ascend(app: &mut App) {
+    app.focus = Focus::MyWork;
+}
+
+fn descend(app: &mut App) -> Option<Command> {
+    match app.focus {
+        Focus::MyWork => open_detail(app),
+        Focus::Stub(_) | Focus::Detail => None,
+    }
+}
+
+fn open_detail(app: &mut App) -> Option<Command> {
+    let id = match app.active_view().kind {
+        ViewKind::Issues(_) => app.selected_issue().map(|i| i.id.clone()),
+        ViewKind::Inbox => app.selected_notification().and_then(|n| n.issue_id.clone()),
+    }?;
+
+    app.focus = Focus::Detail;
+    app.scroll_position = 0;
+    app.scroll_state = ScrollbarState::default();
+
+    if app.detail.as_ref().is_some_and(|d| d.id == id) {
+        return None;
+    }
+
+    app.detail = None;
+    app.detail_loading = true;
+    Some(Command::LoadDetail(id))
+}
+
+fn move_selection(app: &mut App, forward: bool) {
+    if app.focus == Focus::Detail {
+        app.scroll_position = if forward {
+            app.scroll_position.saturating_add(SCROLL_STEP)
+        } else {
+            app.scroll_position.saturating_sub(SCROLL_STEP)
+        };
         return;
     }
-    app.pane = match app.pane {
-        Pane::Sidebar => Pane::Main,
-        Pane::Main => Pane::Sidebar,
-    };
-}
 
-fn down(app: &mut App) -> Vec<Command> {
-    match app.screen {
-        Screen::Detail => {
-            app.scroll_position = app.scroll_position.saturating_add(SCROLL_STEP);
-            vec![]
-        }
-        Screen::Home => match app.pane {
-            Pane::Sidebar => move_view(app, true),
-            Pane::Main => {
-                let len = app.main_len();
-                navigate_list(&mut app.list_state, len, true);
-                vec![]
-            }
-        },
+    let len = app.focused_list_len();
+    if let Some(state) = app.focused_list_mut() {
+        navigate_list(state, len, forward);
     }
 }
 
-fn up(app: &mut App) -> Vec<Command> {
-    match app.screen {
-        Screen::Detail => {
-            app.scroll_position = app.scroll_position.saturating_sub(SCROLL_STEP);
-            vec![]
-        }
-        Screen::Home => match app.pane {
-            Pane::Sidebar => move_view(app, false),
-            Pane::Main => {
-                let len = app.main_len();
-                navigate_list(&mut app.list_state, len, false);
-                vec![]
-            }
-        },
+fn cycle_view(app: &mut App, forward: bool) -> Option<Command> {
+    if app.focus != Focus::MyWork {
+        return None;
     }
-}
-
-fn enter(app: &mut App) -> Vec<Command> {
-    if app.screen != Screen::Home {
-        return vec![];
-    }
-    if app.pane == Pane::Sidebar {
-        app.pane = Pane::Main;
-        return vec![];
-    }
-    let issue_id = match app.active_view().kind {
-        ViewKind::Issues(_) => app.selected_issue().map(|i| i.id.clone()),
-        ViewKind::Inbox => app
-            .selected_notification()
-            .and_then(|n| n.issue_id.clone()),
-    };
-    if let Some(id) = issue_id {
-        app.screen = Screen::Detail;
-        app.detail = None;
-        app.loading = true;
-        return vec![Command::LoadDetail(id)];
-    }
-    vec![]
-}
-
-fn back(app: &mut App) {
-    if app.screen == Screen::Detail {
-        app.screen = Screen::Home;
-        app.detail = None;
-    }
-}
-
-fn jump_view(app: &mut App, index: usize) -> Vec<Command> {
-    if index >= app.views.len() || index == app.active_view_index() && app.screen == Screen::Home {
-        if index < app.views.len() {
-            app.screen = Screen::Home;
-        }
-        return vec![];
-    }
-    app.screen = Screen::Home;
-    app.view_state.select(Some(index));
-    app.list_state.select(Some(0));
-    app.loading = true;
-    vec![load_active_command(app)]
-}
-
-fn move_view(app: &mut App, forward: bool) -> Vec<Command> {
     let len = app.views.len();
-    if len == 0 {
-        return vec![];
-    }
     let current = app.active_view_index();
     let next = if forward {
         (current + 1) % len
     } else {
         (current + len - 1) % len
     };
-    app.view_state.select(Some(next));
+    Some(select_view(app, next))
+}
+
+fn select_view(app: &mut App, index: usize) -> Command {
+    app.focus = Focus::MyWork;
+    app.view_state.select(Some(index));
     app.list_state.select(Some(0));
+    app.detail = None;
     app.loading = true;
-    vec![load_active_command(app)]
+    load_active_command(app)
+}
+
+fn open_status_picker(app: &mut App) -> Option<Command> {
+    let target = require(app, app.action_target(), "Open the issue first (enter)")?;
+    Some(open_picker(app, PickerKind::Status, target))
+}
+
+fn open_assign_picker(app: &mut App) -> Option<Command> {
+    let target = require(app, app.action_target(), "Open the issue first (enter)")?;
+    Some(open_picker(app, PickerKind::Assign, target))
+}
+
+fn open_picker(app: &mut App, kind: PickerKind, target: FocusedIssue) -> Command {
+    let team_id = target.team_id;
+    app.overlay = Overlay::Picker(Picker {
+        kind,
+        target_issue: target.id,
+        target_label: target.identifier,
+        items: Vec::new(),
+        state: ListState::default().with_selected(Some(0)),
+        loading: true,
+    });
+    match kind {
+        PickerKind::Status => Command::LoadStates { team_id },
+        PickerKind::Assign => Command::LoadMembers { team_id },
+    }
+}
+
+fn open_in_browser(app: &mut App) -> Option<Command> {
+    let target = require(app, app.open_target(), "Highlight an issue first")?;
+    Some(Command::OpenUrl(target.url))
+}
+
+fn yank_url(app: &mut App) -> Option<Command> {
+    let target = require(app, app.open_target(), "Highlight an issue first")?;
+    app.status = Some("Copied issue URL to clipboard".into());
+    Some(Command::CopyToClipboard(target.url))
+}
+
+fn require<T>(app: &mut App, target: Option<T>, message: &str) -> Option<T> {
+    if target.is_none() {
+        app.status = Some(message.into());
+    }
+    target
+}
+
+fn apply_confirm(app: &mut App, confirm: Confirm, input: Option<ConfirmInput>) -> Vec<Command> {
+    match input {
+        Some(ConfirmInput::Accept) => {
+            app.loading = true;
+            app.status = Some("Applying…".into());
+            vec![confirm.command]
+        }
+        Some(ConfirmInput::Reject) => {
+            app.status = Some("Cancelled".into());
+            vec![]
+        }
+        None => {
+            app.overlay = Overlay::Confirm(confirm);
+            vec![]
+        }
+    }
+}
+
+fn apply_picker(app: &mut App, mut picker: Picker, input: Option<PickerInput>) -> Vec<Command> {
+    match input {
+        Some(PickerInput::Next) => {
+            let len = picker.items.len();
+            navigate_list(&mut picker.state, len, true);
+            app.overlay = Overlay::Picker(picker);
+            vec![]
+        }
+        Some(PickerInput::Prev) => {
+            let len = picker.items.len();
+            navigate_list(&mut picker.state, len, false);
+            app.overlay = Overlay::Picker(picker);
+            vec![]
+        }
+        Some(PickerInput::Accept) => confirm_picker(app, picker),
+        Some(PickerInput::Cancel) => vec![],
+        None => {
+            app.overlay = Overlay::Picker(picker);
+            vec![]
+        }
+    }
+}
+
+fn confirm_picker(app: &mut App, picker: Picker) -> Vec<Command> {
+    let Some(item) = picker.selected() else {
+        app.overlay = Overlay::Picker(picker);
+        return vec![];
+    };
+
+    let (update, message) = match picker.kind {
+        PickerKind::Status => (
+            IssueUpdate {
+                state_id: Some(item.id.clone()),
+                assignee_id: None,
+            },
+            format!("Set {} to \"{}\"?", picker.target_label, item.label),
+        ),
+        PickerKind::Assign => (
+            IssueUpdate {
+                state_id: None,
+                assignee_id: Some(item.id.clone()),
+            },
+            format!("Assign {} to {}?", picker.target_label, item.label),
+        ),
+    };
+
+    app.overlay = Overlay::Confirm(Confirm {
+        message,
+        command: Command::UpdateIssue {
+            id: picker.target_issue.clone(),
+            update,
+        },
+    });
+    vec![]
 }
 
 fn navigate_list(state: &mut ListState, len: usize, forward: bool) {

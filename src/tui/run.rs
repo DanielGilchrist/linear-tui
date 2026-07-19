@@ -7,8 +7,9 @@ use futures::StreamExt;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::mpsc::{self, UnboundedSender};
 
-use super::app::App;
+use super::app::{App, PickerItem};
 use super::message::{Command, Message};
+use super::platform::Platform;
 use super::{render, update};
 use crate::api::LinearApi;
 
@@ -20,9 +21,10 @@ pub async fn run(
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
     let mut events = EventStream::new();
     let mut ticker = tokio::time::interval(Duration::from_millis(120));
+    let platform = Platform::host();
 
     for command in update::initial_commands(app) {
-        dispatch(&api, &tx, command);
+        dispatch(&api, &tx, platform, command);
     }
 
     loop {
@@ -37,14 +39,14 @@ pub async fn run(
                 if let Some(Ok(Event::Key(key))) = maybe_event {
                     if key.kind == KeyEventKind::Press {
                         for command in update::handle_key(app, key) {
-                            dispatch(&api, &tx, command);
+                            dispatch(&api, &tx, platform, command);
                         }
                     }
                 }
             }
             Some(message) = rx.recv() => {
                 for command in update::apply(app, message) {
-                    dispatch(&api, &tx, command);
+                    dispatch(&api, &tx, platform, command);
                 }
             }
             _ = ticker.tick() => {
@@ -58,31 +60,68 @@ pub async fn run(
     Ok(())
 }
 
-fn dispatch(api: &Arc<dyn LinearApi>, tx: &UnboundedSender<Message>, command: Command) {
+fn dispatch(
+    api: &Arc<dyn LinearApi>,
+    tx: &UnboundedSender<Message>,
+    platform: Platform,
+    command: Command,
+) {
     let api = Arc::clone(api);
     let tx = tx.clone();
 
     tokio::spawn(async move {
-        let message = match command {
-            Command::LoadSession => match api.session().await {
+        let message: Option<Message> = match command {
+            Command::LoadSession => Some(match api.session().await {
                 Ok(session) => Message::SessionLoaded(session),
                 Err(error) => Message::Failed(error.to_string()),
-            },
-            Command::LoadIssues { view, filter } => match api.issues(&filter).await {
+            }),
+            Command::LoadIssues { view, filter } => Some(match api.issues(&filter).await {
                 Ok(issues) => Message::IssuesLoaded { view, issues },
                 Err(error) => Message::Failed(error.to_string()),
-            },
-            Command::LoadInbox { view } => match api.notifications().await {
+            }),
+            Command::LoadInbox { view } => Some(match api.notifications().await {
                 Ok(items) => Message::InboxLoaded { view, items },
                 Err(error) => Message::Failed(error.to_string()),
-            },
-            Command::LoadDetail(id) => match api.issue_detail(&id).await {
+            }),
+            Command::LoadDetail(id) => Some(match api.issue_detail(&id).await {
                 Ok(Some(detail)) => Message::DetailLoaded(Box::new(detail)),
                 Ok(None) => Message::Failed(format!("Issue {id} not found")),
                 Err(error) => Message::Failed(error.to_string()),
-            },
+            }),
+            Command::LoadStates { team_id } => Some(match api.workflow_states(&team_id).await {
+                Ok(states) => Message::PickerLoaded(states.into_iter().map(PickerItem::from).collect()),
+                Err(error) => Message::Failed(error.to_string()),
+            }),
+            Command::LoadMembers { team_id } => Some(match api.team_members(&team_id).await {
+                Ok(members) => {
+                    Message::PickerLoaded(members.into_iter().map(PickerItem::from).collect())
+                }
+                Err(error) => Message::Failed(error.to_string()),
+            }),
+            Command::UpdateIssue { id, update } => {
+                Some(match api.update_issue(&id, update).await {
+                    Ok(()) => Message::IssueUpdated { id },
+                    Err(error) => Message::Failed(error.to_string()),
+                })
+            }
+            Command::OpenUrl(url) => {
+                match tokio::task::spawn_blocking(move || platform.open_url(&url)).await {
+                    Ok(Ok(())) => None,
+                    Ok(Err(error)) => Some(Message::Failed(error.to_string())),
+                    Err(error) => Some(Message::Failed(error.to_string())),
+                }
+            }
+            Command::CopyToClipboard(text) => {
+                match tokio::task::spawn_blocking(move || platform.copy_to_clipboard(&text)).await {
+                    Ok(Ok(())) => None,
+                    Ok(Err(error)) => Some(Message::Failed(error.to_string())),
+                    Err(error) => Some(Message::Failed(error.to_string())),
+                }
+            }
         };
 
-        let _ = tx.send(message);
+        if let Some(message) = message {
+            let _ = tx.send(message);
+        }
     });
 }

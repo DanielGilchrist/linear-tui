@@ -45,6 +45,12 @@ pub struct IssueSummary {
     pub assignee: Option<User>,
     #[serde(default)]
     pub labels: Vec<Label>,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub branch_name: String,
+    #[serde(default)]
+    pub team_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -74,6 +80,24 @@ pub struct IssueDetail {
     pub labels: Vec<Label>,
     #[serde(default)]
     pub comments: Vec<Comment>,
+    #[serde(default)]
+    pub branch_name: String,
+    #[serde(default)]
+    pub team_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StateOption {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub state_type: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IssueUpdate {
+    pub state_id: Option<String>,
+    pub assignee_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

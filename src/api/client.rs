@@ -3,8 +3,12 @@ use cynic::{GraphQlResponse, QueryBuilder};
 use reqwest::Client as HttpClient;
 
 use crate::api::model::{
-    Comment, IssueDetail, IssueFilter, IssueSummary, Label, NotificationItem, Session, User,
-    WorkflowState,
+    Comment, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, Label, NotificationItem, Session,
+    StateOption, User, WorkflowState,
+};
+use crate::api::queries::actions::{
+    IssueUpdateInput, IssueUpdateMutation, IssueUpdateVariables, TeamMembersQuery, TeamStatesQuery,
+    TeamVariables,
 };
 use crate::api::queries::issue::{self, IssueQuery, IssueVariables};
 use crate::api::queries::my_issues::{
@@ -16,6 +20,7 @@ use crate::api::queries::notifications::{
 };
 use crate::api::queries::viewer::ViewerQuery;
 use crate::api::LinearApi;
+use cynic::MutationBuilder;
 
 const API_ENDPOINT: &str = "https://api.linear.app/graphql";
 
@@ -105,6 +110,9 @@ fn map_summary(issue: my_issues::Issue) -> IssueSummary {
                 color: l.color,
             })
             .collect(),
+        url: issue.url,
+        branch_name: issue.branch_name,
+        team_id: issue.team.id.into_inner(),
     }
 }
 
@@ -145,6 +153,8 @@ fn map_detail(issue: issue::Issue) -> IssueDetail {
                 created_at: c.created_at.0,
             })
             .collect(),
+        branch_name: issue.branch_name,
+        team_id: issue.team.id.into_inner(),
     }
 }
 
@@ -161,13 +171,16 @@ fn map_notification(notification: &Notification) -> NotificationItem {
 impl LinearApi for Client {
     async fn session(&self) -> Result<Session> {
         let result = self.fetch_json(ViewerQuery::build(())).await?;
+
+        let user = User {
+            id: result.viewer.id.into_inner(),
+            name: result.viewer.name,
+            display_name: result.viewer.display_name,
+            is_me: result.viewer.is_me,
+        };
+
         Ok(Session {
-            user: User {
-                id: result.viewer.id.into_inner(),
-                name: result.viewer.name,
-                display_name: result.viewer.display_name,
-                is_me: result.viewer.is_me,
-            },
+            user,
             org_name: result.organization.name,
             org_url_key: result.organization.url_key,
         })
@@ -179,23 +192,97 @@ impl LinearApi for Client {
             first: Some(100),
         });
         let result = self.fetch_json(operation).await?;
-        Ok(result.issues.nodes.into_iter().map(map_summary).collect())
+
+        let issues = result.issues.nodes.into_iter().map(map_summary).collect();
+
+        Ok(issues)
     }
 
     async fn issue_detail(&self, id: &str) -> Result<Option<IssueDetail>> {
         let operation = IssueQuery::build(IssueVariables { id: id.to_string() });
         let result = self.fetch_json(operation).await?;
+
         Ok(result.issue.map(map_detail))
     }
 
     async fn notifications(&self) -> Result<Vec<NotificationItem>> {
         let operation = NotificationsQuery::build(NotificationsVariables { first: Some(50) });
         let result = self.fetch_json(operation).await?;
-        Ok(result
+
+        let notifications = result
             .notifications
             .nodes
             .iter()
             .map(map_notification)
-            .collect())
+            .collect();
+
+        Ok(notifications)
+    }
+
+    async fn workflow_states(&self, team_id: &str) -> Result<Vec<StateOption>> {
+        let operation = TeamStatesQuery::build(TeamVariables {
+            id: team_id.to_string(),
+        });
+        let result = self.fetch_json(operation).await?;
+
+        let team = result
+            .team
+            .ok_or_else(|| anyhow!("Team {team_id} not found"))?;
+
+        let mut states: Vec<StateOption> = team
+            .states
+            .nodes
+            .into_iter()
+            .map(|s| StateOption {
+                id: s.id.into_inner(),
+                name: s.name,
+                state_type: s.state_type,
+            })
+            .collect();
+        states.reverse();
+
+        Ok(states)
+    }
+
+    async fn team_members(&self, team_id: &str) -> Result<Vec<User>> {
+        let operation = TeamMembersQuery::build(TeamVariables {
+            id: team_id.to_string(),
+        });
+        let result = self.fetch_json(operation).await?;
+
+        let team = result
+            .team
+            .ok_or_else(|| anyhow!("Team {team_id} not found"))?;
+
+        let members = team
+            .members
+            .nodes
+            .into_iter()
+            .map(|u| User {
+                id: u.id.into_inner(),
+                name: u.name,
+                display_name: u.display_name,
+                is_me: u.is_me,
+            })
+            .collect();
+
+        Ok(members)
+    }
+
+    async fn update_issue(&self, id: &str, update: IssueUpdate) -> Result<()> {
+        let operation = IssueUpdateMutation::build(IssueUpdateVariables {
+            id: id.to_string(),
+            input: IssueUpdateInput {
+                state_id: update.state_id,
+                assignee_id: update.assignee_id,
+            },
+        });
+        let result = self.fetch_json(operation).await?;
+
+        if result.issue_update.success {
+            Ok(())
+        } else {
+            Err(anyhow!("Linear rejected the update"))
+        }
     }
 }

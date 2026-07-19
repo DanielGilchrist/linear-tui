@@ -1,7 +1,7 @@
 use ratatui::{
     layout::Rect,
     style::{Color, Style},
-    text::Span,
+    text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Frame,
 };
@@ -9,10 +9,10 @@ use ratatui::{
 pub struct StyledList<'a> {
     items: Vec<ListItem<'a>>,
     title: String,
+    title_line: Option<Line<'a>>,
     focused: bool,
     state: Option<&'a mut ListState>,
     placeholder: Option<String>,
-    panel_number: Option<usize>,
     position: Option<(Option<usize>, usize)>,
 }
 
@@ -21,16 +21,16 @@ impl<'a> StyledList<'a> {
         Self {
             items: Vec::new(),
             title: title.to_string(),
+            title_line: None,
             focused: false,
             state: None,
             placeholder: None,
-            panel_number: None,
             position: None,
         }
     }
 
-    pub fn panel_number(mut self, number: usize) -> Self {
-        self.panel_number = Some(number);
+    pub fn title_line(mut self, line: Line<'a>) -> Self {
+        self.title_line = Some(line);
         self
     }
 
@@ -66,11 +66,9 @@ impl<'a> StyledList<'a> {
             Style::default().fg(Color::Gray)
         };
 
-        let title = if let Some(num) = self.panel_number {
-            format!("[{}] {}", num, self.title)
-        } else {
-            self.title.clone()
-        };
+        let title = self
+            .title_line
+            .unwrap_or_else(|| Line::from(Span::from(self.title.clone())));
 
         let position_text = self.position.and_then(|(selected, total)| {
             if total == 0 {
@@ -81,7 +79,7 @@ impl<'a> StyledList<'a> {
         });
 
         let mut block = Block::default()
-            .title(Span::from(title))
+            .title(title)
             .borders(Borders::ALL)
             .border_style(border_style);
 
