@@ -19,6 +19,7 @@ pub struct WorkflowState {
 #[cynic(schema_path = "schema.graphql")]
 pub struct User {
     pub display_name: String,
+    pub is_me: bool,
 }
 
 #[derive(Debug, Clone, QueryFragment)]

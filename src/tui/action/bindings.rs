@@ -202,6 +202,11 @@ pub const COMMENTS_KEYS: Keymap<Action> = Keymap {
             label: "reply",
         },
         Binding {
+            action: Action::EditComment,
+            keys: &[Char('e')],
+            label: "edit",
+        },
+        Binding {
             action: Action::HistoryForward,
             keys: &[Tab],
             label: "next issue",

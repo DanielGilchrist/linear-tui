@@ -4,7 +4,9 @@ use linear_tui::api::{IssueUpdate, LinearApi};
 use linear_tui::tui::app::App;
 use linear_tui::tui::focus::{DetailView, Focus, LeftPanel, Reveal};
 use linear_tui::tui::message::{Command, Message};
-use linear_tui::tui::overlay::{InputPurpose, PickerAction, PickerItem, PickerKind, Search};
+use linear_tui::tui::overlay::{
+    Compose, InputPurpose, PickerAction, PickerItem, PickerKind, Search,
+};
 use linear_tui::tui::status::Status;
 use linear_tui::tui::update::{apply, handle_key};
 
@@ -295,7 +297,7 @@ fn r_replies_to_a_reply_using_the_thread_root_as_parent() {
     handle_key(&mut app, press(KeyCode::Char('r')));
 
     let editor = app.editor().expect("reply editor open");
-    assert_eq!(editor.parent_id.as_deref(), Some("c1"));
+    assert!(matches!(&editor.compose, Compose::Reply { parent_id } if parent_id == "c1"));
 }
 
 #[test]
@@ -306,7 +308,7 @@ fn r_replies_to_a_root_using_its_own_id_as_parent() {
     handle_key(&mut app, press(KeyCode::Char('r')));
 
     let editor = app.editor().expect("reply editor open");
-    assert_eq!(editor.parent_id.as_deref(), Some("c1"));
+    assert!(matches!(&editor.compose, Compose::Reply { parent_id } if parent_id == "c1"));
 }
 
 #[test]
@@ -330,6 +332,77 @@ fn submitting_a_reply_posts_with_the_thread_parent() {
             assert_eq!(parent, "c1");
         }
         other => panic!("expected a threaded CreateComment, got {other:?}"),
+    }
+}
+
+#[test]
+fn e_opens_the_edit_editor_prefilled_with_my_comment_body() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    let command = handle_key(&mut app, press(KeyCode::Char('e')));
+
+    let editor = app.editor().expect("edit editor open");
+    assert!(matches!(&editor.compose, Compose::Edit { comment_id } if comment_id == "c1"));
+    assert_eq!(editor.text(), "root comment");
+    match command {
+        Some(Command::LoadMentionMembers { team_id }) if team_id == "t_pizza" => {}
+        other => panic!("expected LoadMentionMembers for the mention popup, got {other:?}"),
+    }
+}
+
+#[test]
+fn e_refuses_to_edit_someone_elses_comment() {
+    let mut app = detail_app_with_comments();
+    if let Some(detail) = app.detail.as_mut() {
+        detail.comments[0].is_mine = false;
+    }
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    let command = handle_key(&mut app, press(KeyCode::Char('e')));
+
+    assert!(app.editor().is_none());
+    assert_eq!(app.status, Some(Status::NotYourComment));
+    assert!(command.is_none());
+}
+
+#[test]
+fn submitting_an_edit_updates_the_comment() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+    handle_key(&mut app, press(KeyCode::Char('e')));
+    handle_key(&mut app, press(KeyCode::Char('!')));
+
+    let command = handle_key(&mut app, ctrl('s'));
+
+    match command {
+        Some(Command::UpdateComment {
+            issue_id,
+            comment_id,
+            body,
+        }) => {
+            assert_eq!(issue_id, "i1");
+            assert_eq!(comment_id, "c1");
+            assert_eq!(body, "root comment!");
+        }
+        other => panic!("expected UpdateComment, got {other:?}"),
+    }
+    assert!(app.editor().is_none());
+}
+
+#[test]
+fn comment_edited_refetches_the_thread_from_the_top() {
+    let mut app = detail_app();
+
+    let command = apply(&mut app, Message::CommentEdited { id: "i1".into() });
+
+    assert!(app.detail_loading);
+    match command {
+        Some(Command::LoadDetail {
+            id,
+            reveal: Reveal::Top,
+        }) if id == "i1" => {}
+        other => panic!("expected LoadDetail for i1 revealing the top, got {other:?}"),
     }
 }
 
@@ -1135,6 +1208,7 @@ fn comment(id: &str, parent: Option<&str>, body: &str) -> linear_tui::api::Comme
         id: id.into(),
         parent_id: parent.map(|p| p.into()),
         author: Some("dan".into()),
+        is_mine: true,
         body: body.into(),
         created_at: linear_tui::api::Timestamp::from("2026-07-16T09:00:00Z"),
     }

@@ -11,8 +11,8 @@ use crate::api::model::{
 };
 use crate::api::queries::actions::{
     AssigneeInput, AssigneeMutation, AssigneeVariables, CommentCreateInput, CommentCreateMutation,
-    CommentCreateVariables, StatusInput, StatusMutation, StatusVariables, TeamMembersQuery,
-    TeamStatesQuery, TeamVariables,
+    CommentCreateVariables, CommentUpdateInput, CommentUpdateMutation, CommentUpdateVariables,
+    StatusInput, StatusMutation, StatusVariables, TeamMembersQuery, TeamStatesQuery, TeamVariables,
 };
 use crate::api::queries::issue::{IssueQuery, IssueVariables};
 use crate::api::queries::my_issues::{IssuesQuery, IssuesVariables};
@@ -61,32 +61,12 @@ impl Client {
         result.data.ok_or(ApiError::Empty)
     }
 
-    async fn submit_update<T, V>(&self, operation: cynic::Operation<T, V>) -> ApiResult<()>
+    async fn run_mutation<T, V>(&self, operation: cynic::Operation<T, V>) -> ApiResult<()>
     where
-        T: UpdateOutcome + for<'de> serde::Deserialize<'de>,
+        T: for<'de> serde::Deserialize<'de>,
         V: serde::Serialize,
     {
-        if self.fetch_json(operation).await?.succeeded() {
-            Ok(())
-        } else {
-            Err(ApiError::Rejected("issue update"))
-        }
-    }
-}
-
-trait UpdateOutcome {
-    fn succeeded(&self) -> bool;
-}
-
-impl UpdateOutcome for StatusMutation {
-    fn succeeded(&self) -> bool {
-        self.issue_update.success
-    }
-}
-
-impl UpdateOutcome for AssigneeMutation {
-    fn succeeded(&self) -> bool {
-        self.issue_update.success
+        self.fetch_json(operation).await.map(|_| ())
     }
 }
 
@@ -227,7 +207,7 @@ impl LinearApi for Client {
         let id = id.to_string();
         match update {
             IssueUpdate::Status(state_id) => {
-                self.submit_update(StatusMutation::build(StatusVariables {
+                self.run_mutation(StatusMutation::build(StatusVariables {
                     id,
                     input: StatusInput {
                         state_id: Some(state_id),
@@ -236,7 +216,7 @@ impl LinearApi for Client {
                 .await
             }
             IssueUpdate::Assignee(assignee_id) => {
-                self.submit_update(AssigneeMutation::build(AssigneeVariables {
+                self.run_mutation(AssigneeMutation::build(AssigneeVariables {
                     id,
                     input: AssigneeInput { assignee_id },
                 }))
@@ -258,13 +238,19 @@ impl LinearApi for Client {
                 parent_id: parent_id.map(str::to_string),
             },
         });
-        let result = self.fetch_json(operation).await?;
 
-        if result.comment_create.success {
-            Ok(())
-        } else {
-            Err(ApiError::Rejected("comment"))
-        }
+        self.run_mutation(operation).await
+    }
+
+    async fn update_comment(&self, comment_id: &str, body: &str) -> ApiResult<()> {
+        let operation = CommentUpdateMutation::build(CommentUpdateVariables {
+            id: comment_id.to_string(),
+            input: CommentUpdateInput {
+                body: Some(body.to_string()),
+            },
+        });
+
+        self.run_mutation(operation).await
     }
 }
 

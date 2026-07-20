@@ -70,6 +70,8 @@ pub struct Comment {
     pub parent_id: Option<String>,
     #[serde(default)]
     pub author: Option<String>,
+    #[serde(default)]
+    pub is_mine: bool,
     pub body: String,
     #[serde(default)]
     pub created_at: Timestamp,
