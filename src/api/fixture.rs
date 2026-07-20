@@ -162,6 +162,10 @@ impl LinearApi for FixtureClient {
     async fn update_comment(&self, _comment_id: &str, _body: &str) -> ApiResult<()> {
         Ok(())
     }
+
+    async fn delete_comment(&self, _comment_id: &str) -> ApiResult<()> {
+        Ok(())
+    }
 }
 
 fn state(name: &str, state_type: StateType) -> WorkflowState {

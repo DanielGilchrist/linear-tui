@@ -186,3 +186,25 @@ pub struct CommentUpdateMutation {
     #[arguments(id: $id, input: $input)]
     pub comment_update: CommentPayload,
 }
+
+#[derive(Debug, QueryVariables)]
+pub struct CommentDeleteVariables {
+    pub id: String,
+}
+
+#[derive(Debug, QueryFragment)]
+#[cynic(schema_path = "schema.graphql")]
+pub struct DeletePayload {
+    pub success: bool,
+}
+
+#[derive(Debug, QueryFragment)]
+#[cynic(
+    schema_path = "schema.graphql",
+    graphql_type = "Mutation",
+    variables = "CommentDeleteVariables"
+)]
+pub struct CommentDeleteMutation {
+    #[arguments(id: $id)]
+    pub comment_delete: DeletePayload,
+}

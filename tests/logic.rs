@@ -407,6 +407,129 @@ fn comment_edited_refetches_the_thread_from_the_top() {
 }
 
 #[test]
+fn d_confirms_before_deleting_my_comment() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    let no_command = handle_key(&mut app, press(KeyCode::Char('d')));
+    assert!(no_command.is_none());
+
+    let confirm = app.confirm().expect("delete confirm open");
+    match &confirm.command {
+        Command::DeleteComment {
+            issue_id,
+            comment_id,
+        } => {
+            assert_eq!(issue_id, "i1");
+            assert_eq!(comment_id, "c1");
+        }
+        other => panic!("expected DeleteComment, got {other:?}"),
+    }
+
+    let command = handle_key(&mut app, press(KeyCode::Char('y')));
+    assert!(app.confirm().is_none());
+    match command {
+        Some(Command::DeleteComment {
+            issue_id,
+            comment_id,
+        }) if issue_id == "i1" && comment_id == "c1" => {}
+        other => panic!("expected DeleteComment on confirm, got {other:?}"),
+    }
+}
+
+#[test]
+fn d_refuses_to_delete_someone_elses_comment() {
+    let mut app = detail_app_with_comments();
+    if let Some(detail) = app.detail.as_mut() {
+        detail.comments[0].is_mine = false;
+    }
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    let command = handle_key(&mut app, press(KeyCode::Char('d')));
+
+    assert!(app.confirm().is_none());
+    assert_eq!(app.status, Some(Status::NotYourComment));
+    assert!(command.is_none());
+}
+
+#[test]
+fn ctrl_d_still_pages_in_comments_mode() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    let command = handle_key(&mut app, ctrl('d'));
+
+    assert!(app.confirm().is_none());
+    assert!(command.is_none());
+    assert_ne!(app.comment_state.selected(), Some(0));
+}
+
+#[test]
+fn comment_deleted_stays_in_comments_and_refetches() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    let command = apply(&mut app, Message::CommentDeleted { id: "i1".into() });
+
+    assert!(app.detail_loading);
+    assert_eq!(
+        app.focus,
+        Focus::Detail(LeftPanel::MyWork, DetailView::Comments)
+    );
+    match command {
+        Some(Command::LoadDetail {
+            id,
+            reveal: Reveal::Top,
+        }) if id == "i1" => {}
+        other => panic!("expected LoadDetail for i1 revealing the top, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_shrunk_thread_clamps_the_comment_selection() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+    app.comment_state.select(Some(2));
+
+    let mut detail = app.detail.clone().expect("detail");
+    detail.comments.pop();
+    apply(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+
+    assert_eq!(app.comment_state.selected(), Some(1));
+    assert_eq!(
+        app.focus,
+        Focus::Detail(LeftPanel::MyWork, DetailView::Comments)
+    );
+}
+
+#[test]
+fn deleting_the_last_comment_falls_back_to_reading() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    let mut detail = app.detail.clone().expect("detail");
+    detail.comments.clear();
+    apply(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+
+    assert_eq!(
+        app.focus,
+        Focus::Detail(LeftPanel::MyWork, DetailView::Reading)
+    );
+}
+
+#[test]
 fn comment_action_requires_an_opened_issue() {
     let mut app = list_app_with_issue();
 
@@ -514,6 +637,53 @@ fn comment_posted_refetches_the_thread_and_reveals_the_bottom() {
         }) if id == "i1" => {}
         other => panic!("expected LoadDetail for i1 revealing the bottom, got {other:?}"),
     }
+}
+
+#[test]
+fn posting_from_comments_mode_stays_in_comments_and_reveals_the_new_comment() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    let command = apply(&mut app, Message::CommentPosted { id: "i1".into() });
+
+    assert!(app.detail_loading);
+    assert_eq!(
+        app.focus,
+        Focus::Detail(LeftPanel::MyWork, DetailView::Comments)
+    );
+    match command {
+        Some(Command::LoadDetail {
+            id,
+            reveal: Reveal::NewestComment,
+        }) if id == "i1" => {}
+        other => panic!("expected LoadDetail for i1 revealing the newest comment, got {other:?}"),
+    }
+}
+
+#[test]
+fn newest_comment_reveal_selects_the_new_comment() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+    app.comment_state.select(Some(0));
+
+    let mut detail = app.detail.clone().expect("detail");
+    detail.comments.push(linear_tui::api::Comment {
+        id: "c_new".into(),
+        parent_id: None,
+        author: Some("dan".into()),
+        is_mine: true,
+        body: "fresh".into(),
+        created_at: linear_tui::api::Timestamp::from("2026-07-16T12:00:00Z"),
+    });
+    apply(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::NewestComment,
+        },
+    );
+
+    assert_eq!(app.comment_state.selected(), Some(3));
 }
 
 #[test]

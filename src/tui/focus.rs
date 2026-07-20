@@ -67,6 +67,7 @@ pub enum Edge {
 pub enum Reveal {
     Top,
     Bottom,
+    NewestComment,
 }
 
 pub enum Nav<'a> {

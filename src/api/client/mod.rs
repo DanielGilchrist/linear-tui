@@ -11,8 +11,9 @@ use crate::api::model::{
 };
 use crate::api::queries::actions::{
     AssigneeInput, AssigneeMutation, AssigneeVariables, CommentCreateInput, CommentCreateMutation,
-    CommentCreateVariables, CommentUpdateInput, CommentUpdateMutation, CommentUpdateVariables,
-    StatusInput, StatusMutation, StatusVariables, TeamMembersQuery, TeamStatesQuery, TeamVariables,
+    CommentCreateVariables, CommentDeleteMutation, CommentDeleteVariables, CommentUpdateInput,
+    CommentUpdateMutation, CommentUpdateVariables, StatusInput, StatusMutation, StatusVariables,
+    TeamMembersQuery, TeamStatesQuery, TeamVariables,
 };
 use crate::api::queries::issue::{IssueQuery, IssueVariables};
 use crate::api::queries::my_issues::{IssuesQuery, IssuesVariables};
@@ -248,6 +249,14 @@ impl LinearApi for Client {
             input: CommentUpdateInput {
                 body: Some(body.to_string()),
             },
+        });
+
+        self.run_mutation(operation).await
+    }
+
+    async fn delete_comment(&self, comment_id: &str) -> ApiResult<()> {
+        let operation = CommentDeleteMutation::build(CommentDeleteVariables {
+            id: comment_id.to_string(),
         });
 
         self.run_mutation(operation).await

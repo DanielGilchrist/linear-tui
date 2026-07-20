@@ -31,6 +31,7 @@ pub enum Action {
     EnterComments,
     Reply,
     EditComment,
+    DeleteComment,
     ClearRecent,
     GoPrefix,
     GoToIssue,
