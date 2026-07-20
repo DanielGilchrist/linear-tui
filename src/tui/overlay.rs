@@ -12,18 +12,34 @@ pub enum PickerKind {
 }
 
 #[derive(Debug, Clone)]
+pub enum PickerAction {
+    SetStatus(String),
+    SetAssignee(Option<String>),
+}
+
+#[derive(Debug, Clone)]
 pub struct PickerItem {
-    pub id: String,
     pub label: String,
     pub hint: String,
+    pub action: PickerAction,
+}
+
+impl PickerItem {
+    pub fn unassign() -> Self {
+        Self {
+            label: "Unassigned".into(),
+            hint: String::new(),
+            action: PickerAction::SetAssignee(None),
+        }
+    }
 }
 
 impl From<StateOption> for PickerItem {
     fn from(state: StateOption) -> Self {
         Self {
-            id: state.id,
-            label: state.name,
             hint: state.state_type.as_api().to_string(),
+            label: state.name,
+            action: PickerAction::SetStatus(state.id),
         }
     }
 }
@@ -36,8 +52,8 @@ impl From<User> for PickerItem {
             } else {
                 String::new()
             },
-            id: user.id,
             label: user.display_name,
+            action: PickerAction::SetAssignee(Some(user.id)),
         }
     }
 }

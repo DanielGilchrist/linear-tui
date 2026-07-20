@@ -131,6 +131,23 @@ async fn status_picker_overlay() {
 }
 
 #[tokio::test]
+async fn assign_picker_overlay() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+    );
+    let members = client.team_members("t_pizza").await.unwrap();
+    let mut items = vec![PickerItem::unassign()];
+    items.extend(members.into_iter().map(PickerItem::from));
+    apply(&mut app, Message::PickerLoaded(items));
+
+    insta::assert_snapshot!(render_to_string(&mut app, 100, 20));
+}
+
+#[tokio::test]
 async fn comment_editor_overlay() {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await;

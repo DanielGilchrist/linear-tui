@@ -122,7 +122,10 @@ fn dispatch(
             }),
             Command::LoadMembers { team_id } => Some(match api.team_members(&team_id).await {
                 Ok(members) => {
-                    Message::PickerLoaded(members.into_iter().map(PickerItem::from).collect())
+                    let mut items = vec![PickerItem::unassign()];
+                    items.extend(members.into_iter().map(PickerItem::from));
+
+                    Message::PickerLoaded(items)
                 }
                 Err(error) => Message::Failed(error.to_string()),
             }),

@@ -7,8 +7,8 @@ use super::focus::{DetailView, Direction, Edge, Focus, LeftPanel, Nav, Reveal};
 use super::issue_ref::parse_issue_ref;
 use super::message::{Command, Message};
 use super::overlay::{
-    Confirm, Editor, Find, Input, InputPurpose, MentionMenu, Menu, Overlay, Picker, PickerKind,
-    Prefix, PrefixUnder, Search,
+    Confirm, Editor, Find, Input, InputPurpose, MentionMenu, Menu, Overlay, Picker, PickerAction,
+    PickerKind, Prefix, PrefixUnder, Search,
 };
 use super::status::Status;
 use super::view::ViewKind;
@@ -1099,20 +1099,18 @@ fn confirm_picker(app: &mut App, picker: Picker) -> Option<Command> {
         return None;
     };
 
-    let (update, message) = match picker.kind {
-        PickerKind::Status => (
-            IssueUpdate {
-                state_id: Some(item.id.clone()),
-                assignee_id: None,
-            },
+    let (update, message) = match &item.action {
+        PickerAction::SetStatus(state_id) => (
+            IssueUpdate::Status(state_id.clone()),
             format!("Set {} to \"{}\"?", picker.target_label, item.label),
         ),
-        PickerKind::Assign => (
-            IssueUpdate {
-                state_id: None,
-                assignee_id: Some(item.id.clone()),
-            },
+        PickerAction::SetAssignee(Some(assignee_id)) => (
+            IssueUpdate::Assignee(Some(assignee_id.clone())),
             format!("Assign {} to {}?", picker.target_label, item.label),
+        ),
+        PickerAction::SetAssignee(None) => (
+            IssueUpdate::Assignee(None),
+            format!("Unassign {}?", picker.target_label),
         ),
     };
 

@@ -76,18 +76,30 @@ pub struct TeamMembersQuery {
 }
 
 #[derive(Debug, Clone, InputObject)]
-#[cynic(schema_path = "schema.graphql")]
-pub struct IssueUpdateInput {
+#[cynic(schema_path = "schema.graphql", graphql_type = "IssueUpdateInput")]
+pub struct StatusInput {
     #[cynic(skip_serializing_if = "Option::is_none")]
     pub state_id: Option<String>,
-    #[cynic(skip_serializing_if = "Option::is_none")]
+}
+
+// No `skip_serializing_if`: `None` serialises as explicit `null`, which unassigns.
+// TODO: fold back into one input via MaybeUndefined once https://codeberg.org/obmarg/cynic/issues/125 lands.
+#[derive(Debug, Clone, InputObject)]
+#[cynic(schema_path = "schema.graphql", graphql_type = "IssueUpdateInput")]
+pub struct AssigneeInput {
     pub assignee_id: Option<String>,
 }
 
 #[derive(Debug, QueryVariables)]
-pub struct IssueUpdateVariables {
+pub struct StatusVariables {
     pub id: String,
-    pub input: IssueUpdateInput,
+    pub input: StatusInput,
+}
+
+#[derive(Debug, QueryVariables)]
+pub struct AssigneeVariables {
+    pub id: String,
+    pub input: AssigneeInput,
 }
 
 #[derive(Debug, QueryFragment)]
@@ -100,9 +112,20 @@ pub struct IssuePayload {
 #[cynic(
     schema_path = "schema.graphql",
     graphql_type = "Mutation",
-    variables = "IssueUpdateVariables"
+    variables = "StatusVariables"
 )]
-pub struct IssueUpdateMutation {
+pub struct StatusMutation {
+    #[arguments(id: $id, input: $input)]
+    pub issue_update: IssuePayload,
+}
+
+#[derive(Debug, QueryFragment)]
+#[cynic(
+    schema_path = "schema.graphql",
+    graphql_type = "Mutation",
+    variables = "AssigneeVariables"
+)]
+pub struct AssigneeMutation {
     #[arguments(id: $id, input: $input)]
     pub issue_update: IssuePayload,
 }
