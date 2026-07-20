@@ -78,6 +78,10 @@ pub const COMMENTS_HINTS: &[Hint<Action>] = &[
         keys: "e",
         label: "edit",
     },
+    Hint::Literal {
+        keys: "d",
+        label: "delete",
+    },
     Hint::Bound(Action::Comment),
     Hint::Bound(Action::Ascend),
     Hint::Bound(Action::Quit),

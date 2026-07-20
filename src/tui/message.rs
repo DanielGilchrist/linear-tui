@@ -33,6 +33,9 @@ pub enum Message {
     CommentEdited {
         id: String,
     },
+    CommentDeleted {
+        id: String,
+    },
     Failed(String),
 }
 
@@ -72,6 +75,10 @@ pub enum Command {
         issue_id: String,
         comment_id: String,
         body: String,
+    },
+    DeleteComment {
+        issue_id: String,
+        comment_id: String,
     },
     Search(String),
     LoadRecent,

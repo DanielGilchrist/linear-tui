@@ -36,9 +36,13 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Command> {
 }
 
 fn resolve_browse(app: &App, key: KeyEvent) -> Option<Action> {
-    context_keymap(app.focus)
-        .and_then(|keymap| keymap.resolve(key))
-        .or_else(|| Action::from_key(key))
+    if is_plain(key) {
+        if let Some(action) = context_keymap(app.focus).and_then(|keymap| keymap.resolve(key)) {
+            return Some(action);
+        }
+    }
+
+    Action::from_key(key)
 }
 
 fn context_keymap(focus: Focus) -> Option<&'static action::Keymap<Action>> {
@@ -558,6 +562,7 @@ fn apply_action(app: &mut App, action: Action) -> Option<Command> {
         Action::EnterComments => enter_comments(app),
         Action::Reply => open_reply_editor(app),
         Action::EditComment => open_edit_editor(app),
+        Action::DeleteComment => open_delete_comment(app),
         Action::ClearRecent => {
             clear_recent(app);
             None
@@ -639,7 +644,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             app.status = None;
 
             app.scroll_position = match reveal {
-                Reveal::Top => 0,
+                Reveal::Top | Reveal::NewestComment => 0,
                 Reveal::Bottom => usize::MAX,
             };
 
@@ -649,7 +654,24 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
                 return None;
             };
 
-            app.record_recent(IssueSummary::from_detail(detail));
+            let summary = IssueSummary::from_detail(detail);
+            let comment_count = detail.comments.len();
+            let newest_comment = match reveal {
+                Reveal::NewestComment => newest_comment_index(detail),
+                _ => None,
+            };
+
+            if let Focus::Detail(panel, DetailView::Comments) = app.focus {
+                if comment_count == 0 {
+                    app.focus = Focus::Detail(panel, DetailView::Reading);
+                } else if let Some(index) = newest_comment {
+                    app.comment_state.select(Some(index));
+                } else {
+                    clamp_selection(&mut app.comment_state, comment_count);
+                }
+            }
+
+            app.record_recent(summary);
 
             Some(Command::SaveRecent(app.recently_viewed.clone()))
         }
@@ -718,17 +740,24 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             app.status = Some(Status::CommentPosted);
             app.detail_loading = true;
 
-            if let Focus::Detail(panel, DetailView::Comments) = app.focus {
-                app.focus = Focus::Detail(panel, DetailView::Reading);
-            }
+            let reveal = match app.focus {
+                Focus::Detail(_, DetailView::Comments) => Reveal::NewestComment,
+                _ => Reveal::Bottom,
+            };
 
-            Some(Command::LoadDetail {
-                id,
-                reveal: Reveal::Bottom,
-            })
+            Some(Command::LoadDetail { id, reveal })
         }
         Message::CommentEdited { id } => {
             app.status = Some(Status::CommentEdited);
+            app.detail_loading = true;
+
+            Some(Command::LoadDetail {
+                id,
+                reveal: Reveal::Top,
+            })
+        }
+        Message::CommentDeleted { id } => {
+            app.status = Some(Status::CommentDeleted);
             app.detail_loading = true;
 
             Some(Command::LoadDetail {
@@ -879,6 +908,37 @@ fn open_edit_editor(app: &mut App) -> Option<Command> {
     app.overlay = Overlay::Editor(Editor::seeded(Compose::Edit { comment_id }, &body));
 
     Some(Command::LoadMentionMembers { team_id })
+}
+
+fn open_delete_comment(app: &mut App) -> Option<Command> {
+    let selected = app.comment_state.selected()?;
+
+    let picked = app.detail.as_ref().and_then(|detail| {
+        detail.threaded_comments().get(selected).map(|threaded| {
+            (
+                detail.id.clone(),
+                threaded.comment.id.clone(),
+                threaded.comment.is_mine,
+            )
+        })
+    });
+
+    let (issue_id, comment_id, is_mine) = picked?;
+
+    if !is_mine {
+        app.status = Some(Status::NotYourComment);
+        return None;
+    }
+
+    app.overlay = Overlay::Confirm(Confirm {
+        message: "Delete this comment?".into(),
+        command: Command::DeleteComment {
+            issue_id,
+            comment_id,
+        },
+    });
+
+    None
 }
 
 fn descend(app: &mut App) -> Option<Command> {
@@ -1198,4 +1258,13 @@ fn clamp_selection(state: &mut ListState, len: usize) {
     } else if state.selected().unwrap_or(0) >= len {
         state.select(Some(len - 1));
     }
+}
+
+fn newest_comment_index(detail: &crate::api::IssueDetail) -> Option<usize> {
+    detail
+        .threaded_comments()
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, threaded)| threaded.comment.created_at.epoch())
+        .map(|(index, _)| index)
 }

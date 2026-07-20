@@ -21,4 +21,4 @@ expression: "render_to_string(&mut app, 90, 20)"
 │Dan's Pizza                     ││                                                      ║
 │Dan's Donuts                    ││  └ dan · 10h ago                                     ↓
 └ 1 of 2 ────────────────────────┘└──────────────────────────────────────────────────────┘
- j/k select   r reply   e edit   c comment   esc back   q quit        Dan's Donuts · @dan
+ j/k select   r reply   e edit   d delete   c comment   esc back   q… Dan's Donuts · @dan

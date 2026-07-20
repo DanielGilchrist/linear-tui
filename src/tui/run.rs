@@ -162,6 +162,13 @@ fn dispatch(
                 Ok(()) => Message::CommentEdited { id: issue_id },
                 Err(error) => Message::Failed(error.to_string()),
             }),
+            Command::DeleteComment {
+                issue_id,
+                comment_id,
+            } => Some(match api.delete_comment(&comment_id).await {
+                Ok(()) => Message::CommentDeleted { id: issue_id },
+                Err(error) => Message::Failed(error.to_string()),
+            }),
             Command::OpenUrl(url) => {
                 match tokio::task::spawn_blocking(move || platform.open_url(&url)).await {
                     Ok(Ok(())) => None,

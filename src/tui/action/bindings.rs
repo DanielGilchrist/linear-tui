@@ -207,6 +207,11 @@ pub const COMMENTS_KEYS: Keymap<Action> = Keymap {
             label: "edit",
         },
         Binding {
+            action: Action::DeleteComment,
+            keys: &[Char('d')],
+            label: "delete",
+        },
+        Binding {
             action: Action::HistoryForward,
             keys: &[Tab],
             label: "next issue",
