@@ -93,6 +93,21 @@ fn dispatch(
                 Ok(items) => Message::InboxLoaded { view, items },
                 Err(error) => Message::Failed(error.to_string()),
             }),
+            Command::LoadCustomViews => Some(match api.custom_views().await {
+                Ok(views) => Message::CustomViewsLoaded(views),
+                Err(error) => Message::CustomViewsFailed(error.to_string()),
+            }),
+            Command::LoadCustomViewIssues { id } => Some(match api.custom_view_issues(&id).await {
+                Ok(page) => Message::CustomViewIssuesLoaded {
+                    id,
+                    issues: page.issues,
+                    truncated: page.truncated,
+                },
+                Err(error) => Message::CustomViewIssuesFailed {
+                    id,
+                    error: error.to_string(),
+                },
+            }),
             Command::LoadDetail { id, reveal } => Some(match api.issue_detail(&id).await {
                 Ok(Some(detail)) => Message::DetailLoaded {
                     detail: Box::new(detail),

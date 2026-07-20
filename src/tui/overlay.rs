@@ -115,6 +115,8 @@ impl Menu {
         let local = match focus {
             Focus::MyWork => action::MY_WORK_MENU,
             Focus::Recent => action::RECENT_MENU,
+            Focus::SavedViews => action::SAVED_VIEWS_MENU,
+            Focus::View => action::VIEW_MENU,
             Focus::Detail(..) => action::DETAIL_MENU,
             Focus::Stub(_) => action::STUB_MENU,
         };

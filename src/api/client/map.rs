@@ -1,12 +1,12 @@
 use crate::api::model::{
     Comment, IssueDetail, IssueFilter, IssueSummary, Label, NotificationItem, Priority, Rgb,
-    StateType, User, WorkflowState,
+    SavedView, StateType, User, WorkflowState,
 };
 use crate::api::queries::my_issues::{
     self, BooleanComparator, NullableUserFilter, StringComparator, WorkflowStateFilter,
 };
 use crate::api::queries::notifications::Notification;
-use crate::api::queries::{issue, search};
+use crate::api::queries::{custom_views, issue, search};
 
 pub(super) fn build_cynic_filter(filter: &IssueFilter) -> my_issues::IssueFilter {
     let me = || NullableUserFilter {
@@ -36,128 +36,169 @@ pub(super) fn build_cynic_filter(filter: &IssueFilter) -> my_issues::IssueFilter
     }
 }
 
-pub(super) fn map_summary(issue: my_issues::Issue) -> IssueSummary {
-    IssueSummary {
-        id: issue.id.into_inner(),
-        identifier: issue.identifier,
-        title: issue.title,
-        state: WorkflowState {
-            name: issue.state.name,
-            state_type: StateType::from_api(&issue.state.state_type),
-        },
-        priority: Priority::from(issue.priority as u8),
-        assignee: issue.assignee.map(|a| User {
-            id: String::new(),
-            name: String::new(),
-            display_name: a.display_name,
-            url: String::new(),
-            is_me: false,
-        }),
-        labels: issue
-            .labels
-            .nodes
-            .into_iter()
-            .map(|l| Label {
-                name: l.name,
-                colour: Rgb::parse_hex(&l.colour),
-            })
-            .collect(),
-        url: issue.url,
-        branch_name: issue.branch_name,
-        team_id: issue.team.id.into_inner(),
+impl From<my_issues::Issue> for IssueSummary {
+    fn from(issue: my_issues::Issue) -> Self {
+        Self {
+            id: issue.id.into_inner(),
+            identifier: issue.identifier,
+            title: issue.title,
+            state: WorkflowState {
+                name: issue.state.name,
+                state_type: StateType::from_api(&issue.state.state_type),
+            },
+            priority: Priority::from(issue.priority as u8),
+            assignee: issue.assignee.map(|a| named_user(a.display_name)),
+            labels: issue
+                .labels
+                .nodes
+                .into_iter()
+                .map(|l| Label {
+                    name: l.name,
+                    colour: Rgb::parse_hex(&l.colour),
+                })
+                .collect(),
+            url: issue.url,
+            branch_name: issue.branch_name,
+            team_id: issue.team.id.into_inner(),
+            updated_at: issue.updated_at.0.into(),
+        }
     }
 }
 
-pub(super) fn map_search_result(issue: search::IssueSearchResult) -> IssueSummary {
-    IssueSummary {
-        id: issue.id.into_inner(),
-        identifier: issue.identifier,
-        title: Some(issue.title),
-        state: WorkflowState {
-            name: issue.state.name,
-            state_type: StateType::from_api(&issue.state.state_type),
-        },
-        priority: Priority::from(issue.priority as u8),
-        assignee: issue.assignee.map(|a| User {
-            id: String::new(),
-            name: String::new(),
-            display_name: a.display_name,
-            url: String::new(),
-            is_me: false,
-        }),
-        labels: issue
-            .labels
-            .nodes
-            .into_iter()
-            .map(|l| Label {
-                name: l.name,
-                colour: Rgb::parse_hex(&l.colour),
-            })
-            .collect(),
-        url: issue.url,
-        branch_name: issue.branch_name,
-        team_id: issue.team.id.into_inner(),
+impl From<search::IssueSearchResult> for IssueSummary {
+    fn from(issue: search::IssueSearchResult) -> Self {
+        Self {
+            id: issue.id.into_inner(),
+            identifier: issue.identifier,
+            title: Some(issue.title),
+            state: WorkflowState {
+                name: issue.state.name,
+                state_type: StateType::from_api(&issue.state.state_type),
+            },
+            priority: Priority::from(issue.priority as u8),
+            assignee: issue.assignee.map(|a| named_user(a.display_name)),
+            labels: issue
+                .labels
+                .nodes
+                .into_iter()
+                .map(|l| Label {
+                    name: l.name,
+                    colour: Rgb::parse_hex(&l.colour),
+                })
+                .collect(),
+            url: issue.url,
+            branch_name: issue.branch_name,
+            team_id: issue.team.id.into_inner(),
+            updated_at: issue.updated_at.0.into(),
+        }
     }
 }
 
-pub(super) fn map_detail(issue: issue::Issue) -> IssueDetail {
-    IssueDetail {
-        id: issue.id.into_inner(),
-        identifier: issue.identifier,
-        title: issue.title,
-        description: issue.description,
-        url: issue.url,
-        state: WorkflowState {
-            name: issue.state.name,
-            state_type: StateType::from_api(&issue.state.state_type),
-        },
-        priority: Priority::from(issue.priority as u8),
-        assignee: issue.assignee.map(|a| User {
-            id: String::new(),
-            name: String::new(),
-            display_name: a.display_name,
-            url: String::new(),
-            is_me: false,
-        }),
-        labels: issue
-            .labels
-            .nodes
-            .into_iter()
-            .map(|l| Label {
-                name: l.name,
-                colour: Rgb::parse_hex(&l.colour),
-            })
-            .collect(),
-        comments: issue
-            .comments
-            .nodes
-            .into_iter()
-            .map(|c| {
-                let (author, is_mine) = match c.user {
-                    Some(user) => (Some(user.display_name), user.is_me),
-                    None => (None, false),
-                };
-
-                Comment {
-                    id: c.id.into_inner(),
-                    parent_id: c.parent.map(|p| p.id.into_inner()),
-                    author,
-                    is_mine,
-                    body: c.body,
-                    created_at: c.created_at.0.into(),
-                }
-            })
-            .collect(),
-        branch_name: issue.branch_name,
-        team_id: issue.team.id.into_inner(),
+impl From<custom_views::Issue> for IssueSummary {
+    fn from(issue: custom_views::Issue) -> Self {
+        Self {
+            id: issue.id.into_inner(),
+            identifier: issue.identifier,
+            title: issue.title,
+            state: WorkflowState {
+                name: issue.state.name,
+                state_type: StateType::from_api(&issue.state.state_type),
+            },
+            priority: Priority::from(issue.priority as u8),
+            assignee: issue.assignee.map(|a| named_user(a.display_name)),
+            labels: issue
+                .labels
+                .nodes
+                .into_iter()
+                .map(|l| Label {
+                    name: l.name,
+                    colour: Rgb::parse_hex(&l.colour),
+                })
+                .collect(),
+            url: issue.url,
+            branch_name: issue.branch_name,
+            team_id: issue.team.id.into_inner(),
+            updated_at: issue.updated_at.0.into(),
+        }
     }
 }
 
-pub(super) fn map_notification(notification: &Notification) -> NotificationItem {
-    NotificationItem {
-        title: notification.title().to_string(),
-        issue_id: notification.issue_id().map(|s| s.to_string()),
-        is_read: notification.is_read(),
-        grouping_key: notification.grouping_key().to_string(),
+impl From<issue::Issue> for IssueDetail {
+    fn from(issue: issue::Issue) -> Self {
+        Self {
+            id: issue.id.into_inner(),
+            identifier: issue.identifier,
+            title: issue.title,
+            description: issue.description,
+            url: issue.url,
+            state: WorkflowState {
+                name: issue.state.name,
+                state_type: StateType::from_api(&issue.state.state_type),
+            },
+            priority: Priority::from(issue.priority as u8),
+            assignee: issue.assignee.map(|a| named_user(a.display_name)),
+            labels: issue
+                .labels
+                .nodes
+                .into_iter()
+                .map(|l| Label {
+                    name: l.name,
+                    colour: Rgb::parse_hex(&l.colour),
+                })
+                .collect(),
+            comments: issue
+                .comments
+                .nodes
+                .into_iter()
+                .map(|c| {
+                    let (author, is_mine) = match c.user {
+                        Some(user) => (Some(user.display_name), user.is_me),
+                        None => (None, false),
+                    };
+
+                    Comment {
+                        id: c.id.into_inner(),
+                        parent_id: c.parent.map(|p| p.id.into_inner()),
+                        author,
+                        is_mine,
+                        body: c.body,
+                        created_at: c.created_at.0.into(),
+                    }
+                })
+                .collect(),
+            branch_name: issue.branch_name,
+            team_id: issue.team.id.into_inner(),
+            updated_at: issue.updated_at.0.into(),
+        }
+    }
+}
+
+impl From<&Notification> for NotificationItem {
+    fn from(notification: &Notification) -> Self {
+        Self {
+            title: notification.title().to_string(),
+            issue_id: notification.issue_id().map(|s| s.to_string()),
+            is_read: notification.is_read(),
+            grouping_key: notification.grouping_key().to_string(),
+        }
+    }
+}
+
+impl From<custom_views::CustomView> for SavedView {
+    fn from(view: custom_views::CustomView) -> Self {
+        Self {
+            id: view.id.into_inner(),
+            name: view.name,
+        }
+    }
+}
+
+fn named_user(display_name: String) -> User {
+    User {
+        id: String::new(),
+        name: String::new(),
+        display_name,
+        url: String::new(),
+        is_me: false,
     }
 }

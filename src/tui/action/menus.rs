@@ -30,6 +30,24 @@ pub const RECENT_MENU: &[Action] = &[
     Action::ClearRecent,
 ];
 
+pub const SAVED_VIEWS_MENU: &[Action] = &[
+    Action::SelectNext,
+    Action::Descend,
+    Action::OpenInBrowser,
+    Action::YankUrl,
+    Action::Find,
+    Action::Reload,
+    Action::Ascend,
+];
+
+pub const VIEW_MENU: &[Action] = &[
+    Action::SelectNext,
+    Action::Descend,
+    Action::OpenInBrowser,
+    Action::YankUrl,
+    Action::Ascend,
+];
+
 pub const STUB_MENU: &[Action] = &[Action::SelectNext, Action::Find, Action::Ascend];
 
 pub const GLOBAL_MENU: &[Action] = &[

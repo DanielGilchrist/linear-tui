@@ -1,8 +1,7 @@
 use cynic::{QueryFragment, QueryVariables};
 
-mod schema {
-    cynic::use_schema!("schema.graphql");
-}
+use super::scalars::DateTime;
+use super::schema;
 
 #[derive(Debug, QueryVariables)]
 pub struct SearchVariables {
@@ -53,6 +52,7 @@ pub struct IssueSearchResult {
     pub priority: f64,
     pub url: String,
     pub branch_name: String,
+    pub updated_at: DateTime,
     pub state: WorkflowState,
     pub team: Team,
     pub assignee: Option<User>,

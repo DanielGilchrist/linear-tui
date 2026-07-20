@@ -13,6 +13,7 @@ pub const MY_WORK_HINTS: &[Hint<Action>] = &[
     Hint::Bound(Action::OpenInBrowser),
     Hint::Bound(Action::YankUrl),
     Hint::Bound(Action::Find),
+    Hint::Bound(Action::ToggleZoom),
     Hint::Bound(Action::GoPrefix),
     Hint::Bound(Action::Quit),
 ];
@@ -25,6 +26,17 @@ pub const RECENT_HINTS: &[Hint<Action>] = &[
     Hint::Bound(Action::YankUrl),
     Hint::Bound(Action::ClearRecent),
     Hint::Bound(Action::Find),
+    Hint::Bound(Action::Quit),
+];
+
+pub const SAVED_VIEWS_HINTS: &[Hint<Action>] = &[
+    Hint::Bound(Action::SelectNext),
+    Hint::Bound(Action::NextPanel),
+    Hint::Bound(Action::Descend),
+    Hint::Bound(Action::OpenInBrowser),
+    Hint::Bound(Action::YankUrl),
+    Hint::Bound(Action::Find),
+    Hint::Bound(Action::Ascend),
     Hint::Bound(Action::Quit),
 ];
 
@@ -57,6 +69,7 @@ pub const DETAIL_HINTS: &[Hint<Action>] = &[
     },
     Hint::Bound(Action::OpenInBrowser),
     Hint::Bound(Action::YankUrl),
+    Hint::Bound(Action::ToggleZoom),
     Hint::Literal {
         keys: "tab/S-tab",
         label: "next/prev",
@@ -91,6 +104,20 @@ pub const PICKER_HINTS: &[Hint<PickerInput>] = &[
     Hint::Bound(PickerInput::Next),
     Hint::Bound(PickerInput::Accept),
     Hint::Bound(PickerInput::Cancel),
+];
+
+pub const VIEW_HINTS: &[Hint<Action>] = &[
+    Hint::Bound(Action::SelectNext),
+    Hint::Bound(Action::Descend),
+    Hint::Bound(Action::SetStatus),
+    Hint::Bound(Action::Assign),
+    Hint::Literal {
+        keys: "v",
+        label: "display",
+    },
+    Hint::Bound(Action::ToggleZoom),
+    Hint::Bound(Action::Ascend),
+    Hint::Bound(Action::Quit),
 ];
 
 pub const CONFIRM_HINTS: &[Hint<ConfirmInput>] = &[

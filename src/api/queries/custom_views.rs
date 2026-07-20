@@ -1,54 +1,40 @@
-use cynic::{InputObject, QueryFragment, QueryVariables};
+use cynic::{QueryFragment, QueryVariables};
 
 use super::scalars::DateTime;
 use super::schema;
 
-#[derive(Debug, Clone, InputObject)]
-#[cynic(schema_path = "schema.graphql")]
-pub struct BooleanComparator {
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub eq: Option<bool>,
+#[derive(Debug, QueryVariables)]
+pub struct CustomViewsVariables {
+    pub first: Option<i32>,
 }
 
-#[derive(Debug, Clone, InputObject)]
+#[derive(Debug, Clone, QueryFragment)]
 #[cynic(schema_path = "schema.graphql")]
-pub struct StringComparator {
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub eq: Option<String>,
-    #[cynic(skip_serializing_if = "Option::is_none", rename = "in")]
-    pub in_: Option<Vec<String>>,
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub nin: Option<Vec<String>>,
+pub struct CustomView {
+    pub id: cynic::Id,
+    pub name: String,
 }
 
-#[derive(Debug, Clone, InputObject)]
+#[derive(Debug, QueryFragment)]
 #[cynic(schema_path = "schema.graphql")]
-pub struct NullableUserFilter {
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub is_me: Option<BooleanComparator>,
+pub struct CustomViewConnection {
+    pub nodes: Vec<CustomView>,
 }
 
-#[derive(Debug, Clone, InputObject)]
-#[cynic(schema_path = "schema.graphql")]
-pub struct WorkflowStateFilter {
-    #[cynic(skip_serializing_if = "Option::is_none", rename = "type")]
-    pub type_: Option<StringComparator>,
-}
-
-#[derive(Debug, Clone, InputObject)]
-#[cynic(schema_path = "schema.graphql")]
-pub struct IssueFilter {
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub assignee: Option<NullableUserFilter>,
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub creator: Option<NullableUserFilter>,
-    #[cynic(skip_serializing_if = "Option::is_none")]
-    pub state: Option<WorkflowStateFilter>,
+#[derive(Debug, QueryFragment)]
+#[cynic(
+    schema_path = "schema.graphql",
+    graphql_type = "Query",
+    variables = "CustomViewsVariables"
+)]
+pub struct CustomViewsQuery {
+    #[arguments(first: $first)]
+    pub custom_views: CustomViewConnection,
 }
 
 #[derive(Debug, QueryVariables)]
-pub struct IssuesVariables {
-    pub filter: Option<IssueFilter>,
+pub struct CustomViewIssuesVariables {
+    pub id: String,
     pub first: Option<i32>,
 }
 
@@ -104,17 +90,35 @@ pub struct Issue {
 
 #[derive(Debug, QueryFragment)]
 #[cynic(schema_path = "schema.graphql")]
+pub struct PageInfo {
+    pub has_next_page: bool,
+}
+
+#[derive(Debug, QueryFragment)]
+#[cynic(schema_path = "schema.graphql")]
 pub struct IssueConnection {
     pub nodes: Vec<Issue>,
+    pub page_info: PageInfo,
+}
+
+#[derive(Debug, QueryFragment)]
+#[cynic(
+    schema_path = "schema.graphql",
+    graphql_type = "CustomView",
+    variables = "CustomViewIssuesVariables"
+)]
+pub struct CustomViewIssues {
+    #[arguments(first: $first)]
+    pub issues: IssueConnection,
 }
 
 #[derive(Debug, QueryFragment)]
 #[cynic(
     schema_path = "schema.graphql",
     graphql_type = "Query",
-    variables = "IssuesVariables"
+    variables = "CustomViewIssuesVariables"
 )]
-pub struct IssuesQuery {
-    #[arguments(filter: $filter, first: $first)]
-    pub issues: IssueConnection,
+pub struct CustomViewIssuesQuery {
+    #[arguments(id: $id)]
+    pub custom_view: CustomViewIssues,
 }

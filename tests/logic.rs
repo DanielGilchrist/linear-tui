@@ -7,6 +7,7 @@ use linear_tui::tui::message::{Command, Message};
 use linear_tui::tui::overlay::{
     Compose, InputPurpose, PickerAction, PickerItem, PickerKind, Search,
 };
+use linear_tui::tui::saved_views::ViewIssues;
 use linear_tui::tui::status::Status;
 use linear_tui::tui::update::{apply, handle_key};
 
@@ -92,9 +93,11 @@ fn number_key_jumps_to_panel() {
     let mut app = App::new();
 
     let commands = handle_key(&mut app, press(KeyCode::Char('3')));
-
-    assert_eq!(app.focus, Focus::Stub(0));
+    assert_eq!(app.focus, Focus::SavedViews);
     assert!(commands.is_none());
+
+    handle_key(&mut app, press(KeyCode::Char('4')));
+    assert_eq!(app.focus, Focus::Stub(0));
 }
 
 #[test]
@@ -104,6 +107,334 @@ fn tab_cycles_from_my_work_into_the_stack() {
     handle_key(&mut app, press(KeyCode::Tab));
 
     assert_eq!(app.focus, Focus::Recent);
+}
+
+#[test]
+fn views_loaded_prefetches_the_selected_view() {
+    let mut app = App::new();
+    app.focus = Focus::SavedViews;
+
+    let command = apply(
+        &mut app,
+        Message::CustomViewsLoaded(vec![
+            saved_view("v1", "Urgent"),
+            saved_view("v2", "Menu ideas"),
+        ]),
+    );
+
+    match command {
+        Some(Command::LoadCustomViewIssues { id }) if id == "v1" => {}
+        other => panic!("expected a prefetch for v1, got {other:?}"),
+    }
+}
+
+#[test]
+fn moving_the_selection_prefetches_the_next_view() {
+    let mut app = saved_views_app();
+
+    let command = handle_key(&mut app, press(KeyCode::Char('j')));
+
+    match command {
+        Some(Command::LoadCustomViewIssues { id }) if id == "v2" => {}
+        other => panic!("expected a prefetch for v2, got {other:?}"),
+    }
+}
+
+#[test]
+fn entering_a_view_focuses_the_view_surface() {
+    let mut app = saved_views_app();
+
+    handle_key(&mut app, press(KeyCode::Enter));
+
+    assert_eq!(app.focus, Focus::View);
+    assert_eq!(app.view().expect("view open").id(), "v1");
+}
+
+#[test]
+fn entering_an_issue_from_the_view_opens_the_detail() {
+    let mut app = saved_views_app();
+    handle_key(&mut app, press(KeyCode::Enter));
+    apply(
+        &mut app,
+        Message::CustomViewIssuesLoaded {
+            id: "v1".into(),
+            issues: vec![sample_issue("i1", "DAN2-7")],
+            truncated: false,
+        },
+    );
+
+    let command = handle_key(&mut app, press(KeyCode::Enter));
+
+    // the view stays open underneath so esc can return to it
+    assert!(app.view().is_some());
+    assert_eq!(
+        app.focus,
+        Focus::Detail(LeftPanel::SavedViews, DetailView::Reading)
+    );
+    match command {
+        Some(Command::LoadDetail {
+            id,
+            reveal: Reveal::Top,
+        }) if id == "i1" => {}
+        other => panic!("expected LoadDetail for i1, got {other:?}"),
+    }
+}
+
+#[test]
+fn esc_closes_the_view_back_to_the_panel() {
+    let mut app = saved_views_app();
+    handle_key(&mut app, press(KeyCode::Enter));
+    assert_eq!(app.focus, Focus::View);
+
+    handle_key(&mut app, press(KeyCode::Esc));
+
+    assert!(app.view().is_none());
+    assert_eq!(app.focus, Focus::SavedViews);
+}
+
+#[test]
+fn esc_from_a_view_opened_detail_returns_to_the_view() {
+    let mut app = saved_views_app();
+    handle_key(&mut app, press(KeyCode::Enter));
+    apply(
+        &mut app,
+        Message::CustomViewIssuesLoaded {
+            id: "v1".into(),
+            issues: vec![sample_issue("i1", "DAN2-7")],
+            truncated: false,
+        },
+    );
+    handle_key(&mut app, press(KeyCode::Enter));
+    assert!(matches!(app.focus, Focus::Detail(..)));
+
+    handle_key(&mut app, press(KeyCode::Esc));
+
+    assert_eq!(app.focus, Focus::View);
+    assert_eq!(app.view().expect("view still open").id(), "v1");
+}
+
+#[test]
+fn z_toggles_zoom_and_esc_unzooms_before_closing() {
+    let mut app = saved_views_app();
+    handle_key(&mut app, press(KeyCode::Enter));
+
+    handle_key(&mut app, press(KeyCode::Char('z')));
+    assert_eq!(app.zoom, linear_tui::tui::app::Zoom::Full);
+
+    // esc unzooms first, keeping the view open
+    handle_key(&mut app, press(KeyCode::Esc));
+    assert_eq!(app.zoom, linear_tui::tui::app::Zoom::Normal);
+    assert!(app.view().is_some());
+
+    // a second esc closes it
+    handle_key(&mut app, press(KeyCode::Esc));
+    assert!(app.view().is_none());
+    assert_eq!(app.focus, Focus::SavedViews);
+}
+
+#[test]
+fn zoom_works_on_the_my_work_list() {
+    let mut app = list_app_with_issue();
+
+    handle_key(&mut app, press(KeyCode::Char('z')));
+    assert_eq!(app.zoom, linear_tui::tui::app::Zoom::Full);
+    assert_eq!(app.focus, Focus::MyWork);
+
+    handle_key(&mut app, press(KeyCode::Esc));
+    assert_eq!(app.zoom, linear_tui::tui::app::Zoom::Normal);
+    assert_eq!(app.focus, Focus::MyWork);
+}
+
+#[test]
+fn the_display_prefix_cycles_group_and_sort() {
+    let mut app = saved_views_app();
+    handle_key(&mut app, press(KeyCode::Enter));
+
+    // v then g cycles group status -> priority
+    handle_key(&mut app, press(KeyCode::Char('v')));
+    handle_key(&mut app, press(KeyCode::Char('g')));
+    assert_eq!(
+        app.view().unwrap().display.group,
+        linear_tui::tui::display::GroupBy::Priority
+    );
+
+    // v then s cycles sort manual -> priority
+    handle_key(&mut app, press(KeyCode::Char('v')));
+    handle_key(&mut app, press(KeyCode::Char('s')));
+    assert_eq!(
+        app.view().unwrap().display.sort,
+        linear_tui::tui::display::SortBy::Priority
+    );
+}
+
+#[test]
+fn status_acts_on_the_highlighted_view_issue() {
+    let mut app = saved_views_app();
+    handle_key(&mut app, press(KeyCode::Enter));
+    apply(
+        &mut app,
+        Message::CustomViewIssuesLoaded {
+            id: "v1".into(),
+            issues: vec![sample_issue("i1", "DAN2-7")],
+            truncated: false,
+        },
+    );
+
+    let command = handle_key(&mut app, press(KeyCode::Char('s')));
+
+    assert_eq!(app.picker().map(|p| p.kind), Some(PickerKind::Status));
+    match command {
+        Some(Command::LoadStates { team_id }) if team_id == "t_pizza" => {}
+        other => panic!("expected LoadStates for the highlighted issue, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_panel_starts_in_a_loading_state() {
+    let app = App::new();
+    assert!(app.saved_views.loading);
+}
+
+#[test]
+fn views_load_prefetches_even_when_focus_is_elsewhere() {
+    let mut app = App::new();
+    assert_eq!(app.focus, Focus::MyWork);
+
+    let command = apply(
+        &mut app,
+        Message::CustomViewsLoaded(vec![saved_view("v1", "Urgent")]),
+    );
+
+    match command {
+        Some(Command::LoadCustomViewIssues { id }) if id == "v1" => {}
+        other => panic!("expected a prefetch for v1 from MyWork, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_failed_views_fetch_clears_the_panel_loading_flag() {
+    let mut app = App::new();
+    assert!(app.saved_views.loading);
+
+    apply(&mut app, Message::CustomViewsFailed("boom".into()));
+
+    assert!(!app.saved_views.loading);
+    assert!(matches!(app.status, Some(Status::Error(_))));
+}
+
+#[test]
+fn a_failed_view_issues_fetch_is_recorded_and_can_be_retried() {
+    let mut app = saved_views_app();
+    handle_key(&mut app, press(KeyCode::Enter));
+
+    apply(
+        &mut app,
+        Message::CustomViewIssuesFailed {
+            id: "v1".into(),
+            error: "boom".into(),
+        },
+    );
+
+    assert!(matches!(
+        app.saved_views.issues_for("v1"),
+        Some(ViewIssues::Failed)
+    ));
+    assert!(matches!(app.status, Some(Status::Error(_))));
+
+    // r on the open view refetches rather than leaving a permanent spinner
+    let command = handle_key(&mut app, press(KeyCode::Char('r')));
+    match command {
+        Some(Command::LoadCustomViewIssues { id }) if id == "v1" => {}
+        other => panic!("expected a retry for v1, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_failed_view_is_refetched_on_revisit_from_the_panel() {
+    let mut app = saved_views_app();
+    handle_key(&mut app, press(KeyCode::Enter));
+    apply(
+        &mut app,
+        Message::CustomViewIssuesFailed {
+            id: "v1".into(),
+            error: "boom".into(),
+        },
+    );
+    handle_key(&mut app, press(KeyCode::Esc));
+
+    // move off v1 and back: prefetch must refetch the Failed entry
+    handle_key(&mut app, press(KeyCode::Char('j')));
+    let command = handle_key(&mut app, press(KeyCode::Char('k')));
+
+    match command {
+        Some(Command::LoadCustomViewIssues { id }) if id == "v1" => {}
+        other => panic!("expected a refetch for the failed v1, got {other:?}"),
+    }
+}
+
+#[test]
+fn reloading_a_shrunk_view_keeps_the_selection_in_range() {
+    let mut app = saved_views_app();
+    handle_key(&mut app, press(KeyCode::Enter));
+    apply(
+        &mut app,
+        Message::CustomViewIssuesLoaded {
+            id: "v1".into(),
+            issues: vec![
+                sample_issue("i1", "DAN-1"),
+                sample_issue("i2", "DAN-2"),
+                sample_issue("i3", "DAN-3"),
+            ],
+            truncated: false,
+        },
+    );
+    // select the last issue
+    handle_key(&mut app, press(KeyCode::Char('j')));
+    handle_key(&mut app, press(KeyCode::Char('j')));
+
+    // the view now returns a single issue
+    apply(
+        &mut app,
+        Message::CustomViewIssuesLoaded {
+            id: "v1".into(),
+            issues: vec![sample_issue("i1", "DAN-1")],
+            truncated: false,
+        },
+    );
+
+    assert!(
+        app.view_selected_issue().is_some(),
+        "selection stranded out of range after the view shrank"
+    );
+}
+
+#[tokio::test]
+async fn the_fixture_serves_distinct_issues_per_view() {
+    let client = FixtureClient::sample();
+
+    let urgent = client.custom_view_issues("v_urgent").await.unwrap();
+    let oven = client.custom_view_issues("v_oven").await.unwrap();
+
+    assert_ne!(urgent.issues.len(), oven.issues.len());
+    assert!(oven
+        .issues
+        .iter()
+        .all(|issue| issue.id == "i1" || issue.id == "i3"));
+}
+
+#[test]
+fn tabbing_away_from_a_view_closes_the_surface() {
+    let mut app = saved_views_app();
+    handle_key(&mut app, press(KeyCode::Enter));
+    assert_eq!(app.focus, Focus::View);
+
+    handle_key(&mut app, press(KeyCode::Tab));
+
+    assert!(
+        app.view().is_none(),
+        "zombie view surface survived tab-away"
+    );
+    assert_ne!(app.focus, Focus::View);
 }
 
 #[test]
@@ -1335,6 +1666,26 @@ fn detail_app() -> App {
     app
 }
 
+fn saved_view(id: &str, name: &str) -> linear_tui::api::SavedView {
+    linear_tui::api::SavedView {
+        id: id.into(),
+        name: name.into(),
+    }
+}
+
+fn saved_views_app() -> App {
+    let mut app = App::new();
+    app.focus = Focus::SavedViews;
+    apply(
+        &mut app,
+        Message::CustomViewsLoaded(vec![
+            saved_view("v1", "Urgent"),
+            saved_view("v2", "Menu ideas"),
+        ]),
+    );
+    app
+}
+
 fn sample_issue(id: &str, identifier: &str) -> linear_tui::api::IssueSummary {
     linear_tui::api::IssueSummary {
         id: id.into(),
@@ -1350,6 +1701,7 @@ fn sample_issue(id: &str, identifier: &str) -> linear_tui::api::IssueSummary {
         url: format!("https://linear.app/dans-donuts/issue/{identifier}"),
         branch_name: format!("dan/{}", identifier.to_lowercase()),
         team_id: "t_pizza".into(),
+        updated_at: linear_tui::api::Timestamp::default(),
     }
 }
 
@@ -1370,6 +1722,7 @@ fn sample_detail(id: &str, identifier: &str) -> linear_tui::api::IssueDetail {
         comments: vec![],
         branch_name: format!("dan/{}", identifier.to_lowercase()),
         team_id: "t_pizza".into(),
+        updated_at: linear_tui::api::Timestamp::default(),
     }
 }
 

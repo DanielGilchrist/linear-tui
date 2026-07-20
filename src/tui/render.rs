@@ -7,14 +7,16 @@ use ratatui::{
 };
 
 use super::action;
-use super::app::App;
+use super::app::{App, Zoom};
 use super::components::{ScrollableText, StyledList};
+use super::display::{self, GroupBy, SortBy};
 use super::focus::{DetailView, Focus, LeftPanel};
 use super::layout;
 use super::markdown;
 use super::overlay::{
     Cell, Confirm, Editor, Input, MentionMenu, Menu, MenuRow, Overlay, Picker, PrefixUnder, Search,
 };
+use super::saved_views::{SavedViewsPanel, ViewIssues, ViewSurface};
 use super::spinner::Spinner;
 use super::view::{View, ViewKind};
 use crate::api::{
@@ -23,6 +25,11 @@ use crate::api::{
 
 const LEFT_PCT: u16 = 38;
 const COLLAPSED_PEEK: usize = 2;
+const VIEW_HEADER_ROWS: u16 = 3;
+
+fn view_list_viewport(area: Rect) -> usize {
+    (area.height as usize).saturating_sub(2 + VIEW_HEADER_ROWS as usize)
+}
 
 pub fn render(app: &mut App, frame: &mut Frame) {
     let chunks = Layout::default()
@@ -33,13 +40,54 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     let body = chunks[0];
     let footer = chunks[1];
 
-    let [left, right] = layout::split_horizontal(body, LEFT_PCT);
-    render_left(app, frame, left);
-    render_right(app, frame, right);
+    if app.zoom == Zoom::Full {
+        render_zoomed(app, frame, body);
+    } else {
+        let [left, right] = layout::split_horizontal(body, LEFT_PCT);
+        render_left(app, frame, left);
+        render_right(app, frame, right);
+    }
 
     render_footer(app, frame, footer);
 
     render_overlay(&mut app.overlay, app.spinner, frame);
+}
+
+/// Full-screen render of whatever surface is focused.
+fn render_zoomed(app: &mut App, frame: &mut Frame, area: Rect) {
+    app.viewport = (area.height as usize).saturating_sub(2);
+
+    match app.focus {
+        Focus::MyWork => render_my_work(app, frame, area),
+        Focus::Recent => render_recent(app, frame, area),
+        Focus::SavedViews => render_saved_views(app, frame, area),
+        Focus::View => {
+            app.viewport = view_list_viewport(area);
+            let saved = &app.saved_views;
+            let spinner = app.spinner;
+            let now = app.now;
+            if let Some(view) = app.view_open.as_mut() {
+                render_view(saved, view, frame, area, spinner, Color::Yellow, now);
+            }
+        }
+        Focus::Stub(index) => render_stub(app, frame, area, index),
+        Focus::Detail(..) => {
+            if render_detail_if_loaded(app, frame, area, Color::Yellow) {
+                return;
+            }
+            if app.detail_loading {
+                render_text_panel(
+                    frame,
+                    area,
+                    "Issue",
+                    Text::from(format!("{}  Loading issue…", app.spinner)),
+                    Color::Yellow,
+                );
+            } else {
+                render_work_preview(app, frame, area, Color::Yellow);
+            }
+        }
+    }
 }
 
 fn render_overlay(overlay: &mut Overlay, spinner: Spinner, frame: &mut Frame) {
@@ -274,6 +322,244 @@ fn render_search(search: &mut Search, spinner: Spinner, frame: &mut Frame) {
     }
 }
 
+fn render_view(
+    saved: &SavedViewsPanel,
+    view: &mut ViewSurface,
+    frame: &mut Frame,
+    area: Rect,
+    spinner: Spinner,
+    border: Color,
+    now: i64,
+) {
+    use ratatui::widgets::{Block, Borders, List, Paragraph};
+
+    let entry = saved.issues_for(view.id());
+
+    let block = Block::default()
+        .title(view_title(view.name(), entry))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border));
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let issues = match entry {
+        Some(ViewIssues::Loaded { issues, .. }) => issues,
+        Some(ViewIssues::Failed) => {
+            frame.render_widget(
+                Paragraph::new("Failed to load  ·  r to retry")
+                    .style(Style::default().fg(Color::Red)),
+                inner,
+            );
+            return;
+        }
+        Some(ViewIssues::Loading) | None => {
+            frame.render_widget(
+                Paragraph::new(format!("{spinner}  Loading…"))
+                    .style(Style::default().fg(Color::DarkGray)),
+                inner,
+            );
+            return;
+        }
+    };
+
+    if issues.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No issues in this view").style(Style::default().fg(Color::DarkGray)),
+            inner,
+        );
+        return;
+    }
+
+    let groups = view.display.arrange(issues);
+    let rows =
+        Layout::vertical([Constraint::Length(VIEW_HEADER_ROWS), Constraint::Min(1)]).split(inner);
+    let header = Text::from(vec![
+        Line::from(vec![
+            Span::styled("group ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                view.display.group.label(),
+                Style::default().fg(Color::White),
+            ),
+            Span::raw("    "),
+            Span::styled("sort ", Style::default().fg(Color::DarkGray)),
+            Span::styled(view.display.sort.label(), Style::default().fg(Color::White)),
+        ]),
+        breakdown_line(&groups),
+    ]);
+
+    frame.render_widget(Paragraph::new(header), rows[0]);
+
+    let id_width = id_column_width(issues);
+    let width = rows[1].width as usize;
+    let (items, selected_row) = view_items(
+        issues,
+        &groups,
+        view.display.group,
+        view.state.selected(),
+        id_width,
+        width,
+        now,
+    );
+
+    view.layout.select(selected_row);
+
+    let list =
+        List::new(items).highlight_style(Style::default().bg(Color::DarkGray).fg(Color::White));
+
+    frame.render_stateful_widget(list, rows[1], &mut view.layout);
+}
+
+fn view_title(name: &str, entry: Option<&ViewIssues>) -> String {
+    match entry {
+        Some(ViewIssues::Loaded { issues, truncated }) => {
+            let more = if *truncated { "+" } else { "" };
+            format!(" {name}  ·  {}{more} issues ", issues.len())
+        }
+        _ => format!(" {name} "),
+    }
+}
+
+fn id_column_width(issues: &[IssueSummary]) -> usize {
+    issues
+        .iter()
+        .map(|issue| issue.identifier.chars().count())
+        .max()
+        .unwrap_or(0)
+}
+
+fn breakdown_line(groups: &[display::Group]) -> Line<'static> {
+    let mut spans: Vec<Span> = Vec::new();
+
+    for group in groups {
+        if let Some(label) = &group.label {
+            if !spans.is_empty() {
+                spans.push(Span::styled("  ·  ", Style::default().fg(Color::DarkGray)));
+            }
+
+            spans.push(Span::styled(
+                format!("{} ", group.indices.len()),
+                Style::default().fg(Color::Yellow),
+            ));
+
+            spans.push(Span::styled(
+                label.clone(),
+                Style::default().fg(Color::Gray),
+            ));
+        }
+    }
+
+    Line::from(spans)
+}
+
+/// A read-only preview of a view's issues (shown while browsing the Saved Views list).
+fn render_view_preview(
+    saved: &SavedViewsPanel,
+    id: &str,
+    name: &str,
+    frame: &mut Frame,
+    area: Rect,
+    spinner: Spinner,
+    now: i64,
+) {
+    use ratatui::widgets::{Block, Borders, List, Paragraph};
+
+    let entry = saved.issues_for(id);
+
+    let block = Block::default()
+        .title(view_title(name, entry))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Gray));
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let issues = match entry {
+        Some(ViewIssues::Loaded { issues, .. }) => issues,
+        Some(ViewIssues::Failed) => {
+            frame.render_widget(
+                Paragraph::new("Failed to load  ·  r to retry")
+                    .style(Style::default().fg(Color::Red)),
+                inner,
+            );
+            return;
+        }
+        Some(ViewIssues::Loading) | None => {
+            frame.render_widget(
+                Paragraph::new(format!("{spinner}  Loading…"))
+                    .style(Style::default().fg(Color::DarkGray)),
+                inner,
+            );
+            return;
+        }
+    };
+
+    if issues.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No issues in this view").style(Style::default().fg(Color::DarkGray)),
+            inner,
+        );
+        return;
+    }
+
+    let groups = display::arrange(issues, GroupBy::Status, SortBy::Manual);
+    let rows = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).split(inner);
+
+    frame.render_widget(
+        Paragraph::new(Text::from(vec![breakdown_line(&groups), Line::from("")])),
+        rows[0],
+    );
+
+    let id_width = id_column_width(issues);
+    let width = rows[1].width as usize;
+    let (items, _) = view_items(issues, &groups, GroupBy::Status, None, id_width, width, now);
+
+    frame.render_widget(List::new(items), rows[1]);
+}
+
+/// Build the grouped rows (section headers + issue rows) and, if `selected` is a valid
+/// issue position, the display-row index to highlight.
+fn view_items(
+    issues: &[IssueSummary],
+    groups: &[display::Group],
+    group_by: GroupBy,
+    selected: Option<usize>,
+    id_width: usize,
+    width: usize,
+    now: i64,
+) -> (Vec<ListItem<'static>>, Option<usize>) {
+    let mut items: Vec<ListItem> = Vec::new();
+    let mut flat = 0usize;
+    let mut selected_row = None;
+
+    for group in groups {
+        if let Some(label) = &group.label {
+            items.push(ListItem::new(Line::from(vec![
+                Span::styled(
+                    label.clone(),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("  {}", group.indices.len()),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ])));
+        }
+        for &index in &group.indices {
+            if Some(flat) == selected {
+                selected_row = Some(items.len());
+            }
+
+            items.push(issue_row(&issues[index], group_by, id_width, width, now));
+            flat += 1;
+        }
+    }
+
+    (items, selected_row)
+}
+
 fn render_menu(menu: &mut Menu, frame: &mut Frame) {
     use ratatui::widgets::Clear;
 
@@ -417,6 +703,7 @@ fn render_left(app: &mut App, frame: &mut Frame, area: Rect) {
         match panel {
             LeftPanel::MyWork => render_my_work(app, frame, *rect),
             LeftPanel::Recent => render_recent(app, frame, *rect),
+            LeftPanel::SavedViews => render_saved_views(app, frame, *rect),
             LeftPanel::Stub(index) => render_stub(app, frame, *rect, index),
         }
     }
@@ -440,6 +727,35 @@ fn render_stub(app: &mut App, frame: &mut Frame, rect: Rect, index: usize) {
         .state(&mut stub.state)
         .position(selected, total)
         .render(frame, rect);
+}
+
+fn render_saved_views(app: &mut App, frame: &mut Frame, area: Rect) {
+    let focused = app.focus == Focus::SavedViews;
+    let panel = &mut app.saved_views;
+
+    let selected = panel.state.selected();
+    let total = panel.views.len();
+    let items: Vec<ListItem> = panel
+        .views
+        .iter()
+        .map(|view| ListItem::new(Line::from(view.name.clone())))
+        .collect();
+
+    let mut list = StyledList::new("Saved Views")
+        .items(items)
+        .focused(focused)
+        .state(&mut panel.state)
+        .position(selected, total);
+
+    if total == 0 {
+        list = list.placeholder(if panel.loading {
+            "Loading…"
+        } else {
+            "No saved views"
+        });
+    }
+
+    list.render(frame, area);
 }
 
 fn render_recent(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -564,6 +880,33 @@ fn render_right(app: &mut App, frame: &mut Frame, area: Rect) {
                 ),
             };
             render_text_panel(frame, area, &title, text, Color::Gray);
+        }
+        Focus::SavedViews => {
+            let spinner = app.spinner;
+            let now = app.now;
+            match app.saved_views.selected_view() {
+                Some(view) => {
+                    let id = view.id.clone();
+                    let name = view.name.clone();
+                    render_view_preview(&app.saved_views, &id, &name, frame, area, spinner, now);
+                }
+                None => render_text_panel(
+                    frame,
+                    area,
+                    "Saved Views",
+                    Text::from("No saved views"),
+                    Color::Gray,
+                ),
+            }
+        }
+        Focus::View => {
+            app.viewport = view_list_viewport(area);
+            let saved = &app.saved_views;
+            let spinner = app.spinner;
+            let now = app.now;
+            if let Some(view) = app.view_open.as_mut() {
+                render_view(saved, view, frame, area, spinner, Color::Yellow, now);
+            }
         }
         Focus::MyWork => {
             if app.detail_ready() && render_detail_if_loaded(app, frame, area, Color::Gray) {
@@ -921,6 +1264,8 @@ fn footer_hint(app: &App) -> String {
     let specs = match app.focus {
         Focus::MyWork => action::MY_WORK_HINTS,
         Focus::Recent => action::RECENT_HINTS,
+        Focus::SavedViews => action::SAVED_VIEWS_HINTS,
+        Focus::View => action::VIEW_HINTS,
         Focus::Stub(_) => action::STUB_HINTS,
         Focus::Detail(_, DetailView::Reading) => action::DETAIL_HINTS,
         Focus::Detail(_, DetailView::Comments) => action::COMMENTS_HINTS,
@@ -929,49 +1274,133 @@ fn footer_hint(app: &App) -> String {
 }
 
 fn issue_items(issues: &[IssueSummary]) -> Vec<ListItem<'static>> {
-    issues
-        .iter()
-        .map(|issue| {
-            let (icon, priority_colour) = priority_indicator(issue.priority);
-            let state_colour = state_type_colour(issue.state.state_type);
+    issues.iter().map(issue_item).collect()
+}
 
-            let mut spans = vec![
-                Span::styled(icon.to_string(), Style::default().fg(priority_colour)),
-                Span::raw(" "),
-                Span::styled(
-                    issue.identifier.clone(),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::raw(" "),
-                Span::styled(issue.state.name.clone(), Style::default().fg(state_colour)),
-                Span::raw(" "),
-                Span::styled(
-                    issue.title.clone().unwrap_or_else(|| "Untitled".into()),
-                    Style::default().fg(Color::White),
-                ),
-            ];
+fn issue_item(issue: &IssueSummary) -> ListItem<'static> {
+    let (icon, priority_colour) = priority_indicator(issue.priority);
+    let state_colour = state_type_colour(issue.state.state_type);
 
-            if let Some(assignee) = &issue.assignee {
-                spans.push(Span::raw(" "));
-                spans.push(Span::styled(
-                    assignee.display_name.clone(),
-                    Style::default().fg(Color::Blue),
-                ));
-            }
+    let mut spans = vec![
+        Span::styled(icon.to_string(), Style::default().fg(priority_colour)),
+        Span::raw(" "),
+        Span::styled(
+            issue.identifier.clone(),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::raw(" "),
+        Span::styled(issue.state.name.clone(), Style::default().fg(state_colour)),
+        Span::raw(" "),
+        Span::styled(
+            issue.title.clone().unwrap_or_else(|| "Untitled".into()),
+            Style::default().fg(Color::White),
+        ),
+    ];
 
-            for label in &issue.labels {
-                spans.push(Span::raw(" "));
-                spans.push(Span::styled(
-                    format!(" {} ", label.name),
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(rgb_colour(label.colour)),
-                ));
-            }
+    if let Some(assignee) = &issue.assignee {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            assignee.display_name.clone(),
+            Style::default().fg(Color::Blue),
+        ));
+    }
 
-            ListItem::new(Line::from(spans))
-        })
-        .collect()
+    for label in &issue.labels {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            format!(" {} ", label.name),
+            Style::default()
+                .fg(Color::Black)
+                .bg(rgb_colour(label.colour)),
+        ));
+    }
+
+    ListItem::new(Line::from(spans))
+}
+
+/// A column-aligned issue row inside a grouped view: priority · id · title (flexes) with the
+/// metadata (labels · assignee · age) right-aligned to `width`. The field the rows are grouped by
+/// is omitted (its section header already carries it).
+fn issue_row(
+    issue: &IssueSummary,
+    group: GroupBy,
+    id_width: usize,
+    width: usize,
+    now: i64,
+) -> ListItem<'static> {
+    let (icon, priority_colour) = priority_indicator(issue.priority);
+    let state_colour = state_type_colour(issue.state.state_type);
+
+    // left: priority icon (blanked when grouped by priority) + padded identifier
+    let mut left: Vec<Span> = Vec::new();
+    if group == GroupBy::Priority {
+        left.push(Span::raw("    "));
+    } else {
+        left.push(Span::styled(
+            icon.to_string(),
+            Style::default().fg(priority_colour),
+        ));
+        left.push(Span::raw(" "));
+    }
+    left.push(Span::styled(
+        format!("{:<id_width$}", issue.identifier),
+        Style::default().fg(Color::DarkGray),
+    ));
+    left.push(Span::raw(" "));
+    let left_w = 4 + id_width + 1;
+
+    // right block: state (unless grouped by status) · labels · assignee (unless grouped) · age
+    let mut right: Vec<Span> = Vec::new();
+    if group != GroupBy::Status {
+        right.push(Span::styled(
+            issue.state.name.clone(),
+            Style::default().fg(state_colour),
+        ));
+        right.push(Span::raw("  "));
+    }
+    for label in &issue.labels {
+        right.push(Span::styled(
+            format!(" {} ", label.name),
+            Style::default()
+                .fg(Color::Black)
+                .bg(rgb_colour(label.colour)),
+        ));
+        right.push(Span::raw(" "));
+    }
+    if group != GroupBy::Assignee {
+        if let Some(assignee) = &issue.assignee {
+            right.push(Span::styled(
+                assignee.display_name.clone(),
+                Style::default().fg(Color::Blue),
+            ));
+            right.push(Span::raw("  "));
+        }
+    }
+    right.push(Span::styled(
+        relative_age(issue.updated_at, now),
+        Style::default().fg(Color::DarkGray),
+    ));
+    let right_w: usize = right.iter().map(|span| span.content.chars().count()).sum();
+
+    // title flexes to fill the gap, pushing the right block to the edge
+    let gap = 2;
+    let title_area = width.saturating_sub(left_w + right_w + gap);
+    let title = fit(
+        &issue.title.clone().unwrap_or_else(|| "Untitled".into()),
+        title_area,
+    );
+    let pad = title_area.saturating_sub(title.chars().count()) + gap;
+
+    let mut spans = left;
+    spans.push(Span::styled(title, Style::default().fg(Color::White)));
+    spans.push(Span::raw(" ".repeat(pad)));
+    spans.extend(right);
+
+    ListItem::new(Line::from(spans))
+}
+
+fn relative_age(updated: crate::api::Timestamp, now: i64) -> String {
+    updated.age_short(now)
 }
 
 fn notification_items(notifications: &[NotificationItem]) -> Vec<ListItem<'static>> {
