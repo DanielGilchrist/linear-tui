@@ -132,12 +132,20 @@ pub(super) fn map_detail(issue: issue::Issue) -> IssueDetail {
             .comments
             .nodes
             .into_iter()
-            .map(|c| Comment {
-                id: c.id.into_inner(),
-                parent_id: c.parent.map(|p| p.id.into_inner()),
-                author: c.user.map(|u| u.display_name),
-                body: c.body,
-                created_at: c.created_at.0.into(),
+            .map(|c| {
+                let (author, is_mine) = match c.user {
+                    Some(user) => (Some(user.display_name), user.is_me),
+                    None => (None, false),
+                };
+
+                Comment {
+                    id: c.id.into_inner(),
+                    parent_id: c.parent.map(|p| p.id.into_inner()),
+                    author,
+                    is_mine,
+                    body: c.body,
+                    created_at: c.created_at.0.into(),
+                }
             })
             .collect(),
         branch_name: issue.branch_name,

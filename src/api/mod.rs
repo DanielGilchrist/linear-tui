@@ -25,4 +25,5 @@ pub trait LinearApi: Send + Sync {
         body: &str,
         parent_id: Option<&str>,
     ) -> ApiResult<()>;
+    async fn update_comment(&self, comment_id: &str, body: &str) -> ApiResult<()>;
 }

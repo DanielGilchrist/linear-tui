@@ -304,27 +304,58 @@ pub struct MentionMenu {
     pub state: ListState,
 }
 
+#[derive(Debug, Clone)]
+pub enum Compose {
+    Comment,
+    Reply { parent_id: String },
+    Edit { comment_id: String },
+}
+
+impl Compose {
+    fn title(&self) -> &'static str {
+        match self {
+            Compose::Comment => "Comment",
+            Compose::Reply { .. } => "Reply",
+            Compose::Edit { .. } => "Edit",
+        }
+    }
+}
+
 pub struct Editor {
     pub title: &'static str,
     pub lines: Vec<Vec<Cell>>,
     pub row: usize,
     pub col: usize,
-    pub parent_id: Option<String>,
+    pub compose: Compose,
     pub members: Vec<User>,
     pub mention: Option<MentionMenu>,
 }
 
 impl Editor {
-    pub fn new(title: &'static str, parent_id: Option<String>) -> Self {
+    pub fn new(compose: Compose) -> Self {
         Self {
-            title,
+            title: compose.title(),
             lines: vec![Vec::new()],
             row: 0,
             col: 0,
-            parent_id,
+            compose,
             members: Vec::new(),
             mention: None,
         }
+    }
+
+    pub fn seeded(compose: Compose, body: &str) -> Self {
+        let mut editor = Self::new(compose);
+
+        editor.lines = body
+            .split('\n')
+            .map(|line| line.chars().map(Cell::Char).collect())
+            .collect();
+
+        editor.row = editor.lines.len() - 1;
+        editor.col = editor.lines[editor.row].len();
+
+        editor
     }
 
     pub fn text(&self) -> String {

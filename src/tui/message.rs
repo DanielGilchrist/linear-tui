@@ -30,6 +30,9 @@ pub enum Message {
     CommentPosted {
         id: String,
     },
+    CommentEdited {
+        id: String,
+    },
     Failed(String),
 }
 
@@ -64,6 +67,11 @@ pub enum Command {
         issue_id: String,
         body: String,
         parent_id: Option<String>,
+    },
+    UpdateComment {
+        issue_id: String,
+        comment_id: String,
+        body: String,
     },
     Search(String),
     LoadRecent,

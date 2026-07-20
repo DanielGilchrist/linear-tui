@@ -10,8 +10,6 @@ pub enum ApiError {
     GraphQl(Vec<String>),
     #[error("Linear returned an empty response")]
     Empty,
-    #[error("Linear rejected the {0} request")]
-    Rejected(&'static str),
     #[error("{resource} {id} was not found")]
     NotFound { resource: &'static str, id: String },
 }

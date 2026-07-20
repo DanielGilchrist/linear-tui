@@ -7,8 +7,8 @@ use super::focus::{DetailView, Direction, Edge, Focus, LeftPanel, Nav, Reveal};
 use super::issue_ref::parse_issue_ref;
 use super::message::{Command, Message};
 use super::overlay::{
-    Confirm, Editor, Find, Input, InputPurpose, MentionMenu, Menu, Overlay, Picker, PickerAction,
-    PickerKind, Prefix, PrefixUnder, Search,
+    Compose, Confirm, Editor, Find, Input, InputPurpose, MentionMenu, Menu, Overlay, Picker,
+    PickerAction, PickerKind, Prefix, PrefixUnder, Search,
 };
 use super::status::Status;
 use super::view::ViewKind;
@@ -384,13 +384,34 @@ fn submit_editor(app: &mut App, editor: Editor) -> Option<Command> {
     }
 
     let issue_id = app.detail.as_ref().map(|detail| detail.id.clone())?;
-    app.status = Some(Status::PostingComment);
+    let body = editor.text();
 
-    Some(Command::CreateComment {
-        issue_id,
-        body: editor.text(),
-        parent_id: editor.parent_id,
-    })
+    match editor.compose {
+        Compose::Comment => {
+            app.status = Some(Status::PostingComment);
+            Some(Command::CreateComment {
+                issue_id,
+                body,
+                parent_id: None,
+            })
+        }
+        Compose::Reply { parent_id } => {
+            app.status = Some(Status::PostingComment);
+            Some(Command::CreateComment {
+                issue_id,
+                body,
+                parent_id: Some(parent_id),
+            })
+        }
+        Compose::Edit { comment_id } => {
+            app.status = Some(Status::SavingComment);
+            Some(Command::UpdateComment {
+                issue_id,
+                comment_id,
+                body,
+            })
+        }
+    }
 }
 
 fn apply_search(app: &mut App, mut search: Search, key: KeyEvent) -> Option<Command> {
@@ -536,6 +557,7 @@ fn apply_action(app: &mut App, action: Action) -> Option<Command> {
         Action::Comment => open_comment_input(app),
         Action::EnterComments => enter_comments(app),
         Action::Reply => open_reply_editor(app),
+        Action::EditComment => open_edit_editor(app),
         Action::ClearRecent => {
             clear_recent(app);
             None
@@ -705,6 +727,15 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
                 reveal: Reveal::Bottom,
             })
         }
+        Message::CommentEdited { id } => {
+            app.status = Some(Status::CommentEdited);
+            app.detail_loading = true;
+
+            Some(Command::LoadDetail {
+                id,
+                reveal: Reveal::Top,
+            })
+        }
         Message::Failed(error) => {
             app.loading = false;
             app.detail_loading = false;
@@ -819,7 +850,33 @@ fn open_reply_editor(app: &mut App) -> Option<Command> {
         .comment
         .reply_parent();
 
-    app.overlay = Overlay::Editor(Editor::new("Reply", Some(parent_id)));
+    app.overlay = Overlay::Editor(Editor::new(Compose::Reply { parent_id }));
+
+    Some(Command::LoadMentionMembers { team_id })
+}
+
+fn open_edit_editor(app: &mut App) -> Option<Command> {
+    let selected = app.comment_state.selected()?;
+
+    let picked = app.detail.as_ref().and_then(|detail| {
+        detail.threaded_comments().get(selected).map(|threaded| {
+            (
+                detail.team_id.clone(),
+                threaded.comment.id.clone(),
+                threaded.comment.body.clone(),
+                threaded.comment.is_mine,
+            )
+        })
+    });
+
+    let (team_id, comment_id, body, is_mine) = picked?;
+
+    if !is_mine {
+        app.status = Some(Status::NotYourComment);
+        return None;
+    }
+
+    app.overlay = Overlay::Editor(Editor::seeded(Compose::Edit { comment_id }, &body));
 
     Some(Command::LoadMentionMembers { team_id })
 }
@@ -996,7 +1053,7 @@ fn open_assign_picker(app: &mut App) -> Option<Command> {
 fn open_comment_input(app: &mut App) -> Option<Command> {
     let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
 
-    app.overlay = Overlay::Editor(Editor::new("Comment", None));
+    app.overlay = Overlay::Editor(Editor::new(Compose::Comment));
 
     Some(Command::LoadMentionMembers {
         team_id: target.team_id,

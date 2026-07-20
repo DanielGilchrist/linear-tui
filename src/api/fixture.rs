@@ -158,6 +158,10 @@ impl LinearApi for FixtureClient {
     ) -> ApiResult<()> {
         Ok(())
     }
+
+    async fn update_comment(&self, _comment_id: &str, _body: &str) -> ApiResult<()> {
+        Ok(())
+    }
 }
 
 fn state(name: &str, state_type: StateType) -> WorkflowState {
@@ -324,6 +328,7 @@ oven-ctl --set-target 430
                 id: "c1".into(),
                 parent_id: None,
                 author: Some("dan".into()),
+                is_mine: true,
                 body: "Swapped the thermocouple this morning. Readings so far:\n\n1. 6pm - `445°C`\n2. 7pm - `462°C`".into(),
                 created_at: "2026-07-16T09:24:00Z".into(),
             },
@@ -331,6 +336,7 @@ oven-ctl --set-target 430
                 id: "c1a".into(),
                 parent_id: Some("c1".into()),
                 author: Some("danniiee".into()),
+                is_mine: false,
                 body: "Agreed, the sensor looks fine. Next suspect is the `flue damper`.".into(),
                 created_at: "2026-07-16T10:02:00Z".into(),
             },
@@ -338,6 +344,7 @@ oven-ctl --set-target 430
                 id: "c1b".into(),
                 parent_id: Some("c1".into()),
                 author: Some("dan".into()),
+                is_mine: true,
                 body: "Adding the damper check to the list.".into(),
                 created_at: "2026-07-16T10:05:00Z".into(),
             },
@@ -345,6 +352,7 @@ oven-ctl --set-target 430
                 id: "c2".into(),
                 parent_id: None,
                 author: Some("dan".into()),
+                is_mine: true,
                 body: "Still climbing. Confirmed the flue damper is sticking open.".into(),
                 created_at: "2026-07-16T18:40:00Z".into(),
             },
