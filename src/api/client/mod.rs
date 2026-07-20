@@ -1,7 +1,8 @@
 mod map;
 
-use cynic::{GraphQlResponse, MutationBuilder, QueryBuilder};
+use cynic::{GraphQlError, GraphQlResponse, MutationBuilder, QueryBuilder};
 use reqwest::Client as HttpClient;
+use serde::Deserialize;
 
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::model::{
@@ -9,8 +10,9 @@ use crate::api::model::{
     StateType, User,
 };
 use crate::api::queries::actions::{
-    CommentCreateInput, CommentCreateMutation, CommentCreateVariables, IssueUpdateInput,
-    IssueUpdateMutation, IssueUpdateVariables, TeamMembersQuery, TeamStatesQuery, TeamVariables,
+    AssigneeInput, AssigneeMutation, AssigneeVariables, CommentCreateInput, CommentCreateMutation,
+    CommentCreateVariables, StatusInput, StatusMutation, StatusVariables, TeamMembersQuery,
+    TeamStatesQuery, TeamVariables,
 };
 use crate::api::queries::issue::{IssueQuery, IssueVariables};
 use crate::api::queries::my_issues::{IssuesQuery, IssuesVariables};
@@ -50,16 +52,60 @@ impl Client {
             .send()
             .await?;
 
-        let result: GraphQlResponse<T> = response.json().await?;
+        let result: GraphQlResponse<T, ErrorExtensions> = response.json().await?;
 
         if let Some(errors) = result.errors {
-            return Err(ApiError::GraphQl(
-                errors.into_iter().map(|error| error.message).collect(),
-            ));
+            return Err(ApiError::GraphQl(error_messages(errors)));
         }
 
         result.data.ok_or(ApiError::Empty)
     }
+
+    async fn submit_update<T, V>(&self, operation: cynic::Operation<T, V>) -> ApiResult<()>
+    where
+        T: UpdateOutcome + for<'de> serde::Deserialize<'de>,
+        V: serde::Serialize,
+    {
+        if self.fetch_json(operation).await?.succeeded() {
+            Ok(())
+        } else {
+            Err(ApiError::Rejected("issue update"))
+        }
+    }
+}
+
+trait UpdateOutcome {
+    fn succeeded(&self) -> bool;
+}
+
+impl UpdateOutcome for StatusMutation {
+    fn succeeded(&self) -> bool {
+        self.issue_update.success
+    }
+}
+
+impl UpdateOutcome for AssigneeMutation {
+    fn succeeded(&self) -> bool {
+        self.issue_update.success
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ErrorExtensions {
+    user_presentable_message: Option<String>,
+}
+
+fn error_messages(errors: Vec<GraphQlError<ErrorExtensions>>) -> Vec<String> {
+    errors
+        .into_iter()
+        .map(|error| {
+            error
+                .extensions
+                .and_then(|extensions| extensions.user_presentable_message)
+                .unwrap_or(error.message)
+        })
+        .collect()
 }
 
 #[async_trait::async_trait]
@@ -178,19 +224,24 @@ impl LinearApi for Client {
     }
 
     async fn update_issue(&self, id: &str, update: IssueUpdate) -> ApiResult<()> {
-        let operation = IssueUpdateMutation::build(IssueUpdateVariables {
-            id: id.to_string(),
-            input: IssueUpdateInput {
-                state_id: update.state_id,
-                assignee_id: update.assignee_id,
-            },
-        });
-        let result = self.fetch_json(operation).await?;
-
-        if result.issue_update.success {
-            Ok(())
-        } else {
-            Err(ApiError::Rejected("issue update"))
+        let id = id.to_string();
+        match update {
+            IssueUpdate::Status(state_id) => {
+                self.submit_update(StatusMutation::build(StatusVariables {
+                    id,
+                    input: StatusInput {
+                        state_id: Some(state_id),
+                    },
+                }))
+                .await
+            }
+            IssueUpdate::Assignee(assignee_id) => {
+                self.submit_update(AssigneeMutation::build(AssigneeVariables {
+                    id,
+                    input: AssigneeInput { assignee_id },
+                }))
+                .await
+            }
         }
     }
 
@@ -214,5 +265,33 @@ impl LinearApi for Client {
         } else {
             Err(ApiError::Rejected("comment"))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_messages_prefer_the_user_presentable_message() {
+        let errors = vec![
+            GraphQlError::new(
+                "Argument Validation Error".into(),
+                None,
+                None,
+                Some(ErrorExtensions {
+                    user_presentable_message: Some("The assignee must be on the team.".into()),
+                }),
+            ),
+            GraphQlError::new("Something broke".into(), None, None, None),
+        ];
+
+        assert_eq!(
+            error_messages(errors),
+            vec![
+                "The assignee must be on the team.".to_string(),
+                "Something broke".to_string(),
+            ]
+        );
     }
 }

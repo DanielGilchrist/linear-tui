@@ -1,10 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
-use linear_tui::api::LinearApi;
+use linear_tui::api::{IssueUpdate, LinearApi};
 use linear_tui::tui::app::App;
 use linear_tui::tui::focus::{DetailView, Focus, LeftPanel, Reveal};
 use linear_tui::tui::message::{Command, Message};
-use linear_tui::tui::overlay::{InputPurpose, PickerItem, PickerKind, Search};
+use linear_tui::tui::overlay::{InputPurpose, PickerAction, PickerItem, PickerKind, Search};
 use linear_tui::tui::status::Status;
 use linear_tui::tui::update::{apply, handle_key};
 
@@ -481,9 +481,9 @@ fn picker_enter_opens_confirmation_then_applies() {
     apply(
         &mut app,
         Message::PickerLoaded(vec![PickerItem {
-            id: "s_done".into(),
             label: "Done".into(),
             hint: "completed".into(),
+            action: PickerAction::SetStatus("s_done".into()),
         }]),
     );
 
@@ -495,9 +495,11 @@ fn picker_enter_opens_confirmation_then_applies() {
     let commands = handle_key(&mut app, press(KeyCode::Char('y')));
     assert!(app.confirm().is_none());
     match commands {
-        Some(Command::UpdateIssue { id, update })
-            if id == "i1" && update.state_id.as_deref() == Some("s_done") => {}
-        other => panic!("expected UpdateIssue with state_id, got {other:?}"),
+        Some(Command::UpdateIssue {
+            id,
+            update: IssueUpdate::Status(state_id),
+        }) if id == "i1" && state_id == "s_done" => {}
+        other => panic!("expected UpdateIssue with status, got {other:?}"),
     }
 }
 
@@ -508,9 +510,9 @@ fn confirmation_cancel_does_not_write() {
     apply(
         &mut app,
         Message::PickerLoaded(vec![PickerItem {
-            id: "s_done".into(),
             label: "Done".into(),
             hint: "completed".into(),
+            action: PickerAction::SetStatus("s_done".into()),
         }]),
     );
     handle_key(&mut app, press(KeyCode::Enter));
@@ -519,6 +521,31 @@ fn confirmation_cancel_does_not_write() {
 
     assert!(app.confirm().is_none());
     assert!(commands.is_none());
+}
+
+#[test]
+fn assign_picker_can_unassign() {
+    let mut app = detail_app();
+    handle_key(&mut app, press(KeyCode::Char('a')));
+    apply(
+        &mut app,
+        Message::PickerLoaded(vec![
+            PickerItem::unassign(),
+            PickerItem::from(member("danniieelg")),
+        ]),
+    );
+
+    handle_key(&mut app, press(KeyCode::Enter));
+    assert!(app.confirm().is_some());
+
+    let command = handle_key(&mut app, press(KeyCode::Char('y')));
+    match command {
+        Some(Command::UpdateIssue {
+            id,
+            update: IssueUpdate::Assignee(None),
+        }) if id == "i1" => {}
+        other => panic!("expected an unassign UpdateIssue, got {other:?}"),
+    }
 }
 
 #[test]

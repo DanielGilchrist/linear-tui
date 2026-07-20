@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use super::scalar::StateType;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct IssueUpdate {
-    pub state_id: Option<String>,
-    pub assignee_id: Option<String>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IssueUpdate {
+    Status(String),
+    Assignee(Option<String>),
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
