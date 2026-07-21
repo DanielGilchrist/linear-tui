@@ -1,6 +1,15 @@
-use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
-use ratatui::style::{Color, Modifier, Style};
+mod style;
+mod table;
+
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
+
+use style::{
+    code_style, dim_style, heading_style, link_style, marker_style, mention_style, quote_style,
+    task_marker,
+};
+use table::Table;
 
 const RULE_WIDTH: usize = 40;
 const PROFILE_PREFIX: &str = "https://linear.app/";
@@ -35,8 +44,8 @@ struct Writer {
     quote_depth: usize,
     pending_marker: Option<Vec<Span<'static>>>,
     code_buf: Option<String>,
-    table_header: bool,
-    row_started: bool,
+    table: Option<Table>,
+    cell: Option<Vec<Span<'static>>>,
 }
 
 impl Writer {
@@ -51,8 +60,8 @@ impl Writer {
             quote_depth: 0,
             pending_marker: None,
             code_buf: None,
-            table_header: false,
-            row_started: false,
+            table: None,
+            cell: None,
         }
     }
 
@@ -81,7 +90,18 @@ impl Writer {
         }
     }
 
+    fn target(&mut self) -> &mut Vec<Span<'static>> {
+        match &mut self.cell {
+            Some(cell) => cell,
+            None => &mut self.spans,
+        }
+    }
+
     fn open_line(&mut self) {
+        if self.cell.is_some() {
+            return;
+        }
+
         if self.line_open {
             return;
         }
@@ -135,6 +155,8 @@ impl Writer {
     }
 
     fn push_run(&mut self, text: &str, style: Style) {
+        let mention = mention_style(self.base);
+        let mut out: Vec<Span<'static>> = Vec::new();
         let mut rest = text;
 
         while let Some(start) = rest.find(PROFILE_PREFIX) {
@@ -146,15 +168,12 @@ impl Writer {
             match profile_handle(&rest[start..token_end]) {
                 Some(handle) => {
                     if start > 0 {
-                        self.spans
-                            .push(Span::styled(rest[..start].to_string(), style));
+                        out.push(Span::styled(rest[..start].to_string(), style));
                     }
-                    self.spans
-                        .push(Span::styled(format!("@{handle}"), mention_style(self.base)));
+                    out.push(Span::styled(format!("@{handle}"), mention));
                 }
                 None => {
-                    self.spans
-                        .push(Span::styled(rest[..token_end].to_string(), style));
+                    out.push(Span::styled(rest[..token_end].to_string(), style));
                 }
             }
 
@@ -162,8 +181,10 @@ impl Writer {
         }
 
         if !rest.is_empty() {
-            self.spans.push(Span::styled(rest.to_string(), style));
+            out.push(Span::styled(rest.to_string(), style));
         }
+
+        self.target().extend(out);
     }
 
     fn event(&mut self, event: Event) {
@@ -180,8 +201,8 @@ impl Writer {
             }
             Event::Code(text) => {
                 self.open_line();
-                self.spans
-                    .push(Span::styled(text.to_string(), code_style(self.base)));
+                let style = code_style(self.base);
+                self.target().push(Span::styled(text.to_string(), style));
             }
             Event::Html(text) | Event::InlineHtml(text) => {
                 self.push_text(text.trim_end_matches('\n'), dim_style(self.base));
@@ -254,33 +275,17 @@ impl Writer {
             Tag::Link { .. } => self.push_style(link_style(self.base)),
             Tag::Image { .. } => {
                 self.open_line();
-                self.spans
-                    .push(Span::styled("🖼 ".to_string(), dim_style(self.base)));
+                let glyph = Span::styled("🖼 ".to_string(), dim_style(self.base));
+                self.target().push(glyph);
                 self.push_style(dim_style(self.base).add_modifier(Modifier::ITALIC));
             }
-            Tag::Table(_) => {
+            Tag::Table(aligns) => {
                 self.flush_line();
                 self.gap();
+                self.table = Some(Table::new(aligns));
             }
-            Tag::TableHead => {
-                self.table_header = true;
-                self.row_started = false;
-                self.open_line();
-            }
-            Tag::TableRow => {
-                self.row_started = false;
-                self.open_line();
-            }
-            Tag::TableCell => {
-                if self.row_started {
-                    self.spans
-                        .push(Span::styled(" │ ".to_string(), dim_style(self.base)));
-                }
-                self.row_started = true;
-                if self.table_header {
-                    self.push_style(self.current_style().add_modifier(Modifier::BOLD));
-                }
-            }
+            Tag::TableHead | Tag::TableRow => {}
+            Tag::TableCell => self.cell = Some(Vec::new()),
             Tag::HtmlBlock | Tag::FootnoteDefinition(_) | Tag::MetadataBlock(_) => {}
             Tag::DefinitionList
             | Tag::DefinitionListTitle
@@ -325,20 +330,28 @@ impl Writer {
             }
             TagEnd::Image => self.pop_style(),
             TagEnd::TableCell => {
-                if self.table_header {
-                    self.pop_style();
+                if let Some(cell) = self.cell.take() {
+                    if let Some(table) = &mut self.table {
+                        table.push_cell(cell);
+                    }
                 }
             }
             TagEnd::TableHead => {
-                self.flush_line();
-                self.table_header = false;
-                self.lines.push(Line::from(Span::styled(
-                    "─".repeat(RULE_WIDTH),
-                    dim_style(self.base),
-                )));
+                if let Some(table) = &mut self.table {
+                    table.finish_header();
+                }
             }
-            TagEnd::TableRow => self.flush_line(),
-            TagEnd::Table => {}
+            TagEnd::TableRow => {
+                if let Some(table) = &mut self.table {
+                    table.finish_row();
+                }
+            }
+            TagEnd::Table => {
+                if let Some(table) = self.table.take() {
+                    let base = self.base;
+                    self.lines.extend(table.render(base));
+                }
+            }
             TagEnd::HtmlBlock | TagEnd::FootnoteDefinition | TagEnd::MetadataBlock(_) => {}
             TagEnd::DefinitionList
             | TagEnd::DefinitionListTitle
@@ -361,19 +374,6 @@ fn is_blank(line: &Line) -> bool {
     line.spans.iter().all(|span| span.content.is_empty())
 }
 
-fn heading_style(base: Style, level: HeadingLevel) -> Style {
-    let style = base.add_modifier(Modifier::BOLD);
-    match level {
-        HeadingLevel::H1 => style.fg(Color::White),
-        HeadingLevel::H2 => style.fg(Color::Cyan),
-        _ => style.fg(Color::Rgb(0x81, 0xa1, 0xc1)),
-    }
-}
-
-fn code_style(base: Style) -> Style {
-    base.fg(Color::Rgb(0xa3, 0xbe, 0x8c))
-}
-
 fn profile_handle(url: &str) -> Option<&str> {
     let index = url.find(PROFILE_SEGMENT)?;
     let handle = &url[index + PROFILE_SEGMENT.len()..];
@@ -381,37 +381,10 @@ fn profile_handle(url: &str) -> Option<&str> {
     (!handle.is_empty()).then_some(handle)
 }
 
-fn mention_style(base: Style) -> Style {
-    base.fg(Color::Blue)
-}
-
-fn link_style(base: Style) -> Style {
-    base.fg(Color::Blue).add_modifier(Modifier::UNDERLINED)
-}
-
-fn quote_style(base: Style) -> Style {
-    base.fg(Color::DarkGray)
-}
-
-fn dim_style(base: Style) -> Style {
-    base.fg(Color::DarkGray)
-}
-
-fn marker_style(base: Style) -> Style {
-    base.fg(Color::Rgb(0x81, 0xa1, 0xc1))
-}
-
-fn task_marker(base: Style, checked: bool) -> Span<'static> {
-    if checked {
-        Span::styled("[x] ".to_string(), base.fg(Color::Green))
-    } else {
-        Span::styled("[ ] ".to_string(), base.fg(Color::DarkGray))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::style::Color;
 
     fn lines(input: &str) -> Vec<String> {
         render(input, Style::default())
@@ -599,11 +572,28 @@ mod tests {
     fn tables_render_headers_a_separator_and_rows() {
         let out = lines("| A | B |\n| - | - |\n| 1 | 2 |");
         assert_eq!(out[0], "A │ B");
-        assert_eq!(out[1], "─".repeat(RULE_WIDTH));
+        assert_eq!(out[1], "─".repeat(5));
         assert_eq!(out[2], "1 │ 2");
         assert!(span_style("| A | B |\n| - | - |\n| 1 | 2 |", "A")
             .add_modifier
             .contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn tables_pad_cells_so_columns_line_up() {
+        let out = lines("| Time | Target |\n| - | - |\n| 6pm | 430C |\n| 7pm | 12345C |");
+        assert_eq!(out[0], "Time │ Target");
+        assert_eq!(out[1], "─".repeat(4 + 6 + 3));
+        assert_eq!(out[2], "6pm  │ 430C");
+        assert_eq!(out[3], "7pm  │ 12345C");
+    }
+
+    #[test]
+    fn table_columns_right_align_when_marked() {
+        let out = lines("| N |\n| --: |\n| 5 |\n| 4321 |");
+        assert_eq!(out[0], "   N");
+        assert_eq!(out[2], "   5");
+        assert_eq!(out[3], "4321");
     }
 
     #[test]
