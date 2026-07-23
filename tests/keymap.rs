@@ -49,7 +49,10 @@ fn browse_keys_map_to_intents() {
         Action::from_key(key(KeyCode::Char('?'))),
         Some(Action::Help)
     );
-    assert_eq!(Action::from_key(key(KeyCode::Char('z'))), None);
+    assert_eq!(
+        Action::from_key(key(KeyCode::Char('z'))),
+        Some(Action::ToggleZoom)
+    );
 }
 
 #[test]
