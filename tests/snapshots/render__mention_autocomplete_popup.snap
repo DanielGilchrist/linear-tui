@@ -13,14 +13,14 @@ expression: "render_to_string(&mut app, 90, 24)"
 │             │                                                             │            ║
 │             │                                                             │ps past     ║
 │             │                                                             │elts.       ║
-└ 1 of 7 ─────│                                                             │            ║
-┌Recently view│ ┌Mention───────────────────────────────┐                    │            ║
-│Issues you op│ │@dan                                  │                    │            ║
-└─────────────│ │@sam                                  │                    │            ║
-┌Saved Views──│ │@alex                                 │                    │            ║
-│#payroll     │ └──────────────────────────────────────┘                    │            ║
-│#nest-sync   └─────────────────────────────────────────────────────────────┘            ║
-└ 1 of 4 ────────────────────────┘│[x] Swap the thermocouple                             ║
+│             │                                                             │            ║
+└ 1 of 7 ─────│ ┌Mention───────────────────────────────┐                    │            ║
+┌Recently view│ │@dan                                  │                    │            ║
+│Issues you op│ │@sam                                  │                    │            ║
+└─────────────│ │@alex                                 │                    │            ║
+┌Saved Views──│ └──────────────────────────────────────┘                    │            ║
+│Loading…     └─────────────────────────────────────────────────────────────┘            ║
+└────────────────────────────────┘│[x] Swap the thermocouple                             ║
 ┌Teams───────────────────────────┐│[ ] Inspect the flue damper                           ║
 │Dan's Pizza                     ││[ ] Recalibrate the PID loop                          ║
 │Dan's Donuts                    ││                                                      ↓

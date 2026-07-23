@@ -59,8 +59,8 @@ impl Table {
         if !self.header.is_empty() {
             lines.push(self.row_line(&self.header, &widths, base, true));
 
-            let rule = widths.iter().sum::<usize>()
-                + SEPARATOR.chars().count() * cols.saturating_sub(1);
+            let rule =
+                widths.iter().sum::<usize>() + SEPARATOR.chars().count() * cols.saturating_sub(1);
             lines.push(Line::from(Span::styled("─".repeat(rule), dim_style(base))));
         }
 
@@ -71,7 +71,13 @@ impl Table {
         lines
     }
 
-    fn row_line(&self, cells: &[Cell], widths: &[usize], base: Style, header: bool) -> Line<'static> {
+    fn row_line(
+        &self,
+        cells: &[Cell],
+        widths: &[usize],
+        base: Style,
+        header: bool,
+    ) -> Line<'static> {
         let mut spans: Vec<Span<'static>> = Vec::new();
 
         for (index, width) in widths.iter().enumerate() {

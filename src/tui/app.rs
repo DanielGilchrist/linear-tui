@@ -2,6 +2,7 @@ use ratatui::widgets::{ListState, ScrollbarState};
 
 use super::focus::{DetailView, Focus, LeftPanel, Nav};
 use super::overlay::{Confirm, Editor, Find, Input, Menu, Overlay, Picker, Prefix, Search};
+use super::saved_views::{SavedViewsPanel, ViewSurface};
 use super::spinner::Spinner;
 use super::status::Status;
 use super::view::{View, ViewKind};
@@ -10,6 +11,23 @@ use crate::api::{IssueDetail, IssueSummary, NotificationItem, Session};
 pub const SCROLL_STEP: usize = 2;
 
 pub const RECENT_CAP: usize = 50;
+
+/// Whether the focused surface is shown in the split layout or enlarged to fill
+/// the whole body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Zoom {
+    Normal,
+    Full,
+}
+
+impl Zoom {
+    pub fn toggle(self) -> Self {
+        match self {
+            Zoom::Normal => Zoom::Full,
+            Zoom::Full => Zoom::Normal,
+        }
+    }
+}
 
 pub struct StubPanel {
     pub title: String,
@@ -67,6 +85,9 @@ pub struct App {
     pub recently_viewed: Vec<IssueSummary>,
     pub recent_state: ListState,
     pub comment_state: ListState,
+    pub saved_views: SavedViewsPanel,
+    pub view_open: Option<ViewSurface>,
+    pub zoom: Zoom,
     pub stubs: Vec<StubPanel>,
     pub detail: Option<IssueDetail>,
     pub detail_loading: bool,
@@ -103,15 +124,12 @@ impl App {
             notifications: Vec::new(),
             list_state: ListState::default().with_selected(Some(0)),
             comment_state: ListState::default().with_selected(Some(0)),
+            saved_views: SavedViewsPanel::new(),
+            view_open: None,
+            zoom: Zoom::Normal,
             recently_viewed: Vec::new(),
             recent_state: ListState::default().with_selected(Some(0)),
-            stubs: vec![
-                StubPanel::new(
-                    "Saved Views",
-                    &["#payroll", "#nest-sync", "High priority", "Created by me"],
-                ),
-                StubPanel::new("Teams", &["Dan's Pizza", "Dan's Donuts"]),
-            ],
+            stubs: vec![StubPanel::new("Teams", &["Dan's Pizza", "Dan's Donuts"])],
             detail: None,
             detail_loading: false,
             focus: Focus::MyWork,
@@ -162,6 +180,43 @@ impl App {
             Overlay::Input(input) => Some(input),
             _ => None,
         }
+    }
+
+    pub fn view(&self) -> Option<&ViewSurface> {
+        self.view_open.as_ref()
+    }
+
+    pub fn open_view_surface(&mut self, surface: ViewSurface) {
+        self.view_open = Some(surface);
+        self.focus = Focus::View;
+    }
+
+    pub fn close_view_surface(&mut self) {
+        self.view_open = None;
+        if self.focus == Focus::View {
+            self.focus = Focus::SavedViews;
+        }
+    }
+
+    pub fn view_issues(&self) -> Option<&[IssueSummary]> {
+        self.view_open.as_ref()?.issues(&self.saved_views)
+    }
+
+    pub fn view_len(&self) -> usize {
+        self.view_open
+            .as_ref()
+            .map_or(0, |view| view.len(&self.saved_views))
+    }
+
+    pub fn view_ordered(&self) -> Vec<usize> {
+        self.view_open
+            .as_ref()
+            .map(|view| view.ordered(&self.saved_views))
+            .unwrap_or_default()
+    }
+
+    pub fn view_selected_issue(&self) -> Option<&IssueSummary> {
+        self.view_open.as_ref()?.selected_issue(&self.saved_views)
     }
 
     pub fn editor(&self) -> Option<&Editor> {
@@ -224,7 +279,7 @@ impl App {
     }
 
     pub fn panels(&self) -> Vec<LeftPanel> {
-        let mut panels = vec![LeftPanel::MyWork, LeftPanel::Recent];
+        let mut panels = vec![LeftPanel::MyWork, LeftPanel::Recent, LeftPanel::SavedViews];
         panels.extend((0..self.stubs.len()).map(LeftPanel::Stub));
         panels
     }
@@ -241,6 +296,8 @@ impl App {
         match focus {
             Focus::MyWork => self.main_len(),
             Focus::Recent => self.recently_viewed.len(),
+            Focus::SavedViews => self.saved_views.views.len(),
+            Focus::View => self.view_len(),
             Focus::Stub(index) => self.stubs[index].items.len(),
             Focus::Detail(..) => 0,
         }
@@ -254,6 +311,8 @@ impl App {
         match self.focus {
             Focus::MyWork => Some(&mut self.list_state),
             Focus::Recent => Some(&mut self.recent_state),
+            Focus::SavedViews => Some(&mut self.saved_views.state),
+            Focus::View => self.view_open.as_mut().map(|view| &mut view.state),
             Focus::Stub(index) => Some(&mut self.stubs[index].state),
             Focus::Detail(..) => None,
         }
@@ -294,6 +353,30 @@ impl App {
                     viewport,
                 }
             }
+            Focus::SavedViews => {
+                let len = self.saved_views.views.len();
+                Nav::List {
+                    state: &mut self.saved_views.state,
+                    len,
+                    viewport,
+                }
+            }
+            Focus::View => {
+                let len = self.view_len();
+                let panel_len = self.saved_views.views.len();
+                match self.view_open.as_mut() {
+                    Some(view) => Nav::List {
+                        state: &mut view.state,
+                        len,
+                        viewport,
+                    },
+                    None => Nav::List {
+                        state: &mut self.saved_views.state,
+                        len: panel_len,
+                        viewport,
+                    },
+                }
+            }
             Focus::Stub(index) => {
                 let len = self.stubs[index].items.len();
                 Nav::List {
@@ -309,6 +392,11 @@ impl App {
         match self.focus {
             Focus::MyWork => self.list_state.selected(),
             Focus::Recent => self.recent_state.selected(),
+            Focus::SavedViews => self.saved_views.state.selected(),
+            Focus::View => self
+                .view_open
+                .as_ref()
+                .and_then(|view| view.state.selected()),
             Focus::Stub(index) => self.stubs[index].state.selected(),
             Focus::Detail(..) => None,
         }
@@ -344,6 +432,21 @@ impl App {
                 ViewKind::Inbox => self.notifications.iter().map(|n| n.title.clone()).collect(),
             },
             Focus::Recent => self.recently_viewed.iter().map(issue_search_text).collect(),
+            Focus::SavedViews => self
+                .saved_views
+                .views
+                .iter()
+                .map(|v| v.name.clone())
+                .collect(),
+            Focus::View => match self.view_issues() {
+                Some(issues) => self
+                    .view_ordered()
+                    .iter()
+                    .filter_map(|&index| issues.get(index))
+                    .map(issue_search_text)
+                    .collect(),
+                None => Vec::new(),
+            },
             Focus::Stub(index) => self.stubs[index].items.clone(),
             Focus::Detail(..) => Vec::new(),
         }
@@ -363,6 +466,8 @@ impl App {
         match self.focus {
             Focus::MyWork => self.selected_issue().map(FocusedIssue::from_summary),
             Focus::Recent => self.selected_recent().map(FocusedIssue::from_summary),
+            Focus::SavedViews => None,
+            Focus::View => self.view_selected_issue().map(FocusedIssue::from_summary),
             Focus::Detail(..) => self
                 .detail
                 .as_ref()
@@ -375,7 +480,8 @@ impl App {
     pub fn action_target(&self) -> Option<FocusedIssue> {
         match self.focus {
             Focus::Detail(..) => self.detail.as_ref().map(FocusedIssue::from_detail),
-            Focus::MyWork | Focus::Recent | Focus::Stub(_) => None,
+            Focus::View => self.view_selected_issue().map(FocusedIssue::from_summary),
+            Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::Stub(_) => None,
         }
     }
 }

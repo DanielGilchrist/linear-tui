@@ -1,0 +1,30 @@
+---
+source: tests/render.rs
+expression: "render_to_string(&mut app, 110, 26)"
+---
+┌ Urgent & unassigned  ·  6 issues ──────────────────────────────────────────────────────────────────────────┐
+│group status    sort manual                                                                                 │
+│3 In Progress  ·  2 Todo  ·  1 Backlog                                                                      │
+│                                                                                                            │
+│In Progress  3                                                                                              │
+│!!! DAN2-7 Wood-fired oven runs 40°C too hot on Friday nights                                  oven  dan  1d│
+│!!! DAN-10 Sprinkle dispenser jams during the morning rush                               production  dan  1d│
+│!!  DAN2-2 Delivery driver GPS points to the old shopfront                                 delivery  dan  1d│
+│Todo  2                                                                                                     │
+│!!! DAN2-3 Add gluten-free base option to the online menu                                      menu  dan  1d│
+│!!  DAN-13 Introduce a maple-bacon donut for the winter menu                                   menu  dan  1d│
+│Backlog  1                                                                                                  │
+│!!  DAN2-5 Settle the pineapple-on-pizza debate once and for all                      customer-poll  dan  1d│
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+│                                                                                                            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ j move   enter open   s status   a assign   v display   z zoom   esc back   q quit       Dan's Donuts · @dan

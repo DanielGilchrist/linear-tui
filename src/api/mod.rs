@@ -12,6 +12,8 @@ pub use model::*;
 #[async_trait::async_trait]
 pub trait LinearApi: Send + Sync {
     async fn session(&self) -> ApiResult<Session>;
+    async fn custom_views(&self) -> ApiResult<Vec<SavedView>>;
+    async fn custom_view_issues(&self, id: &str) -> ApiResult<IssuePage>;
     async fn issues(&self, filter: &IssueFilter) -> ApiResult<Vec<IssueSummary>>;
     async fn search_issues(&self, term: &str) -> ApiResult<Vec<IssueSummary>>;
     async fn issue_detail(&self, id: &str) -> ApiResult<Option<IssueDetail>>;

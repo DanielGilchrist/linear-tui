@@ -1,8 +1,7 @@
 use cynic::{InlineFragments, QueryFragment, QueryVariables};
 
-mod schema {
-    cynic::use_schema!("schema.graphql");
-}
+use super::scalars::DateTime;
+use super::schema;
 
 #[derive(Debug, QueryFragment)]
 #[cynic(
@@ -36,9 +35,6 @@ pub enum Notification {
     #[cynic(fallback)]
     Other(OtherNotificationFields),
 }
-
-#[derive(cynic::Scalar, Debug, Clone)]
-pub struct DateTime(pub String);
 
 #[derive(Debug, QueryFragment)]
 #[cynic(schema_path = "schema.graphql", graphql_type = "IssueNotification")]

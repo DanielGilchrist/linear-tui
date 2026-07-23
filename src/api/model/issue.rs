@@ -43,6 +43,8 @@ pub struct IssueSummary {
     pub branch_name: String,
     #[serde(default)]
     pub team_id: String,
+    #[serde(default)]
+    pub updated_at: Timestamp,
 }
 
 impl IssueSummary {
@@ -58,8 +60,15 @@ impl IssueSummary {
             url: detail.url.clone(),
             branch_name: detail.branch_name.clone(),
             team_id: detail.team_id.clone(),
+            updated_at: detail.updated_at,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct IssuePage {
+    pub issues: Vec<IssueSummary>,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -105,6 +114,8 @@ pub struct IssueDetail {
     pub branch_name: String,
     #[serde(default)]
     pub team_id: String,
+    #[serde(default)]
+    pub updated_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Copy)]

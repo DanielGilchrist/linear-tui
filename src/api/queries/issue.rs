@@ -1,11 +1,7 @@
 use cynic::{QueryFragment, QueryVariables};
 
-mod schema {
-    cynic::use_schema!("schema.graphql");
-}
-
-#[derive(cynic::Scalar, Debug, Clone)]
-pub struct DateTime(pub String);
+use super::scalars::DateTime;
+use super::schema;
 
 #[derive(Debug, Clone, QueryFragment)]
 #[cynic(schema_path = "schema.graphql")]
@@ -74,6 +70,7 @@ pub struct Issue {
     pub url: String,
     pub branch_name: String,
     pub priority: f64,
+    pub updated_at: DateTime,
     pub state: WorkflowState,
     pub team: Team,
     pub assignee: Option<User>,

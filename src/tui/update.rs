@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::{ListState, ScrollbarState};
 
 use super::action::{self, Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput};
-use super::app::{App, FocusedIssue, RECENT_CAP, SCROLL_STEP};
+use super::app::{App, FocusedIssue, Zoom, RECENT_CAP, SCROLL_STEP};
 use super::focus::{DetailView, Direction, Edge, Focus, LeftPanel, Nav, Reveal};
 use super::issue_ref::parse_issue_ref;
 use super::message::{Command, Message};
@@ -10,6 +10,7 @@ use super::overlay::{
     Compose, Confirm, Editor, Find, Input, InputPurpose, MentionMenu, Menu, Overlay, Picker,
     PickerAction, PickerKind, Prefix, PrefixUnder, Search,
 };
+use super::saved_views::{ViewIssues, ViewSurface};
 use super::status::Status;
 use super::view::ViewKind;
 use crate::api::{IssueSummary, IssueUpdate};
@@ -49,7 +50,8 @@ fn context_keymap(focus: Focus) -> Option<&'static action::Keymap<Action>> {
     match focus {
         Focus::Detail(_, DetailView::Reading) => Some(&action::DETAIL_KEYS),
         Focus::Detail(_, DetailView::Comments) => Some(&action::COMMENTS_KEYS),
-        Focus::MyWork | Focus::Recent | Focus::Stub(_) => None,
+        Focus::View => Some(&action::VIEW_KEYS),
+        Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::Stub(_) => None,
     }
 }
 
@@ -63,6 +65,14 @@ fn open_prefix(under: Overlay) -> Overlay {
         title: "Go to",
         keymap,
         under,
+    })
+}
+
+fn open_display_prefix() -> Overlay {
+    Overlay::Prefix(Prefix {
+        title: "Display",
+        keymap: &action::VIEW_GROUP,
+        under: PrefixUnder::Browse,
     })
 }
 
@@ -162,7 +172,7 @@ fn open_find(app: &mut App) -> Option<Command> {
             app.status = Some(Status::FindInList);
             return None;
         }
-        Focus::MyWork | Focus::Recent | Focus::Stub(_) => {}
+        Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::View | Focus::Stub(_) => {}
     }
 
     if app.focused_list_len() == 0 {
@@ -529,30 +539,15 @@ fn apply_action(app: &mut App, action: Action) -> Option<Command> {
             app.should_quit = true;
             None
         }
-        Action::NextPanel => {
-            cycle_panel(app, Direction::Next);
-            None
-        }
-        Action::PrevPanel => {
-            cycle_panel(app, Direction::Prev);
-            None
-        }
+        Action::NextPanel => cycle_panel(app, Direction::Next),
+        Action::PrevPanel => cycle_panel(app, Direction::Prev),
         Action::Descend => descend(app),
         Action::Ascend => ascend(app),
-        Action::SelectNext => {
-            move_selection(app, Direction::Next);
-            None
-        }
-        Action::SelectPrev => {
-            move_selection(app, Direction::Prev);
-            None
-        }
+        Action::SelectNext => move_selection(app, Direction::Next),
+        Action::SelectPrev => move_selection(app, Direction::Prev),
         Action::NextView => cycle_view(app, Direction::Next),
         Action::PrevView => cycle_view(app, Direction::Prev),
-        Action::JumpToPanel(index) => {
-            jump_panel(app, index);
-            None
-        }
+        Action::JumpToPanel(index) => jump_panel(app, index),
         Action::Reload => Some(reload(app)),
         Action::OpenInBrowser => open_in_browser(app),
         Action::YankUrl => yank_url(app),
@@ -563,6 +558,22 @@ fn apply_action(app: &mut App, action: Action) -> Option<Command> {
         Action::Reply => open_reply_editor(app),
         Action::EditComment => open_edit_editor(app),
         Action::DeleteComment => open_delete_comment(app),
+        Action::CycleGroup => {
+            cycle_view_group(app);
+            None
+        }
+        Action::CycleSort => {
+            cycle_view_sort(app);
+            None
+        }
+        Action::ToggleZoom => {
+            app.zoom = app.zoom.toggle();
+            None
+        }
+        Action::ViewDisplay => {
+            app.overlay = open_display_prefix();
+            None
+        }
         Action::ClearRecent => {
             clear_recent(app);
             None
@@ -636,6 +647,38 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
                 app.status = None;
                 clamp_selection(&mut app.list_state, app.notifications.len());
             }
+            None
+        }
+        Message::CustomViewsLoaded(views) => {
+            app.saved_views.views = views;
+            app.saved_views.loading = false;
+            clamp_selection(&mut app.saved_views.state, app.saved_views.views.len());
+            let selected = app.saved_views.selected_view().map(|view| view.id.clone());
+            selected.and_then(|id| ensure_view_loaded(app, &id))
+        }
+        Message::CustomViewsFailed(error) => {
+            app.saved_views.loading = false;
+            app.status = Some(Status::Error(error));
+            None
+        }
+        Message::CustomViewIssuesLoaded {
+            id,
+            issues,
+            truncated,
+        } => {
+            let len = issues.len();
+            app.saved_views
+                .issues
+                .insert(id.clone(), ViewIssues::Loaded { issues, truncated });
+            if let Some(view) = app.view_open.as_mut().filter(|view| view.id() == id) {
+                clamp_selection(&mut view.state, len);
+                view.layout = ListState::default();
+            }
+            None
+        }
+        Message::CustomViewIssuesFailed { id, error } => {
+            app.saved_views.issues.insert(id, ViewIssues::Failed);
+            app.status = Some(Status::Error(error));
             None
         }
         Message::DetailLoaded { detail, reveal } => {
@@ -721,9 +764,9 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
         }
         Message::IssueUpdated { id } => {
             app.status = Some(Status::IssueUpdated);
-            let reload = load_active_command(app);
             match app.focus {
                 Focus::Detail(..) => {
+                    let reload = load_active_command(app);
                     app.detail_loading = true;
                     Some(Command::Batch(vec![
                         reload,
@@ -733,7 +776,10 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
                         },
                     ]))
                 }
-                Focus::MyWork | Focus::Recent | Focus::Stub(_) => Some(reload),
+                Focus::View => reload_open_view(app),
+                Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::Stub(_) => {
+                    Some(load_active_command(app))
+                }
             }
         }
         Message::CommentPosted { id } => {
@@ -778,6 +824,7 @@ pub fn initial_commands(app: &App) -> Vec<Command> {
     vec![
         Command::LoadSession,
         Command::LoadRecent,
+        Command::LoadCustomViews,
         load_active_command(app),
     ]
 }
@@ -795,19 +842,41 @@ fn load_active_command(app: &App) -> Command {
 
 fn reload(app: &mut App) -> Command {
     match app.focus {
-        Focus::Detail(..) => match &app.detail {
+        Focus::Detail(panel, _) => match &app.detail {
             Some(detail) => {
                 let id = detail.id.clone();
                 app.detail_loading = true;
-                Command::LoadDetail {
+                let detail_reload = Command::LoadDetail {
                     id,
                     reveal: Reveal::Top,
+                };
+
+                match panel {
+                    LeftPanel::SavedViews => match reload_open_view(app) {
+                        Some(view_reload) => Command::Batch(vec![detail_reload, view_reload]),
+                        None => detail_reload,
+                    },
+                    _ => detail_reload,
                 }
             }
             None => reload_list(app),
         },
+        Focus::SavedViews => {
+            app.saved_views.loading = true;
+            app.saved_views.issues.clear();
+            Command::LoadCustomViews
+        }
+        Focus::View => reload_open_view(app).unwrap_or_else(|| reload_list(app)),
         Focus::MyWork | Focus::Recent | Focus::Stub(_) => reload_list(app),
     }
+}
+
+fn reload_open_view(app: &mut App) -> Option<Command> {
+    let id = app.view_open.as_ref()?.id().to_string();
+    app.saved_views
+        .issues
+        .insert(id.clone(), ViewIssues::Loading);
+    Some(Command::LoadCustomViewIssues { id })
 }
 
 fn reload_list(app: &mut App) -> Command {
@@ -815,7 +884,8 @@ fn reload_list(app: &mut App) -> Command {
     load_active_command(app)
 }
 
-fn cycle_panel(app: &mut App, direction: Direction) {
+fn cycle_panel(app: &mut App, direction: Direction) -> Option<Command> {
+    let leaving_view = app.focus == Focus::View;
     let panels = app.panels();
     let count = panels.len();
     let current = panels
@@ -830,12 +900,26 @@ fn cycle_panel(app: &mut App, direction: Direction) {
     } else {
         panels[next].focus()
     };
+
+    if leaving_view {
+        app.close_view_surface();
+    }
+
+    prefetch_selected_view(app)
 }
 
-fn jump_panel(app: &mut App, index: usize) {
+fn jump_panel(app: &mut App, index: usize) -> Option<Command> {
+    let leaving_view = app.focus == Focus::View;
+
     if index < app.panel_count() {
         app.focus = app.panel_at(index).focus();
     }
+
+    if leaving_view && app.focus != Focus::View {
+        app.close_view_surface();
+    }
+
+    prefetch_selected_view(app)
 }
 
 fn ascend(app: &mut App) -> Option<Command> {
@@ -843,15 +927,28 @@ fn ascend(app: &mut App) -> Option<Command> {
         return None;
     }
 
+    if app.zoom == Zoom::Full {
+        app.zoom = Zoom::Normal;
+        return None;
+    }
+
     match app.focus {
         Focus::Detail(panel, DetailView::Comments) => {
             app.focus = Focus::Detail(panel, DetailView::Reading);
+        }
+        Focus::Detail(LeftPanel::SavedViews, DetailView::Reading) if app.view_open.is_some() => {
+            app.focus = Focus::View;
         }
         Focus::Detail(_, DetailView::Reading) => match app.search_return.take() {
             Some(search) => app.overlay = Overlay::Search(search),
             None => app.focus = Focus::MyWork,
         },
-        Focus::MyWork | Focus::Recent | Focus::Stub(_) => app.focus = Focus::MyWork,
+        Focus::View => {
+            app.close_view_surface();
+        }
+        Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::Stub(_) => {
+            app.focus = Focus::MyWork
+        }
     }
 
     None
@@ -948,10 +1045,75 @@ fn descend(app: &mut App) -> Option<Command> {
             ViewKind::Inbox => app.selected_notification().and_then(|n| n.issue_id.clone()),
         },
         Focus::Recent => app.selected_recent().map(|i| i.id.clone()),
+        Focus::SavedViews => return open_view(app),
+        Focus::View => app.view_selected_issue().map(|issue| issue.id.clone()),
         Focus::Stub(_) | Focus::Detail(..) => None,
     }?;
 
     open_issue(app, id)
+}
+
+fn open_view(app: &mut App) -> Option<Command> {
+    let view = app.saved_views.selected_view()?.clone();
+
+    let command = ensure_view_loaded(app, &view.id);
+    app.open_view_surface(ViewSurface::new(view));
+
+    command
+}
+
+fn cycle_view_group(app: &mut App) {
+    let keep = app.view_selected_issue().map(|issue| issue.id.clone());
+    if let Some(view) = &mut app.view_open {
+        view.display.cycle_group();
+    }
+    reselect_view(app, keep);
+}
+
+fn cycle_view_sort(app: &mut App) {
+    let keep = app.view_selected_issue().map(|issue| issue.id.clone());
+    if let Some(view) = &mut app.view_open {
+        view.display.cycle_sort();
+    }
+    reselect_view(app, keep);
+}
+
+fn reselect_view(app: &mut App, keep: Option<String>) {
+    let pos = keep
+        .and_then(|id| {
+            let issues = app.view_issues()?;
+            app.view_ordered()
+                .iter()
+                .position(|&index| issues[index].id == id)
+        })
+        .unwrap_or(0);
+
+    if let Some(view) = &mut app.view_open {
+        view.layout = ListState::default();
+        view.state.select(Some(pos));
+    }
+}
+
+fn ensure_view_loaded(app: &mut App, id: &str) -> Option<Command> {
+    match app.saved_views.issues.get(id) {
+        Some(ViewIssues::Loading | ViewIssues::Loaded { .. }) => return None,
+        Some(ViewIssues::Failed) | None => {}
+    }
+
+    app.saved_views
+        .issues
+        .insert(id.to_string(), ViewIssues::Loading);
+
+    Some(Command::LoadCustomViewIssues { id: id.to_string() })
+}
+
+fn prefetch_selected_view(app: &mut App) -> Option<Command> {
+    if app.focus != Focus::SavedViews {
+        return None;
+    }
+
+    let id = app.saved_views.selected_view()?.id.clone();
+    ensure_view_loaded(app, &id)
 }
 
 fn open_issue(app: &mut App, id: String) -> Option<Command> {
@@ -988,11 +1150,13 @@ fn history_step(app: &mut App, direction: Direction) -> Option<Command> {
     open_issue(app, id)
 }
 
-fn move_selection(app: &mut App, direction: Direction) {
+fn move_selection(app: &mut App, direction: Direction) -> Option<Command> {
     match app.nav() {
         Nav::List { state, len, .. } => navigate_list(state, len, direction),
         Nav::Scroll { position, .. } => *position = scrolled(*position, SCROLL_STEP, direction),
     }
+
+    prefetch_selected_view(app)
 }
 
 fn scroll_half(app: &mut App, direction: Direction) {
@@ -1073,7 +1237,9 @@ fn cycle_view(app: &mut App, direction: Direction) -> Option<Command> {
             let next = direction.wrap(app.active_view_index(), app.views.len());
             Some(select_view(app, next))
         }
-        Focus::Recent | Focus::Stub(_) | Focus::Detail(..) => None,
+        Focus::Recent | Focus::SavedViews | Focus::View | Focus::Stub(_) | Focus::Detail(..) => {
+            None
+        }
     }
 }
 
@@ -1096,7 +1262,12 @@ fn clear_recent(app: &mut App) {
                 command: Command::ClearRecent,
             });
         }
-        Focus::MyWork | Focus::Recent | Focus::Stub(_) | Focus::Detail(..) => {}
+        Focus::MyWork
+        | Focus::Recent
+        | Focus::SavedViews
+        | Focus::View
+        | Focus::Stub(_)
+        | Focus::Detail(..) => {}
     }
 }
 

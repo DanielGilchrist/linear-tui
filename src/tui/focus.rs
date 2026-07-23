@@ -4,6 +4,8 @@ use ratatui::widgets::ListState;
 pub enum Focus {
     MyWork,
     Recent,
+    SavedViews,
+    View,
     Stub(usize),
     Detail(LeftPanel, DetailView),
 }
@@ -18,6 +20,7 @@ pub enum DetailView {
 pub enum LeftPanel {
     MyWork,
     Recent,
+    SavedViews,
     Stub(usize),
 }
 
@@ -26,6 +29,7 @@ impl LeftPanel {
         match self {
             LeftPanel::MyWork => Focus::MyWork,
             LeftPanel::Recent => Focus::Recent,
+            LeftPanel::SavedViews => Focus::SavedViews,
             LeftPanel::Stub(index) => Focus::Stub(index),
         }
     }
@@ -36,6 +40,7 @@ impl Focus {
         match self {
             Focus::MyWork => LeftPanel::MyWork,
             Focus::Recent => LeftPanel::Recent,
+            Focus::SavedViews | Focus::View => LeftPanel::SavedViews,
             Focus::Stub(index) => LeftPanel::Stub(index),
             Focus::Detail(under, _) => under,
         }

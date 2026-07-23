@@ -1,7 +1,7 @@
 use super::focus::Reveal;
 use super::overlay::PickerItem;
 use crate::api::{
-    IssueDetail, IssueFilter, IssueSummary, IssueUpdate, NotificationItem, Session, User,
+    IssueDetail, IssueFilter, IssueSummary, IssueUpdate, NotificationItem, SavedView, Session, User,
 };
 
 #[derive(Debug)]
@@ -14,6 +14,17 @@ pub enum Message {
     InboxLoaded {
         view: usize,
         items: Vec<NotificationItem>,
+    },
+    CustomViewsLoaded(Vec<SavedView>),
+    CustomViewsFailed(String),
+    CustomViewIssuesLoaded {
+        id: String,
+        issues: Vec<IssueSummary>,
+        truncated: bool,
+    },
+    CustomViewIssuesFailed {
+        id: String,
+        error: String,
     },
     DetailLoaded {
         detail: Box<IssueDetail>,
@@ -48,6 +59,10 @@ pub enum Command {
     },
     LoadInbox {
         view: usize,
+    },
+    LoadCustomViews,
+    LoadCustomViewIssues {
+        id: String,
     },
     LoadDetail {
         id: String,

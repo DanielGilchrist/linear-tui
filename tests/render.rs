@@ -28,6 +28,18 @@ async fn opened_detail_app(client: &FixtureClient) -> App {
     app
 }
 
+async fn saved_views_app(client: &FixtureClient) -> App {
+    let mut app = App::new();
+    app.now = Timestamp::from("2026-07-16T21:00:00Z").epoch();
+    app.session = client.session().await.ok();
+    app.focus = Focus::SavedViews;
+    apply(
+        &mut app,
+        Message::CustomViewsLoaded(client.custom_views().await.unwrap()),
+    );
+    app
+}
+
 #[tokio::test]
 async fn assigned_to_me_view() {
     let client = FixtureClient::sample();
@@ -53,6 +65,94 @@ async fn inbox_view() {
 async fn issue_detail() {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await;
+    insta::assert_snapshot!(render_to_string(&mut app, 110, 26));
+}
+
+#[tokio::test]
+async fn saved_views_list() {
+    let client = FixtureClient::sample();
+    let mut app = saved_views_app(&client).await;
+    let id = app.saved_views.selected_view().unwrap().id.clone();
+    apply(
+        &mut app,
+        Message::CustomViewIssuesLoaded {
+            id: id.clone(),
+            issues: client.custom_view_issues(&id).await.unwrap().issues,
+            truncated: false,
+        },
+    );
+    insta::assert_snapshot!(render_to_string(&mut app, 110, 16));
+}
+
+async fn open_view_app(client: &FixtureClient) -> App {
+    let mut app = saved_views_app(client).await;
+    let id = app.saved_views.selected_view().unwrap().id.clone();
+    handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    apply(
+        &mut app,
+        Message::CustomViewIssuesLoaded {
+            id: id.clone(),
+            issues: client.custom_view_issues(&id).await.unwrap().issues,
+            truncated: false,
+        },
+    );
+    app
+}
+
+#[tokio::test]
+async fn view_in_right_pane() {
+    let client = FixtureClient::sample();
+    let mut app = open_view_app(&client).await;
+    insta::assert_snapshot!(render_to_string(&mut app, 110, 26));
+}
+
+#[tokio::test]
+async fn view_zoomed() {
+    let client = FixtureClient::sample();
+    let mut app = open_view_app(&client).await;
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE),
+    );
+    insta::assert_snapshot!(render_to_string(&mut app, 110, 26));
+}
+
+#[tokio::test]
+async fn a_truncated_view_marks_the_count_with_a_plus() {
+    let client = FixtureClient::sample();
+    let mut app = saved_views_app(&client).await;
+    let id = app.saved_views.selected_view().unwrap().id.clone();
+    handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let page = client.custom_view_issues(&id).await.unwrap();
+    apply(
+        &mut app,
+        Message::CustomViewIssuesLoaded {
+            id,
+            issues: page.issues,
+            truncated: true,
+        },
+    );
+
+    let out = render_to_string(&mut app, 110, 26);
+    assert!(
+        out.contains("+ issues"),
+        "a truncated page did not mark the count:\n{out}"
+    );
+}
+
+#[tokio::test]
+async fn view_grouped_by_priority() {
+    let client = FixtureClient::sample();
+    let mut app = open_view_app(&client).await;
+    // v then g cycles group status -> priority
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE),
+    );
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+    );
     insta::assert_snapshot!(render_to_string(&mut app, 110, 26));
 }
 

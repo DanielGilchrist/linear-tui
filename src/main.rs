@@ -130,6 +130,7 @@ async fn record(api_key: &str, args: RecordArgs) -> Result<()> {
     let session = client.session().await?;
     let issues = client.issues(&IssueFilter::assigned_to_me()).await?;
     let notifications = client.notifications().await?;
+    let saved_views = client.custom_views().await?;
 
     let mut details = Vec::new();
     for issue in issues.iter().take(5) {
@@ -138,12 +139,20 @@ async fn record(api_key: &str, args: RecordArgs) -> Result<()> {
         }
     }
 
+    let mut saved_view_issues = std::collections::HashMap::new();
+    for view in &saved_views {
+        let page = client.custom_view_issues(&view.id).await?;
+        saved_view_issues.insert(view.id.clone(), page.issues);
+    }
+
     let fixture = Fixture {
         viewer: session.user,
         org_name: session.org_name,
         org_url_key: session.org_url_key,
         notifications,
+        saved_views,
         issues,
+        saved_view_issues,
         details,
     };
 

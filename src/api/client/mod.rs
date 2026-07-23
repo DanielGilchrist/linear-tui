@@ -6,14 +6,17 @@ use serde::Deserialize;
 
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::model::{
-    IssueDetail, IssueFilter, IssueSummary, IssueUpdate, NotificationItem, Session, StateOption,
-    StateType, User,
+    IssueDetail, IssueFilter, IssuePage, IssueSummary, IssueUpdate, NotificationItem, SavedView,
+    Session, StateOption, StateType, User,
 };
 use crate::api::queries::actions::{
     AssigneeInput, AssigneeMutation, AssigneeVariables, CommentCreateInput, CommentCreateMutation,
     CommentCreateVariables, CommentDeleteMutation, CommentDeleteVariables, CommentUpdateInput,
     CommentUpdateMutation, CommentUpdateVariables, StatusInput, StatusMutation, StatusVariables,
     TeamMembersQuery, TeamStatesQuery, TeamVariables,
+};
+use crate::api::queries::custom_views::{
+    CustomViewIssuesQuery, CustomViewIssuesVariables, CustomViewsQuery, CustomViewsVariables,
 };
 use crate::api::queries::issue::{IssueQuery, IssueVariables};
 use crate::api::queries::my_issues::{IssuesQuery, IssuesVariables};
@@ -22,9 +25,11 @@ use crate::api::queries::search::{SearchIssuesQuery, SearchVariables};
 use crate::api::queries::viewer::ViewerQuery;
 use crate::api::LinearApi;
 
-use map::{build_cynic_filter, map_detail, map_notification, map_search_result, map_summary};
+use map::build_cynic_filter;
 
 const API_ENDPOINT: &str = "https://api.linear.app/graphql";
+
+const PAGE_SIZE: i32 = 100;
 
 pub struct Client {
     http_client: HttpClient,
@@ -109,20 +114,57 @@ impl LinearApi for Client {
         })
     }
 
-    async fn issues(&self, filter: &IssueFilter) -> ApiResult<Vec<IssueSummary>> {
-        let operation = IssuesQuery::build(IssuesVariables {
-            filter: Some(build_cynic_filter(filter)),
-            first: Some(100),
+    async fn custom_views(&self) -> ApiResult<Vec<SavedView>> {
+        let operation = CustomViewsQuery::build(CustomViewsVariables {
+            first: Some(PAGE_SIZE),
         });
         let result = self.fetch_json(operation).await?;
 
-        Ok(result.issues.nodes.into_iter().map(map_summary).collect())
+        Ok(result
+            .custom_views
+            .nodes
+            .into_iter()
+            .map(SavedView::from)
+            .collect())
+    }
+
+    async fn custom_view_issues(&self, id: &str) -> ApiResult<IssuePage> {
+        let operation = CustomViewIssuesQuery::build(CustomViewIssuesVariables {
+            id: id.to_string(),
+            first: Some(PAGE_SIZE),
+        });
+        let result = self.fetch_json(operation).await?;
+        let connection = result.custom_view.issues;
+
+        Ok(IssuePage {
+            truncated: connection.page_info.has_next_page,
+            issues: connection
+                .nodes
+                .into_iter()
+                .map(IssueSummary::from)
+                .collect(),
+        })
+    }
+
+    async fn issues(&self, filter: &IssueFilter) -> ApiResult<Vec<IssueSummary>> {
+        let operation = IssuesQuery::build(IssuesVariables {
+            filter: Some(build_cynic_filter(filter)),
+            first: Some(PAGE_SIZE),
+        });
+        let result = self.fetch_json(operation).await?;
+
+        Ok(result
+            .issues
+            .nodes
+            .into_iter()
+            .map(IssueSummary::from)
+            .collect())
     }
 
     async fn search_issues(&self, term: &str) -> ApiResult<Vec<IssueSummary>> {
         let operation = SearchIssuesQuery::build(SearchVariables {
             term: term.to_string(),
-            first: Some(50),
+            first: Some(PAGE_SIZE),
         });
         let result = self.fetch_json(operation).await?;
 
@@ -130,7 +172,7 @@ impl LinearApi for Client {
             .search_issues
             .nodes
             .into_iter()
-            .map(map_search_result)
+            .map(IssueSummary::from)
             .collect())
     }
 
@@ -138,18 +180,20 @@ impl LinearApi for Client {
         let operation = IssueQuery::build(IssueVariables { id: id.to_string() });
         let result = self.fetch_json(operation).await?;
 
-        Ok(result.issue.map(map_detail))
+        Ok(result.issue.map(IssueDetail::from))
     }
 
     async fn notifications(&self) -> ApiResult<Vec<NotificationItem>> {
-        let operation = NotificationsQuery::build(NotificationsVariables { first: Some(50) });
+        let operation = NotificationsQuery::build(NotificationsVariables {
+            first: Some(PAGE_SIZE),
+        });
         let result = self.fetch_json(operation).await?;
 
         Ok(result
             .notifications
             .nodes
             .iter()
-            .map(map_notification)
+            .map(NotificationItem::from)
             .collect())
     }
 

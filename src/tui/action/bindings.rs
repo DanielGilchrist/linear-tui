@@ -77,6 +77,11 @@ pub const BROWSE: Keymap<Action> = Keymap {
             label: "reload",
         },
         Binding {
+            action: Action::ToggleZoom,
+            keys: &[Char('z')],
+            label: "zoom",
+        },
+        Binding {
             action: Action::ClearRecent,
             keys: &[Char('x')],
             label: "clear",
@@ -220,6 +225,29 @@ pub const COMMENTS_KEYS: Keymap<Action> = Keymap {
             action: Action::HistoryBack,
             keys: &[BackTab],
             label: "prev issue",
+        },
+    ],
+};
+
+pub const VIEW_KEYS: Keymap<Action> = Keymap {
+    bindings: &[Binding {
+        action: Action::ViewDisplay,
+        keys: &[Char('v')],
+        label: "display",
+    }],
+};
+
+pub const VIEW_GROUP: Keymap<Action> = Keymap {
+    bindings: &[
+        Binding {
+            action: Action::CycleGroup,
+            keys: &[Char('g')],
+            label: "group",
+        },
+        Binding {
+            action: Action::CycleSort,
+            keys: &[Char('s')],
+            label: "sort",
         },
     ],
 };

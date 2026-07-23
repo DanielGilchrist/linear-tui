@@ -1,8 +1,6 @@
 use cynic::{InputObject, QueryFragment, QueryVariables};
 
-mod schema {
-    cynic::use_schema!("schema.graphql");
-}
+use super::schema;
 
 #[derive(Debug, Clone, QueryFragment)]
 #[cynic(schema_path = "schema.graphql")]

@@ -1,6 +1,7 @@
 pub mod action;
 pub mod app;
 pub mod components;
+pub mod display;
 pub mod focus;
 pub mod issue_ref;
 pub mod layout;
@@ -10,6 +11,7 @@ pub mod overlay;
 pub mod platform;
 pub mod render;
 pub mod run;
+pub mod saved_views;
 pub mod spinner;
 pub mod status;
 pub mod update;

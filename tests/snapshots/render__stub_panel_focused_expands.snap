@@ -2,27 +2,27 @@
 source: tests/render.rs
 expression: "render_to_string(&mut app, 84, 24)"
 ---
-┌Assigned to me 1/3────────────┐┌Saved Views───────────────────────────────────────┐
+┌Assigned to me 1/3────────────┐┌Teams─────────────────────────────────────────────┐
 │!!! DAN2-7 In Progress Wood-fi││Not implemented yet                               │
 │!!! DAN-10 In Progress Sprinkl││                                                  │
-└ 1 of 7 ──────────────────────┘│#payroll                                          │
+└ 1 of 7 ──────────────────────┘│Dan's Pizza                                       │
 ┌Recently viewed───────────────┐│                                                  │
 │Issues you open land here     ││                                                  │
 └──────────────────────────────┘│                                                  │
 ┌Saved Views───────────────────┐│                                                  │
-│#payroll                      ││                                                  │
-│#nest-sync                    ││                                                  │
-│High priority                 ││                                                  │
-│Created by me                 ││                                                  │
-│                              ││                                                  │
-│                              ││                                                  │
-│                              ││                                                  │
-│                              ││                                                  │
-│                              ││                                                  │
-│                              ││                                                  │
-└ 1 of 4 ──────────────────────┘│                                                  │
+│Loading…                      ││                                                  │
+└──────────────────────────────┘│                                                  │
 ┌Teams─────────────────────────┐│                                                  │
 │Dan's Pizza                   ││                                                  │
 │Dan's Donuts                  ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
 └ 1 of 2 ──────────────────────┘└──────────────────────────────────────────────────┘
  j move   tab panel   1-9 jump   esc back   q quit              Dan's Donuts · @dan

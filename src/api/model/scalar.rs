@@ -133,38 +133,60 @@ impl Timestamp {
     }
 
     pub fn humanise(self, now: i64) -> String {
+        match self.age(now) {
+            Age::JustNow => "just now".into(),
+            Age::Relative(text) => format!("{text} ago"),
+            Age::Date(text) => text,
+        }
+    }
+
+    pub fn age_short(self, now: i64) -> String {
+        match self.age(now) {
+            Age::JustNow => "just now".into(),
+            Age::Relative(text) | Age::Date(text) => text,
+        }
+    }
+
+    fn age(self, now: i64) -> Age {
         let seconds = now - self.0;
 
         if seconds < 60 {
-            return "just now".into();
+            return Age::JustNow;
         }
 
         let minutes = seconds / 60;
 
         if minutes < 60 {
-            return format!("{minutes}m ago");
+            return Age::Relative(format!("{minutes}m"));
         }
 
         let hours = minutes / 60;
 
         if hours < 24 {
-            return format!("{hours}h ago");
+            return Age::Relative(format!("{hours}h"));
         }
 
         let days = hours / 24;
 
         if days < 7 {
-            return format!("{days}d ago");
+            return Age::Relative(format!("{days}d"));
         }
 
         if days < 30 {
-            return format!("{}w ago", days / 7);
+            return Age::Relative(format!("{}w", days / 7));
         }
 
-        chrono::DateTime::from_timestamp(self.0, 0)
+        let date = chrono::DateTime::from_timestamp(self.0, 0)
             .map(|dt| dt.format("%b %-d, %Y").to_string())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        Age::Date(date)
     }
+}
+
+enum Age {
+    JustNow,
+    Relative(String),
+    Date(String),
 }
 
 impl From<&str> for Timestamp {

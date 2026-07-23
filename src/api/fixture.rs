@@ -4,8 +4,9 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::api::model::{
-    Comment, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, Label, NotificationItem,
-    Priority, Rgb, Session, StateOption, StateType, User, WorkflowState,
+    Comment, IssueDetail, IssueFilter, IssuePage, IssueSummary, IssueUpdate, Label,
+    NotificationItem, Priority, Rgb, SavedView, Session, StateOption, StateType, User,
+    WorkflowState,
 };
 use crate::api::{ApiResult, LinearApi};
 
@@ -19,7 +20,11 @@ pub struct Fixture {
     #[serde(default)]
     pub notifications: Vec<NotificationItem>,
     #[serde(default)]
+    pub saved_views: Vec<SavedView>,
+    #[serde(default)]
     pub issues: Vec<IssueSummary>,
+    #[serde(default)]
+    pub saved_view_issues: std::collections::HashMap<String, Vec<IssueSummary>>,
     #[serde(default)]
     pub details: Vec<IssueDetail>,
 }
@@ -65,6 +70,24 @@ impl LinearApi for FixtureClient {
             user: self.fixture.viewer.clone(),
             org_name: self.fixture.org_name.clone(),
             org_url_key: self.fixture.org_url_key.clone(),
+        })
+    }
+
+    async fn custom_views(&self) -> ApiResult<Vec<SavedView>> {
+        Ok(self.fixture.saved_views.clone())
+    }
+
+    async fn custom_view_issues(&self, id: &str) -> ApiResult<IssuePage> {
+        let issues = self
+            .fixture
+            .saved_view_issues
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| self.fixture.issues.clone());
+
+        Ok(IssuePage {
+            issues,
+            truncated: false,
         })
     }
 
@@ -211,6 +234,7 @@ fn summary(
         url: format!("https://linear.app/dans-donuts/issue/{identifier}"),
         branch_name: format!("dan/{}", identifier.to_lowercase()),
         team_id: team_for(identifier),
+        updated_at: "2026-07-15T09:00:00Z".into(),
     }
 }
 
@@ -363,6 +387,7 @@ oven-ctl --set-target 430
         ],
         branch_name: "dan/dan2-7".into(),
         team_id: "t_pizza".into(),
+        updated_at: "2026-07-16T18:40:00Z".into(),
     }];
 
     let notifications = vec![
@@ -386,12 +411,43 @@ oven-ctl --set-target 430
         },
     ];
 
+    let saved_views = vec![
+        SavedView {
+            id: "v_urgent".into(),
+            name: "Urgent & unassigned".into(),
+        },
+        SavedView {
+            id: "v_oven".into(),
+            name: "Oven incidents".into(),
+        },
+        SavedView {
+            id: "v_menu".into(),
+            name: "Menu ideas".into(),
+        },
+    ];
+
+    let pick = |ids: &[&str]| -> Vec<IssueSummary> {
+        ids.iter()
+            .filter_map(|id| issues.iter().find(|issue| issue.id == *id).cloned())
+            .collect()
+    };
+    let saved_view_issues = std::collections::HashMap::from([
+        (
+            "v_urgent".to_string(),
+            pick(&["i1", "i2", "i3", "i4", "i5", "i6"]),
+        ),
+        ("v_oven".to_string(), pick(&["i1", "i3"])),
+        ("v_menu".to_string(), pick(&["i4", "i5", "i7"])),
+    ]);
+
     Fixture {
         viewer: person("dan", true),
         org_name: "Dan's Donuts".into(),
         org_url_key: "dans-donuts".into(),
         notifications,
+        saved_views,
         issues,
+        saved_view_issues,
         details,
     }
 }
