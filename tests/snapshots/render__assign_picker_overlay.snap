@@ -1,5 +1,6 @@
 ---
 source: tests/render.rs
+assertion_line: 247
 expression: "render_to_string(&mut app, 100, 20)"
 ---
 ┌Assigned to me · In Progress · Inbox┐┌DAN2-7──────────────────────────────────────────────────────┐
@@ -8,7 +9,7 @@ expression: "render_to_string(&mut app, 100, 20)"
 │!!  DAN2-2 In Progress Delivery driv││@dan  oven                                                  █
 │!!! DAN2-3 Todo Add gluten-┌Assign  DAN2-7────────────────────────────┐sue/DAN2-7/wood-fired-oven-█
 │!!  DAN-13 Todo Introduce a│Unassigned                                │                           █
-│!!  DAN2-5 Backlog Settle t│dan  you                                  │                           ║
+│!!  DAN2-5 Backlog Settle t│dan  you                                  │                           █
 │    DAN-15 Backlog Coffee p│sam                                       │                           ║
 └ 1 of 7 ───────────────────│alex                                      │                           ║
 ┌Recently viewed────────────│                                          │oven creeps past 480°C and ║

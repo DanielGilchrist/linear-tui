@@ -1,24 +1,25 @@
 ---
 source: tests/render.rs
+assertion_line: 176
 expression: "render_to_string(&mut app, 90, 20)"
 ---
 ┌Assigned to me 1/3──────────────┐┌DAN2-7────────────────────────────────────────────────┐
-│!!! DAN2-7 In Progress Wood-fire││▏ sudo oven-ctl --reset-pid                           ↑
-│!!! DAN-10 In Progress Sprinkle ││▏ oven-ctl --set-target 430                           ║
+│!!! DAN2-7 In Progress Wood-fire││                                                      ↑
+│!!! DAN-10 In Progress Sprinkle ││Comments (4)                                          ║
 │!!  DAN2-2 In Progress Delivery ││                                                      ║
-│!!! DAN2-3 Todo Add gluten-free ││Comments (4)                                          ║
-│!!  DAN-13 Todo Introduce a mapl││                                                      ║
-│!!  DAN2-5 Backlog Settle the pi││dan · 11h ago                                         ║
-│    DAN-15 Backlog Coffee pairin││  Swapped the thermocouple this morning. Readings so  ║
-└ 1 of 7 ────────────────────────┘│far:                                                  ║
-┌Recently viewed─────────────────┐│                                                      █
-│Issues you open land here       ││  1. 6pm - 445°C                                      █
-└────────────────────────────────┘│  2. 7pm - 462°C                                      █
-┌Saved Views─────────────────────┐│                                                      █
-│Loading…                        ││  └ danniiee · 10h ago                                ║
-└────────────────────────────────┘│    Agreed, the sensor looks fine. Next suspect is the║
-┌Teams───────────────────────────┐│flue damper.                                          ║
-│Dan's Pizza                     ││                                                      ║
-│Dan's Donuts                    ││  └ dan · 10h ago                                     ↓
+│!!! DAN2-3 Todo Add gluten-free ││dan · 11h ago                                         ║
+│!!  DAN-13 Todo Introduce a mapl││  Swapped the thermocouple this morning. Readings so  ║
+│!!  DAN2-5 Backlog Settle the pi││far:                                                  ║
+│    DAN-15 Backlog Coffee pairin││                                                      ║
+└ 1 of 7 ────────────────────────┘│  1. 6pm - 445°C                                      ║
+┌Recently viewed─────────────────┐│  2. 7pm - 462°C                                      ║
+│Issues you open land here       ││                                                      ║
+└────────────────────────────────┘│  └ danniiee · 10h ago                                █
+┌Saved Views─────────────────────┐│    Agreed, the sensor looks fine. Next suspect is the█
+│Loading…                        ││flue damper.                                          █
+└────────────────────────────────┘│                                                      █
+┌Teams───────────────────────────┐│  └ dan · 10h ago                                     █
+│Dan's Pizza                     ││    Adding the damper check to the list.              ║
+│Dan's Donuts                    ││                                                      ↓
 └ 1 of 2 ────────────────────────┘└──────────────────────────────────────────────────────┘
  j/k select   r reply   e edit   d delete   c comment   esc back   q… Dan's Donuts · @dan
