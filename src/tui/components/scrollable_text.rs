@@ -45,7 +45,11 @@ impl<'a> ScrollableText<'a> {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         let text_height = area.height.saturating_sub(2) as usize;
-        let max_scroll = self.content.lines.len().saturating_sub(text_height);
+        let text_width = area.width.saturating_sub(2);
+        let paragraph = Paragraph::new(self.content.clone()).wrap(Wrap { trim: false });
+        let wrapped_line_count = paragraph.line_count(text_width);
+        let max_scroll = wrapped_line_count.saturating_sub(text_height);
+
         self.scroll_position = self.scroll_position.min(max_scroll);
 
         let mut block = Block::default()
@@ -56,16 +60,15 @@ impl<'a> ScrollableText<'a> {
             block = block.title(title);
         }
 
-        let paragraph = Paragraph::new(self.content.clone())
+        let paragraph = paragraph
             .block(block)
-            .wrap(Wrap { trim: false })
             .scroll((self.scroll_position as u16, 0));
 
         frame.render_widget(paragraph, area);
 
         *self.scroll_state = self
             .scroll_state
-            .content_length(self.content.lines.len())
+            .content_length(max_scroll)
             .position(self.scroll_position);
 
         frame.render_stateful_widget(
