@@ -118,10 +118,12 @@ pub(super) fn revalidate_focus(app: &mut App) -> Option<Command> {
 
 pub(super) fn reload(app: &mut App) -> Command {
     match app.focus {
-        Focus::Detail(panel, _) => match app.workspace.detail.value() {
+        Focus::Detail(panel, _) => match app.workspace.detail().value() {
             Some(detail) => {
                 let id = detail.id.clone();
-                app.workspace.detail.begin();
+
+                app.workspace.begin_detail();
+
                 let detail_reload = Command::LoadDetail {
                     id,
                     reveal: Reveal::Top,

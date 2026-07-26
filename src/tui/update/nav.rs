@@ -293,7 +293,7 @@ pub(super) fn select_view(app: &mut App, index: usize) -> Option<Command> {
     app.focus = Focus::MyWork;
     app.view_state.select(Some(index));
     app.list_state.select(Some(0));
-    app.workspace.detail.bust();
+    app.workspace.bust_detail();
     app.find_query = None;
 
     access_active(app)

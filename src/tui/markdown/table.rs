@@ -118,5 +118,5 @@ impl Table {
 }
 
 fn cell_width(cell: &[Span<'static>]) -> usize {
-    cell.iter().map(|span| span.content.chars().count()).sum()
+    cell.iter().map(|span| span.width()).sum()
 }

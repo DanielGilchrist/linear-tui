@@ -9,7 +9,7 @@ use super::spinner::Spinner;
 use super::status::Status;
 use super::view::{View, ViewKind};
 use super::workspace::WorkspaceData;
-use crate::api::{IssueDetail, IssueSummary, NotificationItem};
+use crate::api::{IssueDetail, IssueSummary, NotificationItem, Timestamp};
 
 pub const SCROLL_STEP: usize = 2;
 
@@ -93,17 +93,9 @@ pub struct App {
     pub overlay: Overlay,
     pub find_query: Option<String>,
     pub search_return: Option<Search>,
-    pub now: i64,
+    pub now: Timestamp,
+    pub time_refresh_due: Option<Timestamp>,
     pub should_quit: bool,
-}
-
-pub fn now_epoch() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 impl App {
@@ -125,7 +117,8 @@ impl App {
             overlay: Overlay::None,
             find_query: None,
             search_return: None,
-            now: now_epoch(),
+            now: Timestamp::now(),
+            time_refresh_due: None,
             should_quit: false,
         }
     }
@@ -300,12 +293,12 @@ impl App {
                 Some(view) => self.feed_in_flight(&view.key()),
                 None => false,
             },
-            Focus::Detail(..) => self.workspace.detail.in_flight(),
+            Focus::Detail(..) => self.workspace.detail().in_flight(),
         }
     }
 
     pub fn has_comments(&self) -> bool {
-        match self.workspace.detail.value() {
+        match self.workspace.detail().value() {
             Some(detail) => !detail.comments.is_empty(),
             None => false,
         }
@@ -376,7 +369,7 @@ impl App {
             Focus::Detail(_, DetailView::Comments) => {
                 let len = self
                     .workspace
-                    .detail
+                    .detail()
                     .value()
                     .map_or(0, |detail| detail.comments.len());
 
@@ -481,7 +474,7 @@ impl App {
     }
 
     pub fn open_recent_pos(&self) -> Option<usize> {
-        let detail = self.workspace.detail.value()?;
+        let detail = self.workspace.detail().value()?;
 
         self.workspace
             .recently_viewed
@@ -546,7 +539,7 @@ impl App {
             Focus::View => self.view_selected_issue().map(FocusedIssue::from_summary),
             Focus::Detail(..) => self
                 .workspace
-                .detail
+                .detail()
                 .value()
                 .map(FocusedIssue::from_detail)
                 .or_else(|| self.selected_issue().map(FocusedIssue::from_summary)),
@@ -556,7 +549,11 @@ impl App {
 
     pub fn action_target(&self) -> Option<FocusedIssue> {
         match self.focus {
-            Focus::Detail(..) => self.workspace.detail.value().map(FocusedIssue::from_detail),
+            Focus::Detail(..) => self
+                .workspace
+                .detail()
+                .value()
+                .map(FocusedIssue::from_detail),
             Focus::View => self.view_selected_issue().map(FocusedIssue::from_summary),
             Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::Stub(_) => None,
         }

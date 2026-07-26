@@ -1,7 +1,7 @@
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, List, Paragraph},
+    widgets::{Block, List, Paragraph},
     Frame,
 };
 
@@ -9,6 +9,7 @@ use super::super::format::id_column_width;
 use super::super::theme::{self, Emphasis};
 use super::super::widgets::{breakdown_line, loading_more_row, view_items, view_title};
 use super::{feed_count, feed_placeholder, feed_truncated, Viewport};
+use crate::api::Timestamp;
 use crate::tui::feed::{Feed, FeedStore};
 use crate::tui::saved_views::ViewSurface;
 use crate::tui::spinner::Spinner;
@@ -22,17 +23,16 @@ pub fn render(
     view: &mut ViewSurface,
     spinner: Spinner,
     emphasis: Emphasis,
-    now: i64,
+    now: Timestamp,
 ) -> Viewport {
     let feed = feeds.get(&view.key());
 
-    let block = Block::default()
+    let block = Block::bordered()
         .title(view_title(
             view.name(),
             feed_count(feed),
             feed_truncated(feed),
         ))
-        .borders(Borders::ALL)
         .border_style(emphasis.border());
 
     let inner = block.inner(area);
@@ -85,7 +85,10 @@ pub fn render(
 
     view.layout.select(selected_row);
 
-    let list = List::new(items).highlight_style(emphasis.highlight());
+    let list = List::new(items)
+        .highlight_style(emphasis.highlight())
+        .scroll_padding(1);
+
     frame.render_stateful_widget(list, rows[1], &mut view.layout);
 
     Viewport(rows[1].height as usize)

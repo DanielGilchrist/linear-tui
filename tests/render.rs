@@ -2,7 +2,6 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
 use linear_tui::api::{LinearApi, Timestamp};
 use linear_tui::tui::app::App;
-use linear_tui::tui::cache::Remote;
 use linear_tui::tui::feed::{Feed, FeedKey, FeedRequest};
 use linear_tui::tui::focus::{DetailView, Focus, LeftPanel};
 use linear_tui::tui::message::Message;
@@ -12,7 +11,7 @@ use linear_tui::tui::{render_styled_to_string, render_to_string};
 
 async fn home_app(client: &FixtureClient, view: usize) -> App {
     let mut app = App::new();
-    app.now = Timestamp::from("2026-07-16T21:00:00Z").epoch();
+    app.now = Timestamp::from("2026-07-16T21:00:00Z");
     app.workspace.session = client.session().await.ok();
     app.view_state.select(Some(view));
     match &app.active_view().kind {
@@ -46,14 +45,14 @@ async fn opened_detail_app(client: &FixtureClient) -> App {
     let mut app = home_app(client, 0).await;
     app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
     if let Some(detail) = client.issue_detail("DAN2-7").await.unwrap() {
-        app.workspace.detail = Remote::ready(detail, app.now);
+        app.workspace.set_detail(detail, app.now);
     }
     app
 }
 
 async fn saved_views_app(client: &FixtureClient) -> App {
     let mut app = App::new();
-    app.now = Timestamp::from("2026-07-16T21:00:00Z").epoch();
+    app.now = Timestamp::from("2026-07-16T21:00:00Z");
     app.workspace.session = client.session().await.ok();
     app.focus = Focus::SavedViews;
     apply(
@@ -358,6 +357,26 @@ async fn jump_input_overlay() {
         KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
     );
     for c in "DAN2-7".chars() {
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        );
+    }
+    insta::assert_snapshot!(render_to_string(&mut app, 84, 16));
+}
+
+#[tokio::test]
+async fn jump_input_scrolls_to_keep_a_long_url_cursor_visible() {
+    let mut app = App::new();
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+    );
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+    );
+    for c in "https://linear.app/dans-donuts/issue/DAN2-7/wood-fired-oven".chars() {
         handle_key(
             &mut app,
             KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),

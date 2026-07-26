@@ -7,12 +7,12 @@ expression: "render_to_string(&mut app, 84, 16)"
 │                              ││                                                  │
 │                              ││                                                  │
 └──────────────────────────────┘│                                                  │
-┌Recently viewed─────────────┌Go to──────────────────┐                             │
-│Issues you open land here   │g  top                 │                             │
-└────────────────────────────│G  bottom              │                             │
-┌Saved Views─────────────────│i  issue               │                             │
-│⠋  Loading…                 │s  search              │                             │
-└────────────────────────────└───────────────────────┘                             │
+┌Recently viewed─────────────┌Go to───────────────────┐                            │
+│Issues you open land here   │g  top                  │                            │
+└────────────────────────────│G  bottom               │                            │
+┌Saved Views─────────────────│i  issue                │                            │
+│⠋  Loading…                 │s  search               │                            │
+└────────────────────────────└────────────────────────┘                            │
 ┌Teams─────────────────────────┐│                                                  │
 │Dan's Pizza                   ││                                                  │
 │Dan's Donuts                  ││                                                  │

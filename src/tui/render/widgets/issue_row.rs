@@ -3,9 +3,9 @@ use ratatui::{
     widgets::ListItem,
 };
 
-use super::super::format::fit;
+use super::super::format;
 use super::super::theme;
-use crate::api::{IssueSummary, Label, User};
+use crate::api::{IssueSummary, Label, Timestamp, User};
 use crate::tui::display::{Column, GroupBy};
 
 pub fn issue_items(issues: &[IssueSummary]) -> Vec<ListItem<'static>> {
@@ -63,7 +63,7 @@ pub(super) fn issue_row(
     group: GroupBy,
     id_width: usize,
     width: usize,
-    now: i64,
+    now: Timestamp,
 ) -> Line<'static> {
     let omit = group.omitted_column();
 
@@ -106,13 +106,13 @@ pub(super) fn issue_row(
 
     right.push(Span::styled(issue.updated_at.age_short(now), theme::DIM));
 
-    let right_w: usize = right.iter().map(|span| span.content.chars().count()).sum();
+    let right_w: usize = right.iter().map(|span| span.width()).sum();
     let gap = 2;
     let title_area = width.saturating_sub(left_w + right_w + gap);
-    let title = fit(&title(issue), title_area);
-
-    let pad = title_area.saturating_sub(title.chars().count()) + gap;
+    let title = format::fit(&title(issue), title_area);
+    let pad = title_area.saturating_sub(format::width(&title)) + gap;
     let mut spans = left;
+
     spans.push(Span::styled(title, theme::TEXT));
     spans.push(Span::raw(" ".repeat(pad)));
     spans.extend(right);
@@ -159,7 +159,13 @@ mod tests {
 
     #[test]
     fn identifier_is_padded_to_the_id_width() {
-        let row = issue_row(&issue("DAN2-7", "short"), GroupBy::None, 8, 80, 0);
+        let row = issue_row(
+            &issue("DAN2-7", "short"),
+            GroupBy::None,
+            8,
+            80,
+            Timestamp::default(),
+        );
         assert_eq!(&text(&row)[..12], "!!! DAN2-7  ");
     }
 
@@ -167,8 +173,21 @@ mod tests {
     fn a_row_fills_exactly_the_given_width_when_the_title_fits() {
         let issue = issue("DAN2-7", "a short title");
         for width in [70, 90, 120] {
-            let row = issue_row(&issue, GroupBy::None, 6, width, 0);
+            let row = issue_row(&issue, GroupBy::None, 6, width, Timestamp::default());
             assert_eq!(row.width(), width, "row should fill width {width}");
+        }
+    }
+
+    #[test]
+    fn a_wide_glyph_title_still_fills_exactly_the_width() {
+        let issue = issue("DAN2-7", "日本語のタイトル");
+        for width in [70, 90, 120] {
+            let row = issue_row(&issue, GroupBy::None, 6, width, Timestamp::default());
+            assert_eq!(
+                row.width(),
+                width,
+                "wide-glyph row should fill width {width}"
+            );
         }
     }
 
@@ -178,7 +197,7 @@ mod tests {
             "DAN2-7",
             "a very long title that will not fit into the narrow column at all",
         );
-        let row = issue_row(&issue, GroupBy::None, 6, 40, 0);
+        let row = issue_row(&issue, GroupBy::None, 6, 40, Timestamp::default());
         assert!(
             text(&row).contains('…'),
             "narrow row should truncate: {}",
@@ -191,17 +210,17 @@ mod tests {
     fn grouping_omits_the_redundant_column() {
         let issue = issue("DAN2-7", "title");
 
-        let by_priority = issue_row(&issue, GroupBy::Priority, 6, 80, 0);
+        let by_priority = issue_row(&issue, GroupBy::Priority, 6, 80, Timestamp::default());
         assert!(text(&by_priority).starts_with("    "));
         assert!(!text(&by_priority).contains("!!!"));
 
-        let by_status = issue_row(&issue, GroupBy::Status, 6, 80, 0);
+        let by_status = issue_row(&issue, GroupBy::Status, 6, 80, Timestamp::default());
         assert!(!text(&by_status).contains("In Progress"));
 
-        let by_assignee = issue_row(&issue, GroupBy::Assignee, 6, 80, 0);
+        let by_assignee = issue_row(&issue, GroupBy::Assignee, 6, 80, Timestamp::default());
         assert!(!text(&by_assignee).contains("dan"));
 
-        let none = issue_row(&issue, GroupBy::None, 6, 80, 0);
+        let none = issue_row(&issue, GroupBy::None, 6, 80, Timestamp::default());
         assert!(text(&none).contains("!!!"));
         assert!(text(&none).contains("In Progress"));
         assert!(text(&none).contains("dan"));

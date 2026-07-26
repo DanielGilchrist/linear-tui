@@ -1,5 +1,6 @@
 use super::policy::{Age, RefreshPolicy};
 use super::status::{Access, CacheStatus};
+use crate::api::Timestamp;
 
 pub trait Stale {
     fn mark_stale(&mut self);
@@ -17,7 +18,7 @@ pub enum Phase {
 pub struct Remote<T> {
     value: Option<T>,
     status: CacheStatus,
-    fetched_at: i64,
+    fetched_at: Timestamp,
 }
 
 impl<T> Default for Remote<T> {
@@ -25,13 +26,13 @@ impl<T> Default for Remote<T> {
         Self {
             value: None,
             status: CacheStatus::Idle,
-            fetched_at: 0,
+            fetched_at: Timestamp::default(),
         }
     }
 }
 
 impl<T> Remote<T> {
-    pub fn ready(value: T, fetched_at: i64) -> Self {
+    pub fn ready(value: T, fetched_at: Timestamp) -> Self {
         Self {
             value: Some(value),
             status: CacheStatus::Ready,
@@ -51,7 +52,7 @@ impl<T> Remote<T> {
         &self.status
     }
 
-    pub fn fetched_at(&self) -> i64 {
+    pub fn fetched_at(&self) -> Timestamp {
         self.fetched_at
     }
 
@@ -68,11 +69,14 @@ impl<T> Remote<T> {
         }
     }
 
-    pub fn access(&self, now: i64, policy: &RefreshPolicy) -> Access {
+    pub fn access(&self, now: Timestamp, policy: &RefreshPolicy) -> Access {
         if self.in_flight() {
             return Access::Skip;
         }
-        match (&self.value, policy.classify(now - self.fetched_at)) {
+        match (
+            &self.value,
+            policy.classify(now.seconds_since(self.fetched_at)),
+        ) {
             (None, _) => Access::Load,
             (Some(_), Age::Fresh) => Access::Skip,
             (Some(_), Age::Stale) => Access::Revalidate,
@@ -87,7 +91,7 @@ impl<T> Remote<T> {
         };
     }
 
-    pub fn begin_access(&mut self, now: i64, policy: &RefreshPolicy) -> bool {
+    pub fn begin_access(&mut self, now: Timestamp, policy: &RefreshPolicy) -> bool {
         match self.access(now, policy) {
             Access::Skip => false,
             Access::Bust => {
@@ -102,7 +106,7 @@ impl<T> Remote<T> {
         }
     }
 
-    pub fn set(&mut self, value: T, now: i64) {
+    pub fn set(&mut self, value: T, now: Timestamp) {
         self.value = Some(value);
         self.status = CacheStatus::Ready;
         self.fetched_at = now;
@@ -120,6 +124,6 @@ impl<T> Remote<T> {
 
 impl<T> Stale for Remote<T> {
     fn mark_stale(&mut self) {
-        self.fetched_at = 0;
+        self.fetched_at = Timestamp::default();
     }
 }

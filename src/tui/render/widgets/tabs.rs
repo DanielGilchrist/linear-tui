@@ -1,6 +1,6 @@
 use ratatui::text::{Line, Span};
 
-use super::super::format::fit;
+use super::super::format;
 use super::super::theme;
 use crate::tui::spinner::Spinner;
 use crate::tui::view::View;
@@ -15,7 +15,7 @@ pub fn view_tabs(
     max_width: usize,
 ) -> Line<'static> {
     let spinner_width = if loading {
-        2 + spinner.glyph().chars().count()
+        2 + format::width(spinner.glyph())
     } else {
         0
     };
@@ -34,8 +34,8 @@ pub fn view_tabs(
 }
 
 fn full_strip_width(views: &[View]) -> usize {
-    views.iter().map(|v| v.name.chars().count()).sum::<usize>()
-        + SEPARATOR.chars().count() * views.len().saturating_sub(1)
+    views.iter().map(|v| format::width(&v.name)).sum::<usize>()
+        + format::width(SEPARATOR) * views.len().saturating_sub(1)
 }
 
 fn full_strip(views: &[View], active: usize) -> Vec<Span<'static>> {
@@ -59,10 +59,10 @@ fn full_strip(views: &[View], active: usize) -> Vec<Span<'static>> {
 
 fn compact_strip(views: &[View], active: usize, budget: usize) -> Vec<Span<'static>> {
     let indicator = format!(" {}/{}", active + 1, views.len());
-    let name_budget = budget.saturating_sub(indicator.chars().count());
+    let name_budget = budget.saturating_sub(format::width(&indicator));
 
     vec![
-        Span::styled(fit(&views[active].name, name_budget), theme::TITLE),
+        Span::styled(format::fit(&views[active].name, name_budget), theme::TITLE),
         Span::styled(indicator, theme::DIM),
     ]
 }

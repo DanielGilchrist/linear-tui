@@ -2,10 +2,11 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, ListItem, ListState, Paragraph},
+    widgets::{Block, Clear, ListItem, ListState, Paragraph},
     Frame,
 };
 
+use super::super::format;
 use super::super::theme::{self, Emphasis};
 use super::super::widgets::StyledList;
 use crate::tui::layout;
@@ -16,9 +17,8 @@ pub fn area(frame_area: Rect) -> Rect {
 }
 
 pub fn render(editor: &Editor, frame: &mut Frame, area: Rect) {
-    let block = Block::default()
+    let block = Block::bordered()
         .title(editor.title)
-        .borders(Borders::ALL)
         .border_style(theme::ACCENT);
 
     let inner_height = (area.height.saturating_sub(2) as usize).max(1);
@@ -36,11 +36,35 @@ pub fn render(editor: &Editor, frame: &mut Frame, area: Rect) {
         })
         .collect();
 
-    frame.render_widget(Paragraph::new(Text::from(lines)).block(block), area);
+    let inner_width = area.width.saturating_sub(2);
+    let cursor_column = editor
+        .lines
+        .get(editor.row)
+        .map_or(1, |cells| cursor_column(cells, editor.col));
+
+    let scroll_x = cursor_column.saturating_sub(inner_width.saturating_sub(1));
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(block)
+        .scroll((0, scroll_x));
+
+    frame.render_widget(paragraph, area);
 
     if let Some(mention) = &editor.mention {
         render_mention_popup(editor, mention, frame, area);
     }
+}
+
+fn cell_width(cell: &Cell) -> u16 {
+    let rendered = match cell {
+        Cell::Char(c) => c.to_string(),
+        Cell::Mention(mention) => format!("@{}", mention.display),
+    };
+
+    format::width(&rendered) as u16
+}
+
+fn cursor_column(cells: &[Cell], col: usize) -> u16 {
+    1 + cells.iter().take(col).map(cell_width).sum::<u16>()
 }
 
 fn editor_line(cells: &[Cell], cursor: Option<usize>) -> Line<'static> {

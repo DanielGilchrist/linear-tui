@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use super::cache::{Access, Cache, CacheStatus, Phase, RefreshPolicy, Remote, Stale};
-use crate::api::{Cursor, IssueFilter, IssueSummary, Page};
+use crate::api::{Cursor, IssueFilter, IssueSummary, Page, Timestamp};
 
 pub const FEED_REFRESH: RefreshPolicy = RefreshPolicy::new(60, 30 * 60);
 pub const INBOX_REFRESH: RefreshPolicy = RefreshPolicy::new(30, 15 * 60);
@@ -48,7 +48,7 @@ impl<T> Default for Feed<T> {
 }
 
 impl<T: HasId> Feed<T> {
-    pub fn ready(page: Page<T>, now: i64) -> Self {
+    pub fn ready(page: Page<T>, now: Timestamp) -> Self {
         Self {
             truncated: page.next.is_some(),
             next: page.next,
@@ -57,7 +57,7 @@ impl<T: HasId> Feed<T> {
         }
     }
 
-    pub fn restored(items: Vec<T>, truncated: bool, fetched_at: i64) -> Self {
+    pub fn restored(items: Vec<T>, truncated: bool, fetched_at: Timestamp) -> Self {
         Self {
             page: Remote::ready(items, fetched_at),
             next: None,
@@ -82,7 +82,7 @@ impl<T: HasId> Feed<T> {
         self.appending
     }
 
-    pub fn fetched_at(&self) -> i64 {
+    pub fn fetched_at(&self) -> Timestamp {
         self.page.fetched_at()
     }
 
@@ -102,11 +102,11 @@ impl<T: HasId> Feed<T> {
         self.page.phase() == Phase::Missing
     }
 
-    pub fn access(&self, now: i64, policy: &RefreshPolicy) -> Access {
+    pub fn access(&self, now: Timestamp, policy: &RefreshPolicy) -> Access {
         self.page.access(now, policy)
     }
 
-    pub fn begin_access(&mut self, now: i64, policy: &RefreshPolicy) -> bool {
+    pub fn begin_access(&mut self, now: Timestamp, policy: &RefreshPolicy) -> bool {
         match self.access(now, policy) {
             Access::Skip => false,
             Access::Bust => {
@@ -135,7 +135,7 @@ impl<T: HasId> Feed<T> {
         self.appending = false;
     }
 
-    pub fn apply(&mut self, request: &FeedRequest, page: Page<T>, now: i64) -> bool {
+    pub fn apply(&mut self, request: &FeedRequest, page: Page<T>, now: Timestamp) -> bool {
         match request {
             FeedRequest::Refresh => {
                 self.truncated = page.next.is_some();
@@ -218,6 +218,10 @@ pub type FeedStore = Cache<FeedKey, Feed<IssueSummary>>;
 mod tests {
     use super::*;
 
+    fn at(seconds: i64) -> Timestamp {
+        Timestamp::from_epoch(seconds)
+    }
+
     struct Item(&'static str);
     impl HasId for Item {
         fn feed_id(&self) -> &str {
@@ -242,19 +246,23 @@ mod tests {
         feed.begin(&FeedRequest::Refresh);
         assert_eq!(*feed.status(), CacheStatus::Loading);
 
-        assert!(feed.apply(&FeedRequest::Refresh, page(&["a", "b"], Some("c1")), 100));
+        assert!(feed.apply(
+            &FeedRequest::Refresh,
+            page(&["a", "b"], Some("c1")),
+            at(100)
+        ));
 
         assert_eq!(ids(&feed), vec!["a", "b"]);
         assert!(feed.truncated());
         assert!(feed.can_load_more());
         assert_eq!(*feed.status(), CacheStatus::Ready);
-        assert_eq!(feed.fetched_at(), 100);
+        assert_eq!(feed.fetched_at(), at(100));
     }
 
     #[test]
     fn a_second_refresh_revalidates_rather_than_reloads() {
         let mut feed: Feed<Item> = Feed::default();
-        feed.apply(&FeedRequest::Refresh, page(&["a"], None), 100);
+        feed.apply(&FeedRequest::Refresh, page(&["a"], None), at(100));
         feed.begin(&FeedRequest::Refresh);
         assert_eq!(*feed.status(), CacheStatus::Revalidating);
     }
@@ -262,7 +270,11 @@ mod tests {
     #[test]
     fn load_more_appends_and_dedupes() {
         let mut feed: Feed<Item> = Feed::default();
-        feed.apply(&FeedRequest::Refresh, page(&["a", "b"], Some("c1")), 100);
+        feed.apply(
+            &FeedRequest::Refresh,
+            page(&["a", "b"], Some("c1")),
+            at(100),
+        );
 
         let request = FeedRequest::LoadMore {
             after: Cursor("c1".into()),
@@ -270,32 +282,36 @@ mod tests {
         feed.begin(&request);
         assert!(feed.appending());
 
-        assert!(feed.apply(&request, page(&["b", "c"], None), 200));
+        assert!(feed.apply(&request, page(&["b", "c"], None), at(200)));
         assert_eq!(ids(&feed), vec!["a", "b", "c"]);
         assert!(!feed.truncated());
         assert!(!feed.can_load_more());
-        assert_eq!(feed.fetched_at(), 100);
+        assert_eq!(feed.fetched_at(), at(100));
     }
 
     #[test]
     fn a_stale_append_is_dropped_when_it_loses_a_race() {
         let mut feed: Feed<Item> = Feed::default();
-        feed.apply(&FeedRequest::Refresh, page(&["a", "b"], Some("c1")), 100);
+        feed.apply(
+            &FeedRequest::Refresh,
+            page(&["a", "b"], Some("c1")),
+            at(100),
+        );
 
         let stale = FeedRequest::LoadMore {
             after: Cursor("c1".into()),
         };
         feed.begin(&stale);
-        feed.apply(&FeedRequest::Refresh, page(&["x"], Some("c2")), 300);
+        feed.apply(&FeedRequest::Refresh, page(&["x"], Some("c2")), at(300));
 
-        assert!(!feed.apply(&stale, page(&["a", "b"], None), 350));
+        assert!(!feed.apply(&stale, page(&["a", "b"], None), at(350)));
         assert_eq!(ids(&feed), vec!["x"]);
         assert_eq!(feed.next(), Some(&Cursor("c2".into())));
     }
 
     #[test]
     fn a_restored_feed_renders_but_cannot_append() {
-        let feed = Feed::restored(vec![Item("a")], true, 10);
+        let feed = Feed::restored(vec![Item("a")], true, at(10));
         assert!(feed.truncated());
         assert!(feed.next().is_none());
         assert!(!feed.can_load_more());
@@ -304,7 +320,11 @@ mod tests {
     #[test]
     fn bust_clears_everything() {
         let mut feed: Feed<Item> = Feed::default();
-        feed.apply(&FeedRequest::Refresh, page(&["a", "b"], Some("c1")), 100);
+        feed.apply(
+            &FeedRequest::Refresh,
+            page(&["a", "b"], Some("c1")),
+            at(100),
+        );
         feed.bust();
         assert!(feed.items().is_empty());
         assert!(feed.next().is_none());
@@ -315,7 +335,7 @@ mod tests {
     #[test]
     fn failure_keeps_the_stale_rows() {
         let mut feed: Feed<Item> = Feed::default();
-        feed.apply(&FeedRequest::Refresh, page(&["a", "b"], None), 100);
+        feed.apply(&FeedRequest::Refresh, page(&["a", "b"], None), at(100));
         feed.fail("boom".into());
         assert_eq!(ids(&feed), vec!["a", "b"]);
         assert_eq!(*feed.status(), CacheStatus::Failed("boom".into()));

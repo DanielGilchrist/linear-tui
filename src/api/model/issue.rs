@@ -166,5 +166,5 @@ impl IssueDetail {
 }
 
 fn by_created_at(a: &&Comment, b: &&Comment) -> std::cmp::Ordering {
-    a.created_at.epoch().cmp(&b.created_at.epoch())
+    a.created_at.cmp(&b.created_at)
 }

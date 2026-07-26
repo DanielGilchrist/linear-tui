@@ -2,17 +2,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use crossterm::event::{Event, EventStream, KeyEventKind};
+use crossterm::event::{Event as CrosstermEvent, EventStream, KeyEventKind};
 use futures::StreamExt;
 use ratatui::{backend::CrosstermBackend, Terminal};
-use tokio::sync::mpsc::{self, UnboundedSender};
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use super::app::App;
+use super::event::{Event, Redraw};
 use super::feed::FeedKey;
 use super::message::{Command, FailureTarget, Message};
 use super::platform::Platform;
 use super::{render, update};
-use crate::api::LinearApi;
+use crate::api::{LinearApi, Timestamp};
 
 pub async fn run(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
@@ -35,38 +36,55 @@ pub async fn run(
         dispatch(&api, &tx, platform, &namespace, command);
     }
 
+    terminal.draw(|frame| render::render(app, frame))?;
+
     loop {
-        terminal.draw(|frame| render::render(app, frame))?;
+        match next_event(&mut events, &mut rx, &mut ticker).await {
+            Event::Closed => break,
+            Event::Ignored => continue,
+            Event::Tick(now) if update::tick(app, now) == Redraw::Skipped => continue,
+            Event::Tick(_) | Event::Resize => {}
+            Event::Input(key) => {
+                if let Some(command) = update::handle_key(app, key) {
+                    dispatch(&api, &tx, platform, &namespace, command);
+                }
+            }
+            Event::Message(message) => {
+                if let Some(command) = update::apply(app, message) {
+                    dispatch(&api, &tx, platform, &namespace, command);
+                }
+            }
+        }
 
         if app.should_quit {
             break;
         }
 
-        tokio::select! {
-            maybe_event = events.next() => {
-                if let Some(Ok(Event::Key(key))) = maybe_event {
-                    if key.kind == KeyEventKind::Press {
-                        if let Some(command) = update::handle_key(app, key) {
-                            dispatch(&api, &tx, platform, &namespace, command);
-                        }
-                    }
-                }
-            }
-            Some(message) = rx.recv() => {
-                if let Some(command) = update::apply(app, message) {
-                    dispatch(&api, &tx, platform, &namespace, command);
-                }
-            }
-            _ = ticker.tick() => {
-                app.now = super::app::now_epoch();
-                if app.is_loading() {
-                    app.spinner.tick();
-                }
-            }
-        }
+        terminal.draw(|frame| render::render(app, frame))?;
     }
 
     Ok(())
+}
+
+async fn next_event(
+    events: &mut EventStream,
+    rx: &mut UnboundedReceiver<Message>,
+    ticker: &mut tokio::time::Interval,
+) -> Event {
+    tokio::select! {
+        polled = events.next() => classify(polled),
+        Some(message) = rx.recv() => Event::Message(message),
+        _ = ticker.tick() => Event::Tick(Timestamp::now()),
+    }
+}
+
+fn classify(polled: Option<std::io::Result<CrosstermEvent>>) -> Event {
+    match polled {
+        None => Event::Closed,
+        Some(Ok(CrosstermEvent::Key(key))) if key.kind == KeyEventKind::Press => Event::Input(key),
+        Some(Ok(CrosstermEvent::Resize(..))) => Event::Resize,
+        Some(_) => Event::Ignored,
+    }
 }
 
 fn ephemeral_failure(error: String) -> Message {

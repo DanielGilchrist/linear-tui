@@ -224,7 +224,7 @@ fn sort_indices(indices: &mut [usize], issues: &[IssueSummary], sort: SortBy) {
                 .to_lowercase()
         }),
         SortBy::Updated => {
-            indices.sort_by_key(|&index| std::cmp::Reverse(issues[index].updated_at.epoch()))
+            indices.sort_by_key(|&index| std::cmp::Reverse(issues[index].updated_at))
         }
     }
 }

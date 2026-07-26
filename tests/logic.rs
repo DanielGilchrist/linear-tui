@@ -1,15 +1,16 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
-use linear_tui::api::{Cursor, IssueSummary, Page};
+use linear_tui::api::{Cursor, IssueSummary, Page, Timestamp};
 use linear_tui::api::{IssueUpdate, LinearApi};
 use linear_tui::tui::app::App;
 use linear_tui::tui::cache::{CacheStatus, Remote};
+use linear_tui::tui::event::Redraw;
 use linear_tui::tui::feed::{Feed, FeedKey, FeedRequest};
 use linear_tui::tui::focus::{DetailView, Focus, LeftPanel, Reveal};
 use linear_tui::tui::message::{Command, FailureTarget, Message};
 use linear_tui::tui::overlay::{Compose, InputPurpose, PickerKind, Search};
 use linear_tui::tui::status::Status;
-use linear_tui::tui::update::{apply, handle_key};
+use linear_tui::tui::update::{apply, handle_key, tick};
 use linear_tui::tui::view::ViewKind;
 
 fn press(code: KeyCode) -> KeyEvent {
@@ -18,6 +19,37 @@ fn press(code: KeyCode) -> KeyEvent {
 
 fn ctrl(c: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+}
+
+#[test]
+fn tick_is_idle_when_nothing_loads_or_expires() {
+    let mut app = App::new();
+    app.time_refresh_due = None;
+    let now = app.now;
+
+    assert_eq!(tick(&mut app, now), Redraw::Skipped);
+}
+
+#[test]
+fn tick_advances_the_spinner_while_loading() {
+    let mut app = App::new();
+    app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
+    app.workspace.begin_detail();
+
+    let before = app.spinner.glyph();
+    let now = app.now;
+
+    assert_eq!(tick(&mut app, now), Redraw::Needed);
+    assert_ne!(app.spinner.glyph(), before);
+}
+
+#[test]
+fn tick_redraws_when_a_timestamp_comes_due() {
+    let mut app = App::new();
+    app.time_refresh_due = Some(Timestamp::from_epoch(100));
+
+    assert_eq!(tick(&mut app, Timestamp::from_epoch(99)), Redraw::Skipped);
+    assert_eq!(tick(&mut app, Timestamp::from_epoch(100)), Redraw::Needed);
 }
 
 #[tokio::test]
@@ -516,7 +548,7 @@ fn enter_on_issue_opens_detail() {
     let commands = handle_key(&mut app, press(KeyCode::Enter));
 
     assert!(matches!(app.focus, Focus::Detail(..)));
-    assert!(app.workspace.detail.in_flight());
+    assert!(app.workspace.detail().in_flight());
     match commands {
         Some(Command::LoadDetail { id, .. }) if id == "i1" => {}
         other => panic!("expected LoadDetail(i1), got {other:?}"),
@@ -544,9 +576,12 @@ fn a_stale_cached_view_revalidates_but_keeps_its_rows() {
     let filter = linear_tui::api::IssueFilter::in_progress_mine();
     app.workspace.feeds.insert(
         FeedKey::Issues(filter),
-        Feed::ready(Page::single(vec![sample_issue("i1", "DAN-1")]), 0),
+        Feed::ready(
+            Page::single(vec![sample_issue("i1", "DAN-1")]),
+            Timestamp::from_epoch(0),
+        ),
     );
-    app.now = 5 * 60;
+    app.now = Timestamp::from_epoch(5 * 60);
 
     let command = handle_key(&mut app, press(KeyCode::Char(']')));
 
@@ -566,9 +601,12 @@ fn a_cold_cached_view_busts_and_full_loads() {
     let filter = linear_tui::api::IssueFilter::in_progress_mine();
     app.workspace.feeds.insert(
         FeedKey::Issues(filter),
-        Feed::ready(Page::single(vec![sample_issue("i1", "DAN-1")]), 0),
+        Feed::ready(
+            Page::single(vec![sample_issue("i1", "DAN-1")]),
+            Timestamp::from_epoch(0),
+        ),
     );
-    app.now = 24 * 60 * 60;
+    app.now = Timestamp::from_epoch(24 * 60 * 60);
 
     let command = handle_key(&mut app, press(KeyCode::Char(']')));
 
@@ -669,7 +707,7 @@ fn replacing_the_workspace_clears_every_per_workspace_field() {
 
     let filter = linear_tui::api::IssueFilter::assigned_to_me();
     let mut app = detail_app();
-    assert!(app.workspace.detail.value().is_some());
+    assert!(app.workspace.detail().value().is_some());
     app.workspace
         .recently_viewed
         .push(sample_issue("i9", "DAN-9"));
@@ -681,7 +719,7 @@ fn replacing_the_workspace_clears_every_per_workspace_field() {
     app.workspace = WorkspaceData::new();
 
     assert!(app.workspace.session.is_none());
-    assert!(app.workspace.detail.value().is_none());
+    assert!(app.workspace.detail().value().is_none());
     assert!(app.workspace.recently_viewed.is_empty());
     assert!(app.workspace.feeds.get(&FeedKey::Issues(filter)).is_none());
     assert!(app.workspace.view_open.is_none());
@@ -837,9 +875,9 @@ fn e_opens_the_edit_editor_prefilled_with_my_comment_body() {
 #[test]
 fn e_refuses_to_edit_someone_elses_comment() {
     let mut app = detail_app_with_comments();
-    if let Some(detail) = app.workspace.detail.value_mut() {
-        detail.comments[0].is_mine = false;
-    }
+    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    detail.comments[0].is_mine = false;
+    app.workspace.set_detail(detail, app.now);
     handle_key(&mut app, press(KeyCode::Char('m')));
 
     let command = handle_key(&mut app, press(KeyCode::Char('e')));
@@ -879,7 +917,7 @@ fn comment_edited_refetches_the_thread_from_the_top() {
 
     let command = apply(&mut app, Message::CommentEdited { id: "i1".into() });
 
-    assert!(app.workspace.detail.in_flight());
+    assert!(app.workspace.detail().in_flight());
     match command {
         Some(Command::LoadDetail {
             id,
@@ -923,9 +961,9 @@ fn d_confirms_before_deleting_my_comment() {
 #[test]
 fn d_refuses_to_delete_someone_elses_comment() {
     let mut app = detail_app_with_comments();
-    if let Some(detail) = app.workspace.detail.value_mut() {
-        detail.comments[0].is_mine = false;
-    }
+    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    detail.comments[0].is_mine = false;
+    app.workspace.set_detail(detail, app.now);
     handle_key(&mut app, press(KeyCode::Char('m')));
 
     let command = handle_key(&mut app, press(KeyCode::Char('d')));
@@ -954,7 +992,7 @@ fn comment_deleted_stays_in_comments_and_refetches() {
 
     let command = apply(&mut app, Message::CommentDeleted { id: "i1".into() });
 
-    assert!(app.workspace.detail.in_flight());
+    assert!(app.workspace.detail().in_flight());
     assert_eq!(
         app.focus,
         Focus::Detail(LeftPanel::MyWork, DetailView::Comments)
@@ -974,7 +1012,7 @@ fn a_shrunk_thread_clamps_the_comment_selection() {
     handle_key(&mut app, press(KeyCode::Char('m')));
     app.comment_state.select(Some(2));
 
-    let mut detail = app.workspace.detail.value().cloned().expect("detail");
+    let mut detail = app.workspace.detail().value().cloned().expect("detail");
     detail.comments.pop();
     apply(
         &mut app,
@@ -996,7 +1034,7 @@ fn deleting_the_last_comment_falls_back_to_reading() {
     let mut app = detail_app_with_comments();
     handle_key(&mut app, press(KeyCode::Char('m')));
 
-    let mut detail = app.workspace.detail.value().cloned().expect("detail");
+    let mut detail = app.workspace.detail().value().cloned().expect("detail");
     detail.comments.clear();
     apply(
         &mut app,
@@ -1115,7 +1153,7 @@ fn comment_posted_refetches_the_thread_and_reveals_the_bottom() {
 
     let command = apply(&mut app, Message::CommentPosted { id: "i1".into() });
 
-    assert!(app.workspace.detail.in_flight());
+    assert!(app.workspace.detail().in_flight());
     match command {
         Some(Command::LoadDetail {
             id,
@@ -1132,7 +1170,7 @@ fn posting_from_comments_mode_stays_in_comments_and_reveals_the_new_comment() {
 
     let command = apply(&mut app, Message::CommentPosted { id: "i1".into() });
 
-    assert!(app.workspace.detail.in_flight());
+    assert!(app.workspace.detail().in_flight());
     assert_eq!(
         app.focus,
         Focus::Detail(LeftPanel::MyWork, DetailView::Comments)
@@ -1152,7 +1190,7 @@ fn newest_comment_reveal_selects_the_new_comment() {
     handle_key(&mut app, press(KeyCode::Char('m')));
     app.comment_state.select(Some(0));
 
-    let mut detail = app.workspace.detail.value().cloned().expect("detail");
+    let mut detail = app.workspace.detail().value().cloned().expect("detail");
     detail.comments.push(linear_tui::api::Comment {
         id: "c_new".into(),
         parent_id: None,
@@ -1301,7 +1339,7 @@ fn a_warm_status_picker_opens_from_cache_without_refetching() {
 fn a_failed_detail_fetch_marks_the_cell_and_shows_an_error() {
     let mut app = list_app_with_issue();
     handle_key(&mut app, press(KeyCode::Enter));
-    assert!(app.workspace.detail.in_flight());
+    assert!(app.workspace.detail().in_flight());
 
     apply(
         &mut app,
@@ -1312,7 +1350,7 @@ fn a_failed_detail_fetch_marks_the_cell_and_shows_an_error() {
     );
 
     assert!(matches!(
-        app.workspace.detail.status(),
+        app.workspace.detail().status(),
         CacheStatus::Failed(_)
     ));
     assert!(matches!(app.status, Some(Status::Error(_))));
@@ -1490,7 +1528,7 @@ fn gi_opens_a_jump_input_that_loads_the_referenced_issue() {
     let commands = handle_key(&mut app, press(KeyCode::Enter));
 
     assert!(matches!(app.focus, Focus::Detail(..)));
-    assert!(app.workspace.detail.in_flight());
+    assert!(app.workspace.detail().in_flight());
     assert!(app.input().is_none());
     match commands {
         Some(Command::LoadDetail { id, .. }) if id == "DAN2-7" => {}
@@ -1922,7 +1960,7 @@ fn enter_on_recently_viewed_reopens_the_issue() {
             reveal: Reveal::Top,
         },
     );
-    app.workspace.detail.bust();
+    app.workspace.bust_detail();
     app.focus = Focus::Recent;
     app.workspace.recent_state.select(Some(0));
 
@@ -1989,7 +2027,8 @@ fn list_app_with_issues() -> App {
 fn detail_app() -> App {
     let mut app = list_app_with_issue();
     app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
-    app.workspace.detail = Remote::ready(sample_detail("i1", "DAN2-7"), app.now);
+    app.workspace
+        .set_detail(sample_detail("i1", "DAN2-7"), app.now);
     app
 }
 
@@ -2084,12 +2123,12 @@ fn state_option(id: &str, name: &str) -> linear_tui::api::StateOption {
 
 fn detail_app_with_comments() -> App {
     let mut app = detail_app();
-    if let Some(detail) = app.workspace.detail.value_mut() {
-        detail.comments = vec![
-            comment("c1", None, "root comment"),
-            comment("c1a", Some("c1"), "a reply"),
-            comment("c2", None, "another root"),
-        ];
-    }
+    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    detail.comments = vec![
+        comment("c1", None, "root comment"),
+        comment("c1a", Some("c1"), "a reply"),
+        comment("c2", None, "another root"),
+    ];
+    app.workspace.set_detail(detail, app.now);
     app
 }

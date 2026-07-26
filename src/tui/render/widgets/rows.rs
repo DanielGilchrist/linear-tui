@@ -5,7 +5,7 @@ use ratatui::{
 
 use super::super::theme;
 use super::issue_row::issue_row;
-use crate::api::{IssueSummary, NotificationItem};
+use crate::api::{IssueSummary, NotificationItem, Timestamp};
 use crate::tui::display::{self, GroupBy};
 use crate::tui::spinner::Spinner;
 
@@ -16,7 +16,7 @@ pub fn view_items(
     selected: Option<usize>,
     id_width: usize,
     width: usize,
-    now: i64,
+    now: Timestamp,
 ) -> (Vec<ListItem<'static>>, Option<usize>) {
     let mut items: Vec<ListItem> = Vec::new();
     let mut flat = 0usize;

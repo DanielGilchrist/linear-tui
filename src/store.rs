@@ -2,10 +2,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::api::{IssueSummary, NotificationItem};
+use crate::api::{IssueSummary, NotificationItem, Timestamp};
 use crate::tui::feed::{Feed, FeedKey, FeedStore, HasId, STALE_HORIZON};
 
-const FEEDS_VERSION: u32 = 1;
+const FEEDS_VERSION: u32 = 2;
 const FEED_ITEM_CAP: usize = 100;
 
 fn state_dir() -> Option<PathBuf> {
@@ -35,7 +35,7 @@ fn feeds_path(namespace: &str) -> Option<PathBuf> {
 pub struct PersistedFeed<T> {
     pub items: Vec<T>,
     pub truncated: bool,
-    pub fetched_at: i64,
+    pub fetched_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,17 +55,19 @@ fn persist_feed<T: HasId + Clone>(feed: &Feed<T>) -> PersistedFeed<T> {
     }
 }
 
-pub fn build_cache(feeds: &FeedStore, inbox: &Feed<NotificationItem>, now: i64) -> PersistedCache {
-    let fresh_enough = |fetched_at: i64| now - fetched_at <= STALE_HORIZON;
-
+pub fn build_cache(
+    feeds: &FeedStore,
+    inbox: &Feed<NotificationItem>,
+    now: Timestamp,
+) -> PersistedCache {
     let issues = feeds
         .iter()
         .filter(|(key, _)| !key.is_search())
-        .filter(|(_, feed)| !feed.items().is_empty() && fresh_enough(feed.fetched_at()))
+        .filter(|(_, feed)| !feed.items().is_empty() && fresh_enough(now, feed.fetched_at()))
         .map(|(key, feed)| (key.clone(), persist_feed(feed)))
         .collect();
 
-    let inbox = (!inbox.items().is_empty() && fresh_enough(inbox.fetched_at()))
+    let inbox = (!inbox.items().is_empty() && fresh_enough(now, inbox.fetched_at()))
         .then(|| persist_feed(inbox));
 
     PersistedCache {
@@ -157,6 +159,10 @@ pub fn save_recent(namespace: &str, issues: &[IssueSummary]) {
     }
 }
 
+fn fresh_enough(now: Timestamp, fetched_at: Timestamp) -> bool {
+    now.seconds_since(fetched_at) <= STALE_HORIZON
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,20 +194,24 @@ mod tests {
         let many: Vec<IssueSummary> = (0..FEED_ITEM_CAP + 5)
             .map(|n| issue(&format!("i{n}")))
             .collect();
+
         feeds.insert(
             FeedKey::Issues(IssueFilter::assigned_to_me()),
-            Feed::ready(Page::single(many), 1_000),
+            Feed::ready(Page::single(many), Timestamp::from_epoch(1_000)),
         );
         feeds.insert(
             FeedKey::Search("oven".into()),
-            Feed::ready(Page::single(vec![issue("s1")]), 1_000),
+            Feed::ready(
+                Page::single(vec![issue("s1")]),
+                Timestamp::from_epoch(1_000),
+            ),
         );
         feeds.insert(
             FeedKey::View("old".into()),
-            Feed::ready(Page::single(vec![issue("o1")]), 0),
+            Feed::ready(Page::single(vec![issue("o1")]), Timestamp::from_epoch(0)),
         );
 
-        let now = STALE_HORIZON + 500;
+        let now = Timestamp::from_epoch(STALE_HORIZON + 500);
         let cache = build_cache(&feeds, &Feed::default(), now);
 
         assert_eq!(cache.issues.len(), 1, "search and stale feeds excluded");

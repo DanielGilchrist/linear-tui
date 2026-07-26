@@ -1,6 +1,6 @@
 use ratatui::{
     layout::Rect,
-    style::{Modifier, Style},
+    style::Modifier,
     text::{Line, Span, Text},
     widgets::ScrollbarState,
     Frame,
@@ -8,10 +8,10 @@ use ratatui::{
 
 use super::super::theme::{self, Emphasis};
 use super::super::widgets::{notification_preview_text, preview_text, text_panel, ScrollableText};
-use crate::api::{IssueDetail, IssueSummary, NotificationItem, ThreadedComment};
+use crate::api::{IssueDetail, IssueSummary, NotificationItem, ThreadedComment, Timestamp};
 use crate::tui::cache::{Phase, Remote};
-use crate::tui::markdown;
 use crate::tui::spinner::Spinner;
+use crate::tui::workspace::RenderedDetail;
 
 pub enum Preview<'a> {
     Issue(Option<&'a IssueSummary>),
@@ -19,14 +19,20 @@ pub enum Preview<'a> {
 }
 
 pub struct ReadingProps<'a> {
-    pub now: i64,
+    pub now: Timestamp,
     pub selected: Option<usize>,
     pub scroll_position: &'a mut usize,
     pub scroll_state: &'a mut ScrollbarState,
     pub emphasis: Emphasis,
 }
 
-pub fn render_reading(frame: &mut Frame, area: Rect, detail: &IssueDetail, props: ReadingProps) {
+pub fn render_reading(
+    frame: &mut Frame,
+    area: Rect,
+    detail: &IssueDetail,
+    rendered: &RenderedDetail,
+    props: ReadingProps,
+) {
     let ReadingProps {
         now,
         selected,
@@ -35,7 +41,7 @@ pub fn render_reading(frame: &mut Frame, area: Rect, detail: &IssueDetail, props
         emphasis,
     } = props;
 
-    let body = detail_text(detail, now, selected);
+    let body = detail_text(detail, rendered, now, selected);
     let title = detail.identifier.clone();
 
     if let Some(start) = selected.and_then(|index| body.comment_top(index)) {
@@ -54,6 +60,7 @@ pub fn render_pane(
     frame: &mut Frame,
     area: Rect,
     detail: &Remote<IssueDetail>,
+    rendered: &RenderedDetail,
     spinner: Spinner,
     preview: Preview,
     props: ReadingProps,
@@ -61,7 +68,7 @@ pub fn render_pane(
     match detail.phase() {
         Phase::Ready => {
             if let Some(detail) = detail.value() {
-                render_reading(frame, area, detail, props);
+                render_reading(frame, area, detail, rendered, props);
             }
         }
         Phase::Loading => text_panel(
@@ -100,7 +107,12 @@ impl DetailBody {
     }
 }
 
-fn detail_text(detail: &IssueDetail, now: i64, selected: Option<usize>) -> DetailBody {
+fn detail_text(
+    detail: &IssueDetail,
+    rendered: &RenderedDetail,
+    now: Timestamp,
+    selected: Option<usize>,
+) -> DetailBody {
     let mut lines: Vec<Line> = Vec::new();
 
     lines.push(Line::from(vec![
@@ -140,11 +152,9 @@ fn detail_text(detail: &IssueDetail, now: i64, selected: Option<usize>) -> Detai
     lines.push(Line::from(Span::styled(detail.url.clone(), theme::DIM)));
     lines.push(Line::from(""));
 
-    if let Some(description) = &detail.description {
-        if !description.is_empty() {
-            lines.extend(markdown::render(description, Style::default()));
-            lines.push(Line::from(""));
-        }
+    if !rendered.description.is_empty() {
+        lines.extend(rendered.description.iter().cloned());
+        lines.push(Line::from(""));
     }
 
     let mut comment_offsets = Vec::new();
@@ -157,9 +167,15 @@ fn detail_text(detail: &IssueDetail, now: i64, selected: Option<usize>) -> Detai
 
         lines.push(Line::from(""));
 
-        for (index, threaded) in detail.threaded_comments().into_iter().enumerate() {
+        let threaded = detail.threaded_comments();
+
+        for (index, (threaded, body)) in threaded
+            .into_iter()
+            .zip(&rendered.comment_bodies)
+            .enumerate()
+        {
             comment_offsets.push(lines.len());
-            append_comment(&mut lines, threaded, selected == Some(index), now);
+            append_comment(&mut lines, threaded, body, selected == Some(index), now);
         }
     }
 
@@ -172,8 +188,9 @@ fn detail_text(detail: &IssueDetail, now: i64, selected: Option<usize>) -> Detai
 fn append_comment(
     lines: &mut Vec<Line<'static>>,
     threaded: ThreadedComment,
+    body: &[Line<'static>],
     highlighted: bool,
-    now: i64,
+    now: Timestamp,
 ) {
     let ThreadedComment { comment, depth } = threaded;
     let indent = "  ".repeat(depth);
@@ -203,9 +220,9 @@ fn append_comment(
 
     lines.push(Line::from(header));
 
-    for line in markdown::render(&comment.body, Style::default()) {
+    for line in body {
         let mut spans = vec![Span::raw(body_indent.clone())];
-        spans.extend(line.spans);
+        spans.extend(line.spans.iter().cloned());
 
         lines.push(Line::from(spans));
     }

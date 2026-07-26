@@ -82,7 +82,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             selected_view_key(app).and_then(|key| access_feed(app, key))
         }
         Message::DetailLoaded { detail, reveal } => {
-            app.workspace.detail.set(*detail, app.now);
+            app.workspace.set_detail(*detail, app.now);
             app.status = None;
 
             app.scroll_position = match reveal {
@@ -92,8 +92,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
 
             app.scroll_state = ScrollbarState::default();
 
-            let detail = app.workspace.detail.value()?;
-
+            let detail = app.workspace.detail().value()?;
             let summary = IssueSummary::from_detail(detail);
             let comment_count = detail.comments.len();
             let newest_comment = match reveal {
@@ -176,7 +175,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
 
             match app.focus {
                 Focus::Detail(..) => {
-                    app.workspace.detail.begin();
+                    app.workspace.begin_detail();
 
                     let detail = Command::LoadDetail {
                         id,
@@ -193,7 +192,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
         }
         Message::CommentPosted { id } => {
             app.status = Some(Status::CommentPosted);
-            app.workspace.detail.begin();
+            app.workspace.begin_detail();
 
             let reveal = match app.focus {
                 Focus::Detail(_, DetailView::Comments) => Reveal::NewestComment,
@@ -204,7 +203,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
         }
         Message::CommentEdited { id } => {
             app.status = Some(Status::CommentEdited);
-            app.workspace.detail.begin();
+            app.workspace.begin_detail();
 
             Some(Command::LoadDetail {
                 id,
@@ -213,7 +212,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
         }
         Message::CommentDeleted { id } => {
             app.status = Some(Status::CommentDeleted);
-            app.workspace.detail.begin();
+            app.workspace.begin_detail();
 
             Some(Command::LoadDetail {
                 id,
@@ -227,7 +226,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
                 }
                 FailureTarget::Inbox => app.workspace.inbox.fail(error.clone()),
                 FailureTarget::CustomViews => app.workspace.saved_views.views.fail(error.clone()),
-                FailureTarget::Detail => app.workspace.detail.fail(error.clone()),
+                FailureTarget::Detail => app.workspace.fail_detail(error.clone()),
                 FailureTarget::States { team_id } => {
                     app.workspace
                         .states

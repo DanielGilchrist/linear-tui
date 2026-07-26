@@ -123,16 +123,58 @@ impl From<Rgb> for String {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(from = "String", into = "String")]
 pub struct Timestamp(i64);
 
 impl Timestamp {
-    pub fn epoch(self) -> i64 {
-        self.0
+    pub fn now() -> Self {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_secs() as i64)
+            .unwrap_or(0);
+
+        Self(epoch)
     }
 
-    pub fn humanise(self, now: i64) -> String {
+    pub fn from_epoch(epoch: i64) -> Self {
+        Self(epoch)
+    }
+
+    pub fn seconds_since(self, earlier: Timestamp) -> i64 {
+        self.0 - earlier.0
+    }
+
+    pub fn next_change(self, now: Timestamp) -> Option<Timestamp> {
+        const MINUTE: i64 = 60;
+        const HOUR: i64 = 60 * MINUTE;
+        const DAY: i64 = 24 * HOUR;
+        const WEEK: i64 = 7 * DAY;
+        const MONTH: i64 = 30 * DAY;
+
+        let seconds = now.seconds_since(self);
+
+        let boundary = if seconds < MINUTE {
+            MINUTE
+        } else if seconds < HOUR {
+            (seconds / MINUTE + 1) * MINUTE
+        } else if seconds < DAY {
+            (seconds / HOUR + 1) * HOUR
+        } else if seconds < WEEK {
+            (seconds / DAY + 1) * DAY
+        } else if seconds < MONTH {
+            let next_week_day = (seconds / DAY / 7 + 1) * 7;
+            next_week_day.min(30) * DAY
+        } else {
+            return None;
+        };
+
+        Some(Timestamp(self.0 + boundary))
+    }
+
+    pub fn humanise(self, now: Timestamp) -> String {
         match self.age(now) {
             Age::JustNow => "just now".into(),
             Age::Relative(text) => format!("{text} ago"),
@@ -140,15 +182,15 @@ impl Timestamp {
         }
     }
 
-    pub fn age_short(self, now: i64) -> String {
+    pub fn age_short(self, now: Timestamp) -> String {
         match self.age(now) {
             Age::JustNow => "just now".into(),
             Age::Relative(text) | Age::Date(text) => text,
         }
     }
 
-    fn age(self, now: i64) -> Age {
-        let seconds = now - self.0;
+    fn age(self, now: Timestamp) -> Age {
+        let seconds = now.seconds_since(self);
 
         if seconds < 60 {
             return Age::JustNow;
@@ -210,5 +252,59 @@ impl From<Timestamp> for String {
         chrono::DateTime::from_timestamp(timestamp.0, 0)
             .map(|dt| dt.to_rfc3339())
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DAY: i64 = 24 * 60 * 60;
+
+    #[test]
+    fn humanise_changes_exactly_at_next_change() {
+        let stamp = Timestamp::from_epoch(0);
+        let ages = [
+            0,
+            30,
+            59,
+            90,
+            3_500,
+            3_600,
+            7_000,
+            DAY - 1,
+            DAY + 5,
+            8 * DAY,
+            20 * DAY,
+        ];
+
+        for age in ages {
+            let now = Timestamp::from_epoch(age);
+            let due = stamp
+                .next_change(now)
+                .unwrap_or_else(|| panic!("age {age} should still change"));
+            let boundary = due.seconds_since(stamp);
+
+            let just_before = Timestamp::from_epoch(boundary - 1);
+            let at_due = Timestamp::from_epoch(boundary);
+
+            assert_eq!(
+                stamp.humanise(just_before),
+                stamp.humanise(now),
+                "age {age}: display should hold until the boundary"
+            );
+            assert_ne!(
+                stamp.humanise(at_due),
+                stamp.humanise(now),
+                "age {age}: display should flip at the boundary"
+            );
+        }
+    }
+
+    #[test]
+    fn a_fixed_date_no_longer_needs_refreshing() {
+        let stamp = Timestamp::from_epoch(0);
+        let now = Timestamp::from_epoch(40 * DAY);
+        assert!(stamp.next_change(now).is_none());
     }
 }

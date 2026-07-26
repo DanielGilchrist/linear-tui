@@ -1,7 +1,7 @@
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     text::{Line, Text},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, List, ListItem, Paragraph},
     Frame,
 };
 
@@ -11,6 +11,7 @@ use super::super::widgets::{
     breakdown_line, placeholder, view_items, view_title, PlaceholderText, StyledList,
 };
 use super::{feed_count, feed_placeholder, feed_truncated};
+use crate::api::Timestamp;
 use crate::tui::display::{self, GroupBy, SortBy};
 use crate::tui::feed::{Feed, FeedKey, FeedStore};
 use crate::tui::saved_views::SavedViewsPanel;
@@ -58,13 +59,12 @@ pub fn render_preview(
     id: &str,
     name: &str,
     spinner: Spinner,
-    now: i64,
+    now: Timestamp,
 ) {
     let feed = feeds.get(&FeedKey::View(id.to_string()));
 
-    let block = Block::default()
+    let block = Block::bordered()
         .title(view_title(name, feed_count(feed), feed_truncated(feed)))
-        .borders(Borders::ALL)
         .border_style(Emphasis::Blurred.border());
 
     let inner = block.inner(area);

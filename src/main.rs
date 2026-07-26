@@ -1,20 +1,13 @@
-use std::io::{self, Stdout};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
-use crossterm::{
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use ratatui::{backend::CrosstermBackend, Terminal};
 
 use linear_tui::api::{self, fixture::FixtureClient, Client, LinearApi};
 use linear_tui::tui::{
     self,
     app::App,
-    cache::Remote,
     feed::{Feed, FeedKey},
     focus::{DetailView, Focus, LeftPanel},
     view::ViewKind,
@@ -83,11 +76,11 @@ async fn run_tui(api_key: String) -> Result<()> {
     let namespace = linear_tui::store::namespace(&api_key);
     let api: Arc<dyn LinearApi> = Arc::new(Client::new(api_key));
 
-    let mut terminal = setup_terminal()?;
+    let mut terminal = ratatui::init();
     let mut app = App::new();
     let result = tui::run(&mut terminal, &mut app, api, namespace).await;
 
-    cleanup_terminal()?;
+    ratatui::restore();
     result
 }
 
@@ -118,7 +111,7 @@ async fn headless_render(args: RenderArgs) -> Result<()> {
     if let Some(id) = &args.detail {
         app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
         if let Some(detail) = api.issue_detail(id).await? {
-            app.workspace.detail = Remote::ready(detail, app.now);
+            app.workspace.set_detail(detail, app.now);
         }
     }
 
@@ -178,19 +171,5 @@ async fn record(api_key: &str, args: RecordArgs) -> Result<()> {
     }
     std::fs::write(&args.out, serde_json::to_string_pretty(&fixture)?)?;
     eprintln!("Wrote fixture to {}", args.out.display());
-    Ok(())
-}
-
-fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    Ok(Terminal::new(CrosstermBackend::new(stdout))?)
-}
-
-fn cleanup_terminal() -> Result<()> {
-    disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen)?;
-    print!("\x1B[?25h");
     Ok(())
 }

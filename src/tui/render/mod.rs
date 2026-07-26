@@ -14,7 +14,7 @@ use super::overlay::{Overlay, PrefixUnder};
 use super::spinner::Spinner;
 use super::view::{View, ViewKind};
 use super::workspace::WorkspaceData;
-use crate::api::{IssueDetail, IssueSummary};
+use crate::api::{IssueDetail, IssueSummary, Timestamp};
 
 mod format;
 mod overlays;
@@ -53,6 +53,36 @@ pub fn render(app: &mut App, frame: &mut Frame) {
 
     render_footer(app, frame, footer);
     render_overlay(&mut app.overlay, &app.workspace.feeds, app.spinner, frame);
+
+    app.time_refresh_due = earliest_time_refresh(app);
+}
+
+fn earliest_time_refresh(app: &App) -> Option<Timestamp> {
+    let now = app.now;
+
+    let issue_stamps = app
+        .workspace
+        .recently_viewed
+        .iter()
+        .chain(
+            app.workspace
+                .feeds
+                .iter()
+                .flat_map(|(_, feed)| feed.items()),
+        )
+        .map(|issue| issue.updated_at);
+
+    let comment_stamps = app
+        .workspace
+        .detail()
+        .value()
+        .into_iter()
+        .flat_map(|detail| detail.comments.iter().map(|comment| comment.created_at));
+
+    issue_stamps
+        .chain(comment_stamps)
+        .filter_map(|stamp| stamp.next_change(now))
+        .min()
 }
 
 fn render_zoomed(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -130,11 +160,13 @@ fn render_overlay(overlay: &mut Overlay, feeds: &FeedStore, spinner: Spinner, fr
     }
 }
 
-fn active_view<'a>(views: &'a [View], view_state: &ListState) -> &'a View {
-    &views[view_state
+fn active_view<'a>(views: &'a [View], view_state: &ListState) -> Option<&'a View> {
+    let index = view_state
         .selected()
         .unwrap_or(0)
-        .min(views.len().saturating_sub(1))]
+        .min(views.len().saturating_sub(1));
+
+    views.get(index)
 }
 
 fn selected_issue<'w>(
@@ -143,7 +175,8 @@ fn selected_issue<'w>(
     view_state: &ListState,
     list_state: &ListState,
 ) -> Option<&'w IssueSummary> {
-    let view = active_view(views, view_state);
+    let view = active_view(views, view_state)?;
+
     match &view.kind {
         ViewKind::Issues(_) => list_state
             .selected()
@@ -160,15 +193,16 @@ fn work_preview<'a>(
 ) -> surfaces::detail::Preview<'a> {
     use surfaces::detail::Preview;
 
-    match &active_view(views, view_state).kind {
-        ViewKind::Issues(_) => {
+    match active_view(views, view_state).map(|view| &view.kind) {
+        Some(ViewKind::Issues(_)) => {
             Preview::Issue(selected_issue(workspace, views, view_state, list_state))
         }
-        ViewKind::Inbox => Preview::Notification(
+        Some(ViewKind::Inbox) => Preview::Notification(
             list_state
                 .selected()
                 .and_then(|index| workspace.inbox.items().get(index)),
         ),
+        None => Preview::Issue(None),
     }
 }
 
@@ -178,8 +212,9 @@ fn ready_detail<'w>(
     view_state: &ListState,
     list_state: &ListState,
 ) -> Option<&'w IssueDetail> {
-    let detail = workspace.detail.value()?;
+    let detail = workspace.detail().value()?;
     let selected = selected_issue(workspace, views, view_state, list_state)?;
+
     (detail.id == selected.id).then_some(detail)
 }
 
@@ -201,17 +236,21 @@ fn render_panel(
                 ..
             } = &mut *app;
             let active = view_state.selected().unwrap_or(0);
-            let active_view = &views[active.min(views.len().saturating_sub(1))];
-            let content = match &active_view.kind {
+            let Some(view) = active_view(views, view_state) else {
+                return Viewport((rect.height as usize).saturating_sub(2));
+            };
+
+            let content = match &view.kind {
                 ViewKind::Issues(_) => surfaces::my_work::MyWorkContent::Issues {
-                    issues: workspace.issues_for(active_view),
+                    issues: workspace.issues_for(view),
                 },
                 ViewKind::Inbox => surfaces::my_work::MyWorkContent::Inbox {
                     items: workspace.inbox.items(),
                 },
             };
-            let status = workspace.feed_status_for(active_view);
-            let appending = workspace.appending_for(active_view);
+
+            let status = workspace.feed_status_for(view);
+            let appending = workspace.appending_for(view);
 
             surfaces::my_work::render(
                 frame,
@@ -293,7 +332,8 @@ fn render_detail_pane(
     surfaces::detail::render_pane(
         frame,
         area,
-        &app.workspace.detail,
+        app.workspace.detail(),
+        app.workspace.detail_markdown(),
         app.spinner,
         preview,
         surfaces::detail::ReadingProps {
@@ -314,6 +354,7 @@ fn render_my_work_right(app: &mut App, frame: &mut Frame, area: Rect) {
             frame,
             area,
             detail,
+            app.workspace.detail_markdown(),
             surfaces::detail::ReadingProps {
                 now: app.now,
                 selected: None,

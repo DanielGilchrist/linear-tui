@@ -25,7 +25,7 @@ pub(super) fn enter_comments(app: &mut App) -> Option<Command> {
 }
 
 pub(super) fn open_reply_editor(app: &mut App) -> Option<Command> {
-    let detail = app.workspace.detail.value()?;
+    let detail = app.workspace.detail().value()?;
     let team_id = detail.team_id.clone();
     let selected = app.comment_state.selected()?;
     let parent_id = detail
@@ -40,7 +40,7 @@ pub(super) fn open_reply_editor(app: &mut App) -> Option<Command> {
 pub(super) fn open_edit_editor(app: &mut App) -> Option<Command> {
     let selected = app.comment_state.selected()?;
 
-    let picked = app.workspace.detail.value().and_then(|detail| {
+    let picked = app.workspace.detail().value().and_then(|detail| {
         detail.threaded_comments().get(selected).map(|threaded| {
             (
                 detail.team_id.clone(),
@@ -64,7 +64,7 @@ pub(super) fn open_edit_editor(app: &mut App) -> Option<Command> {
 pub(super) fn open_delete_comment(app: &mut App) -> Option<Command> {
     let selected = app.comment_state.selected()?;
 
-    let picked = app.workspace.detail.value().and_then(|detail| {
+    let picked = app.workspace.detail().value().and_then(|detail| {
         detail.threaded_comments().get(selected).map(|threaded| {
             (
                 detail.id.clone(),
@@ -98,16 +98,19 @@ pub(super) fn open_issue(app: &mut App, id: String) -> Option<Command> {
     app.scroll_position = 0;
     app.scroll_state = ScrollbarState::default();
 
-    let already_open = match app.workspace.detail.value() {
-        Some(detail) => detail.id == id,
-        None => false,
-    };
+    let already_open = app
+        .workspace
+        .detail()
+        .value()
+        .is_some_and(|detail| detail.id == id);
+
     if already_open {
         return None;
     }
 
-    app.workspace.detail.bust();
-    app.workspace.detail.begin();
+    app.workspace.bust_detail();
+    app.workspace.begin_detail();
+
     Some(Command::LoadDetail {
         id,
         reveal: Reveal::Top,
@@ -283,6 +286,6 @@ pub(super) fn newest_comment_index(detail: &crate::api::IssueDetail) -> Option<u
         .threaded_comments()
         .iter()
         .enumerate()
-        .max_by_key(|(_, threaded)| threaded.comment.created_at.epoch())
+        .max_by_key(|(_, threaded)| threaded.comment.created_at)
         .map(|(index, _)| index)
 }

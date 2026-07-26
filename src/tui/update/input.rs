@@ -393,7 +393,7 @@ pub(super) fn submit_editor(app: &mut App, editor: Editor) -> Option<Command> {
 
     let issue_id = app
         .workspace
-        .detail
+        .detail()
         .value()
         .map(|detail| detail.id.clone())?;
 

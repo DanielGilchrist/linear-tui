@@ -4,8 +4,8 @@ use ratatui::{
     style::Style,
     text::Text,
     widgets::{
-        Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget,
-        Widget, Wrap,
+        Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget,
+        Wrap,
     },
 };
 
@@ -53,9 +53,7 @@ impl Widget for ScrollableText<'_> {
 
         *self.scroll_position = (*self.scroll_position).min(max_scroll);
 
-        let mut block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(self.border);
+        let mut block = Block::bordered().border_style(self.border);
 
         if let Some(title) = self.title {
             block = block.title(title);

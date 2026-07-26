@@ -2,6 +2,7 @@ pub mod action;
 pub mod app;
 pub mod cache;
 pub mod display;
+pub mod event;
 pub mod feed;
 pub mod focus;
 pub mod issue_ref;

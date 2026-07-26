@@ -2,8 +2,10 @@ use crossterm::event::KeyEvent;
 
 use super::action::ConfirmInput;
 use super::app::App;
+use super::event::Redraw;
 use super::message::Command;
 use super::overlay::Overlay;
+use crate::api::Timestamp;
 
 mod feed;
 mod input;
@@ -37,5 +39,22 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Command> {
         Overlay::Search(search) => apply_search(app, search, key),
         Overlay::Find(find) => apply_find(app, find, key),
         Overlay::None => resolve_browse(app, key).and_then(|action| apply_action(app, action)),
+    }
+}
+
+pub fn tick(app: &mut App, now: Timestamp) -> Redraw {
+    app.now = now;
+
+    let spinner_advanced = app.is_loading();
+    if spinner_advanced {
+        app.spinner.tick();
+    }
+
+    let timestamp_due = app.time_refresh_due.is_some_and(|due| now >= due);
+
+    if spinner_advanced || timestamp_due {
+        Redraw::Needed
+    } else {
+        Redraw::Skipped
     }
 }

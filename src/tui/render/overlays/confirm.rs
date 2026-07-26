@@ -1,7 +1,7 @@
 use ratatui::{
     layout::Rect,
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Paragraph, Wrap},
     Frame,
 };
 
@@ -14,9 +14,8 @@ pub fn area(frame_area: Rect) -> Rect {
 }
 
 pub fn render(confirm: &Confirm, frame: &mut Frame, area: Rect) {
-    let block = Block::default()
+    let block = Block::bordered()
         .title("Confirm")
-        .borders(Borders::ALL)
         .border_style(theme::ACCENT);
 
     let text = Text::from(vec![

@@ -2,7 +2,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Widget},
+    widgets::{Block, List, ListItem, ListState, Paragraph, StatefulWidget, Widget},
 };
 
 use super::super::theme::{self, Emphasis};
@@ -76,9 +76,8 @@ impl Widget for StyledList<'_> {
             Some(format!(" {} of {} ", current, total))
         });
 
-        let mut block = Block::default()
+        let mut block = Block::bordered()
             .title(title)
-            .borders(Borders::ALL)
             .border_style(self.emphasis.border());
 
         if let Some(pos) = position_text {
@@ -92,7 +91,8 @@ impl Widget for StyledList<'_> {
 
         let list = List::new(self.items)
             .block(block)
-            .highlight_style(self.emphasis.highlight());
+            .highlight_style(self.emphasis.highlight())
+            .scroll_padding(1);
 
         match self.state {
             Some(state) => StatefulWidget::render(list, area, buf, state),

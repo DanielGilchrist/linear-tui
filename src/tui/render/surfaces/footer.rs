@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use super::super::format::fit;
+use super::super::format;
 use super::super::theme;
 use crate::tui::layout;
 
@@ -42,7 +42,7 @@ pub fn render(frame: &mut Frame, area: Rect, footer: Footer) {
         }
         Footer::Normal { left, workspace } => {
             let [left_area, right_area] =
-                layout::split_footer(area, workspace.chars().count() as u16 + 1);
+                layout::split_footer(area, format::width(&workspace) as u16 + 1);
 
             frame.render_widget(
                 Paragraph::new(left_line(left, left_area.width as usize)),
@@ -66,11 +66,12 @@ fn left_line(left: FooterLeft, width: usize) -> Line<'static> {
             } else {
                 theme::ACCENT
             };
-            Line::from(Span::styled(fit(&format!(" {text}"), width), style))
+            Line::from(Span::styled(format::fit(&format!(" {text}"), width), style))
         }
-        FooterLeft::Hint { text } => {
-            Line::from(Span::styled(fit(&format!(" {text}"), width), theme::DIM))
-        }
+        FooterLeft::Hint { text } => Line::from(Span::styled(
+            format::fit(&format!(" {text}"), width),
+            theme::DIM,
+        )),
     }
 }
 

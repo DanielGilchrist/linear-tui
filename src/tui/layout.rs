@@ -9,33 +9,17 @@ pub fn split_horizontal(area: Rect, left_pct: u16) -> [Rect; 2] {
 }
 
 pub fn centred_rect(area: Rect, width_pct: u16, height_pct: u16) -> Rect {
-    let [_, row, _] = Layout::vertical([
-        Constraint::Percentage((100 - height_pct) / 2),
-        Constraint::Percentage(height_pct),
-        Constraint::Percentage((100 - height_pct) / 2),
-    ])
-    .areas(area);
-
-    let [_, centre, _] = Layout::horizontal([
-        Constraint::Percentage((100 - width_pct) / 2),
+    area.centered(
         Constraint::Percentage(width_pct),
-        Constraint::Percentage((100 - width_pct) / 2),
-    ])
-    .areas(row);
-
-    centre
+        Constraint::Percentage(height_pct),
+    )
 }
 
 pub fn centred_rect_fixed(area: Rect, width_pct: u16, height: u16) -> Rect {
-    let width = area.width * width_pct / 100;
-    let x = area.x + area.width.saturating_sub(width) / 2;
-    let y = area.y + area.height.saturating_sub(height) / 2;
-    Rect {
-        x,
-        y,
-        width,
-        height: height.min(area.height),
-    }
+    area.centered(
+        Constraint::Percentage(width_pct),
+        Constraint::Length(height),
+    )
 }
 
 pub fn split_footer(area: Rect, right_width: u16) -> [Rect; 2] {
