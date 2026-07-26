@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use KeyCode::Char;
 
-use super::bindings::{BROWSE, CONFIRM, CTRL, EDITOR, INPUT, MENU, PICKER};
+use super::bindings::{BROWSE, CONFIRM, CTRL, EDITOR, INPUT, MENU, PICKER, REACTIONS};
 
 pub fn is_quit(key: &KeyEvent) -> bool {
     matches!(
@@ -32,6 +32,7 @@ pub enum Action {
     Reply,
     EditComment,
     DeleteComment,
+    React,
     CycleGroup,
     CycleSort,
     ToggleZoom,
@@ -83,6 +84,17 @@ pub enum InputInput {
     Submit,
     Cancel,
     Erase,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReactionInput {
+    Left,
+    Right,
+    Up,
+    Down,
+    Toggle,
+    Custom,
+    Cancel,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,6 +153,12 @@ impl InputInput {
 impl EditorInput {
     pub fn from_key(key: KeyEvent) -> Option<EditorInput> {
         EDITOR.resolve(key)
+    }
+}
+
+impl ReactionInput {
+    pub fn from_key(key: KeyEvent) -> Option<ReactionInput> {
+        REACTIONS.resolve(key)
     }
 }
 

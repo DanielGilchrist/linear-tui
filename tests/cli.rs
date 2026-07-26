@@ -33,4 +33,8 @@ fn headless_detail_render_includes_the_cached_markdown_bodies() {
         stdout.contains("thermocouple"),
         "detail render should include a markdown comment body, got:\n{stdout}"
     );
+    assert!(
+        stdout.contains("🚀"),
+        "detail render should include the issue's reaction chips, got:\n{stdout}"
+    );
 }

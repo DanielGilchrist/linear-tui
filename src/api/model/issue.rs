@@ -66,6 +66,14 @@ impl IssueSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Reaction {
+    pub id: String,
+    pub emoji: String,
+    #[serde(default)]
+    pub mine: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Comment {
     #[serde(default)]
     pub id: String,
@@ -78,6 +86,8 @@ pub struct Comment {
     pub body: String,
     #[serde(default)]
     pub created_at: Timestamp,
+    #[serde(default)]
+    pub reactions: Vec<Reaction>,
 }
 
 impl Comment {
@@ -104,6 +114,8 @@ pub struct IssueDetail {
     pub labels: Vec<Label>,
     #[serde(default)]
     pub comments: Vec<Comment>,
+    #[serde(default)]
+    pub reactions: Vec<Reaction>,
     #[serde(default)]
     pub branch_name: String,
     #[serde(default)]

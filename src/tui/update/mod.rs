@@ -18,7 +18,7 @@ pub use message::apply;
 
 use input::{
     apply_action, apply_confirm, apply_editor, apply_find, apply_input, apply_menu, apply_picker,
-    apply_prefix, apply_search, resolve_browse,
+    apply_prefix, apply_reactions, apply_search, resolve_browse,
 };
 
 pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Command> {
@@ -38,6 +38,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Command> {
         Overlay::Editor(editor) => apply_editor(app, editor, key),
         Overlay::Search(search) => apply_search(app, search, key),
         Overlay::Find(find) => apply_find(app, find, key),
+        Overlay::Reactions(reactions) => apply_reactions(app, reactions, key),
         Overlay::None => resolve_browse(app, key).and_then(|action| apply_action(app, action)),
     }
 }

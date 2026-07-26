@@ -6,14 +6,15 @@ use serde::Deserialize;
 
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::model::{
-    Cursor, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, NotificationItem, Page, SavedView,
-    Session, StateOption, StateType, User,
+    Cursor, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, NotificationItem, Page,
+    ReactionTarget, SavedView, Session, StateOption, StateType, User,
 };
 use crate::api::queries::actions::{
     AssigneeInput, AssigneeMutation, AssigneeVariables, CommentCreateInput, CommentCreateMutation,
     CommentCreateVariables, CommentDeleteMutation, CommentDeleteVariables, CommentUpdateInput,
-    CommentUpdateMutation, CommentUpdateVariables, StatusInput, StatusMutation, StatusVariables,
-    TeamMembersQuery, TeamStatesQuery, TeamVariables,
+    CommentUpdateMutation, CommentUpdateVariables, ReactionCreateInput, ReactionCreateMutation,
+    ReactionCreateVariables, ReactionDeleteMutation, ReactionDeleteVariables, StatusInput,
+    StatusMutation, StatusVariables, TeamMembersQuery, TeamStatesQuery, TeamVariables,
 };
 use crate::api::queries::custom_views::{
     CustomViewIssuesQuery, CustomViewIssuesVariables, CustomViewsQuery, CustomViewsVariables,
@@ -342,6 +343,31 @@ impl LinearApi for Client {
     async fn delete_comment(&self, comment_id: &str) -> ApiResult<()> {
         let operation = CommentDeleteMutation::build(CommentDeleteVariables {
             id: comment_id.to_string(),
+        });
+
+        self.run_mutation(operation).await
+    }
+
+    async fn create_reaction(&self, target: &ReactionTarget, emoji: &str) -> ApiResult<()> {
+        let (comment_id, issue_id) = match target {
+            ReactionTarget::Comment(id) => (Some(id.clone()), None),
+            ReactionTarget::Issue(id) => (None, Some(id.clone())),
+        };
+
+        let operation = ReactionCreateMutation::build(ReactionCreateVariables {
+            input: ReactionCreateInput {
+                comment_id,
+                issue_id,
+                emoji: emoji.to_string(),
+            },
+        });
+
+        self.run_mutation(operation).await
+    }
+
+    async fn delete_reaction(&self, reaction_id: &str) -> ApiResult<()> {
+        let operation = ReactionDeleteMutation::build(ReactionDeleteVariables {
+            id: reaction_id.to_string(),
         });
 
         self.run_mutation(operation).await

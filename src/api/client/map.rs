@@ -1,6 +1,6 @@
 use crate::api::model::{
-    Comment, IssueDetail, IssueFilter, IssueSummary, Label, NotificationItem, Priority, Rgb,
-    SavedView, StateType, User, WorkflowState,
+    Comment, IssueDetail, IssueFilter, IssueSummary, Label, NotificationItem, Priority, Reaction,
+    Rgb, SavedView, StateType, User, WorkflowState,
 };
 use crate::api::queries::my_issues::{
     self, BooleanComparator, NullableUserFilter, StringComparator, WorkflowStateFilter,
@@ -163,12 +163,24 @@ impl From<issue::Issue> for IssueDetail {
                         is_mine,
                         body: c.body,
                         created_at: c.created_at.0.into(),
+                        reactions: c.reactions.into_iter().map(Reaction::from).collect(),
                     }
                 })
                 .collect(),
+            reactions: issue.reactions.into_iter().map(Reaction::from).collect(),
             branch_name: issue.branch_name,
             team_id: issue.team.id.into_inner(),
             updated_at: issue.updated_at.0.into(),
+        }
+    }
+}
+
+impl From<issue::Reaction> for Reaction {
+    fn from(reaction: issue::Reaction) -> Self {
+        Self {
+            id: reaction.id.into_inner(),
+            emoji: reaction.emoji,
+            mine: reaction.user.is_some_and(|user| user.is_me),
         }
     }
 }

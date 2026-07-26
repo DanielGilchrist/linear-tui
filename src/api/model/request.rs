@@ -8,6 +8,12 @@ pub enum IssueUpdate {
     Assignee(Option<String>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReactionTarget {
+    Issue(String),
+    Comment(String),
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct IssueFilter {
     #[serde(default)]

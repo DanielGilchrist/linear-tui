@@ -10,7 +10,7 @@ expression: "render_to_string(&mut app, 90, 22)"
 │!!  DAN-13 Todo Introduce a mapl││-oven-runs-too-hot                                    █
 │!!  DAN2-5 Ba┌Comment──────────────────────────────────────────────────────┐            █
 │    DAN-15 Ba│ Checked the damper.                                         │            █
-│             │ Spring tension looks off, ordering a replacement.           │            █
+│             │ Spring tension looks off, ordering a replacement.           │            ║
 │             │                                                             │ps past     ║
 └ 1 of 7 ─────│                                                             │elts.       ║
 ┌Recently view│                                                             │            ║

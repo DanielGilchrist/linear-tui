@@ -22,6 +22,10 @@ pub fn centred_rect_fixed(area: Rect, width_pct: u16, height: u16) -> Rect {
     )
 }
 
+pub fn centred_box(area: Rect, width: u16, height: u16) -> Rect {
+    area.centered(Constraint::Length(width), Constraint::Length(height))
+}
+
 pub fn split_footer(area: Rect, right_width: u16) -> [Rect; 2] {
     Layout::horizontal([Constraint::Min(0), Constraint::Length(right_width)]).areas(area)
 }

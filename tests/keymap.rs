@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::tui::action::{
-    is_quit, Action, ConfirmInput, PickerInput, BROWSE, DETAIL_HINTS, DETAIL_KEYS, GO_GROUP,
-    MY_WORK_HINTS,
+    is_quit, Action, ConfirmInput, PickerInput, ReactionInput, BROWSE, COMMENTS_KEYS, DETAIL_HINTS,
+    DETAIL_KEYS, GO_GROUP, MY_WORK_HINTS,
 };
 
 fn key(code: KeyCode) -> KeyEvent {
@@ -143,6 +143,51 @@ fn detail_context_rebinds_tab_to_history() {
     );
     assert_eq!(DETAIL_KEYS.resolve(key(KeyCode::Char('j'))), None);
     assert_eq!(Action::from_key(key(KeyCode::Tab)), Some(Action::NextPanel));
+}
+
+#[test]
+fn react_is_bound_in_reading_and_comments() {
+    assert_eq!(
+        DETAIL_KEYS.resolve(key(KeyCode::Char('+'))),
+        Some(Action::React)
+    );
+    assert_eq!(
+        COMMENTS_KEYS.resolve(key(KeyCode::Char('+'))),
+        Some(Action::React)
+    );
+}
+
+#[test]
+fn reactions_overlay_keymap() {
+    assert_eq!(
+        ReactionInput::from_key(key(KeyCode::Char('h'))),
+        Some(ReactionInput::Left)
+    );
+    assert_eq!(
+        ReactionInput::from_key(key(KeyCode::Char('l'))),
+        Some(ReactionInput::Right)
+    );
+    assert_eq!(
+        ReactionInput::from_key(key(KeyCode::Char('k'))),
+        Some(ReactionInput::Up)
+    );
+    assert_eq!(
+        ReactionInput::from_key(key(KeyCode::Char('j'))),
+        Some(ReactionInput::Down)
+    );
+    assert_eq!(
+        ReactionInput::from_key(key(KeyCode::Enter)),
+        Some(ReactionInput::Toggle)
+    );
+    assert_eq!(
+        ReactionInput::from_key(key(KeyCode::Char('c'))),
+        Some(ReactionInput::Custom)
+    );
+    assert_eq!(
+        ReactionInput::from_key(key(KeyCode::Esc)),
+        Some(ReactionInput::Cancel)
+    );
+    assert_eq!(ReactionInput::from_key(key(KeyCode::Char('z'))), None);
 }
 
 #[test]

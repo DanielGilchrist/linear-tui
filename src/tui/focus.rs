@@ -73,6 +73,7 @@ pub enum Reveal {
     Top,
     Bottom,
     NewestComment,
+    Keep,
 }
 
 pub enum Nav<'a> {

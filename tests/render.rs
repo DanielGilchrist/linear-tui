@@ -50,6 +50,17 @@ async fn opened_detail_app(client: &FixtureClient) -> App {
     app
 }
 
+#[tokio::test]
+async fn reactions_overlay_shows_current_and_add_sections() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('+'), KeyModifiers::NONE),
+    );
+    insta::assert_snapshot!(render_to_string(&mut app, 90, 22));
+}
+
 async fn saved_views_app(client: &FixtureClient) -> App {
     let mut app = App::new();
     app.now = Timestamp::from("2026-07-16T21:00:00Z");

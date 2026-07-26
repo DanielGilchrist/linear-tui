@@ -2,7 +2,9 @@ use crossterm::event::KeyCode;
 use KeyCode::{BackTab, Backspace, Char, Down, Enter, Esc, Left, PageDown, PageUp, Right, Tab, Up};
 
 use super::keymap::{Binding, Keymap};
-use super::keys::{Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput};
+use super::keys::{
+    Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput, ReactionInput,
+};
 
 pub const BROWSE: Keymap<Action> = Keymap {
     bindings: &[
@@ -187,6 +189,11 @@ pub const DETAIL_KEYS: Keymap<Action> = Keymap {
             label: "comments",
         },
         Binding {
+            action: Action::React,
+            keys: &[Char('+')],
+            label: "react",
+        },
+        Binding {
             action: Action::HistoryForward,
             keys: &[Tab],
             label: "next issue",
@@ -217,6 +224,11 @@ pub const COMMENTS_KEYS: Keymap<Action> = Keymap {
             label: "delete",
         },
         Binding {
+            action: Action::React,
+            keys: &[Char('+')],
+            label: "react",
+        },
+        Binding {
             action: Action::HistoryForward,
             keys: &[Tab],
             label: "next issue",
@@ -225,6 +237,46 @@ pub const COMMENTS_KEYS: Keymap<Action> = Keymap {
             action: Action::HistoryBack,
             keys: &[BackTab],
             label: "prev issue",
+        },
+    ],
+};
+
+pub const REACTIONS: Keymap<ReactionInput> = Keymap {
+    bindings: &[
+        Binding {
+            action: ReactionInput::Left,
+            keys: &[Char('h'), Left],
+            label: "move",
+        },
+        Binding {
+            action: ReactionInput::Right,
+            keys: &[Char('l'), Right],
+            label: "move",
+        },
+        Binding {
+            action: ReactionInput::Up,
+            keys: &[Char('k'), Up],
+            label: "row",
+        },
+        Binding {
+            action: ReactionInput::Down,
+            keys: &[Char('j'), Down],
+            label: "row",
+        },
+        Binding {
+            action: ReactionInput::Toggle,
+            keys: &[Enter],
+            label: "toggle",
+        },
+        Binding {
+            action: ReactionInput::Custom,
+            keys: &[Char('c')],
+            label: "custom",
+        },
+        Binding {
+            action: ReactionInput::Cancel,
+            keys: &[Esc],
+            label: "cancel",
         },
     ],
 };

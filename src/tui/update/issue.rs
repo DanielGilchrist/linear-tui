@@ -1,12 +1,14 @@
 use ratatui::widgets::{ListState, ScrollbarState};
 
 use super::nav::clamp_selection;
-use crate::api::{StateOption, User};
+use crate::api::{Reaction, ReactionTarget, StateOption, User};
 use crate::tui::app::{App, FocusedIssue};
 use crate::tui::cache::{RefreshPolicy, Remote};
 use crate::tui::focus::{DetailView, Focus, Reveal};
 use crate::tui::message::Command;
-use crate::tui::overlay::{Compose, Confirm, Editor, Overlay, Picker, PickerItem, PickerKind};
+use crate::tui::overlay::{
+    Compose, Confirm, Editor, Overlay, Picker, PickerItem, PickerKind, Reactions,
+};
 use crate::tui::status::Status;
 
 const STATES_REFRESH: RefreshPolicy = RefreshPolicy::new(60 * 60, 24 * 60 * 60);
@@ -59,6 +61,67 @@ pub(super) fn open_edit_editor(app: &mut App) -> Option<Command> {
     }
 
     open_editor(app, Compose::Edit { comment_id }, team_id, Some(&body))
+}
+
+pub(super) fn open_reactions(app: &mut App) -> Option<Command> {
+    let detail = app.workspace.detail().value()?;
+
+    let (target, reactions) = match app.focus {
+        Focus::Detail(_, DetailView::Comments) => {
+            let selected = app.comment_state.selected()?;
+            let comment = detail.threaded_comments().get(selected)?.comment;
+            (
+                ReactionTarget::Comment(comment.id.clone()),
+                comment.reactions.clone(),
+            )
+        }
+        Focus::Detail(_, DetailView::Reading) => (
+            ReactionTarget::Issue(detail.id.clone()),
+            detail.reactions.clone(),
+        ),
+        Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::View | Focus::Stub(_) => {
+            return None
+        }
+    };
+
+    app.overlay = Overlay::Reactions(Reactions::new(target, &reactions));
+    None
+}
+
+pub(super) fn toggle_reaction(
+    app: &mut App,
+    target: ReactionTarget,
+    emoji: &str,
+) -> Option<Command> {
+    let detail = app.workspace.detail().value()?;
+    let issue_id = detail.id.clone();
+
+    let reactions: &[Reaction] = match &target {
+        ReactionTarget::Issue(_) => &detail.reactions,
+        ReactionTarget::Comment(comment_id) => detail
+            .comments
+            .iter()
+            .find(|comment| &comment.id == comment_id)
+            .map_or(&[], |comment| comment.reactions.as_slice()),
+    };
+
+    let mine = reactions
+        .iter()
+        .find(|reaction| reaction.mine && reaction.emoji == emoji);
+
+    let command = match mine {
+        Some(reaction) => Command::DeleteReaction {
+            issue_id,
+            reaction_id: reaction.id.clone(),
+        },
+        None => Command::CreateReaction {
+            issue_id,
+            target,
+            emoji: emoji.to_string(),
+        },
+    };
+
+    Some(command)
 }
 
 pub(super) fn open_delete_comment(app: &mut App) -> Option<Command> {

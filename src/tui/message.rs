@@ -1,8 +1,8 @@
 use super::feed::{FeedKey, FeedRequest};
 use super::focus::Reveal;
 use crate::api::{
-    IssueDetail, IssueSummary, IssueUpdate, NotificationItem, Page, SavedView, Session,
-    StateOption, User,
+    IssueDetail, IssueSummary, IssueUpdate, NotificationItem, Page, ReactionTarget, SavedView,
+    Session, StateOption, User,
 };
 use crate::store::PersistedCache;
 
@@ -43,6 +43,9 @@ pub enum Message {
         id: String,
     },
     CommentDeleted {
+        id: String,
+    },
+    ReactionToggled {
         id: String,
     },
     Failed {
@@ -101,6 +104,15 @@ pub enum Command {
     DeleteComment {
         issue_id: String,
         comment_id: String,
+    },
+    CreateReaction {
+        issue_id: String,
+        target: ReactionTarget,
+        emoji: String,
+    },
+    DeleteReaction {
+        issue_id: String,
+        reaction_id: String,
     },
     LoadRecent,
     SaveRecent(Vec<IssueSummary>),

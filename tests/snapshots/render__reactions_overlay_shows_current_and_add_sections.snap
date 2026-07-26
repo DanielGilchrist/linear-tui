@@ -1,0 +1,26 @@
+---
+source: tests/render.rs
+expression: "render_to_string(&mut app, 90, 22)"
+---
+┌Assigned to me 1/3──────────────┐┌DAN2-7────────────────────────────────────────────────┐
+│!!! DAN2-7 In Progress Wood-fire││DAN2-7  In Progress                                   ↑
+│!!! DAN-10 In Progress Sprinkle ││Wood-fired oven runs 40°C too hot on Friday nights    █
+│!!  DAN2-2 In Progress Delivery ││@dan  oven                                            █
+│!!! DAN2-3 Todo Add gluten-free ││https://linear.app/dans-donuts/issue/DAN2-7/wood-fired█
+│!!  DAN-13 Todo Introduce a mapl││-oven-runs-too-hot                                    █
+│!!  DAN2-5 Backlog Settle the pi││                                                      █
+│    DAN-15 Backlog Coffee pairin││Symptoms                                              █
+│                                ││                                                      ║
+│                  ┌React─────────────────────────────────────────────┐n creeps past     ║
+└ 1 of 7 ──────────│Current: 👀  1 🚀  1                                │eese melts.       ║
+┌Recently viewed───│Add:     👍    ❤️    🎉    😄    😕    👎               │                  ║
+│Issues you open la│h/l move · j/k row · enter toggle · c custom · esc│                  ║
+└──────────────────└──────────────────────────────────────────────────┘                  ║
+┌Saved Views─────────────────────┐│• Suspect the flue damper is sticking open            ║
+│⠋  Loading…                     ││                                                      ║
+└────────────────────────────────┘│Checklist                                             ║
+┌Teams───────────────────────────┐│                                                      ║
+│Dan's Pizza                     ││[x] Swap the thermocouple                             ║
+│Dan's Donuts                    ││[ ] Inspect the flue damper                           ↓
+└ 1 of 2 ────────────────────────┘└──────────────────────────────────────────────────────┘
+ h/l move   j/k row   enter toggle   c custom   esc cancel            Dan's Donuts · @dan

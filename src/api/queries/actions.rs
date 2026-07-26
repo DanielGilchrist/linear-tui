@@ -206,3 +206,51 @@ pub struct CommentDeleteMutation {
     #[arguments(id: $id)]
     pub comment_delete: DeletePayload,
 }
+
+#[derive(Debug, Clone, InputObject)]
+#[cynic(schema_path = "schema.graphql")]
+pub struct ReactionCreateInput {
+    #[cynic(skip_serializing_if = "Option::is_none")]
+    pub comment_id: Option<String>,
+    #[cynic(skip_serializing_if = "Option::is_none")]
+    pub issue_id: Option<String>,
+    pub emoji: String,
+}
+
+#[derive(Debug, QueryVariables)]
+pub struct ReactionCreateVariables {
+    pub input: ReactionCreateInput,
+}
+
+#[derive(Debug, QueryFragment)]
+#[cynic(schema_path = "schema.graphql")]
+pub struct ReactionPayload {
+    pub success: bool,
+}
+
+#[derive(Debug, QueryFragment)]
+#[cynic(
+    schema_path = "schema.graphql",
+    graphql_type = "Mutation",
+    variables = "ReactionCreateVariables"
+)]
+pub struct ReactionCreateMutation {
+    #[arguments(input: $input)]
+    pub reaction_create: ReactionPayload,
+}
+
+#[derive(Debug, QueryVariables)]
+pub struct ReactionDeleteVariables {
+    pub id: String,
+}
+
+#[derive(Debug, QueryFragment)]
+#[cynic(
+    schema_path = "schema.graphql",
+    graphql_type = "Mutation",
+    variables = "ReactionDeleteVariables"
+)]
+pub struct ReactionDeleteMutation {
+    #[arguments(id: $id)]
+    pub reaction_delete: DeletePayload,
+}

@@ -237,12 +237,42 @@
         {
           "author": "danniieelg",
           "body": "Still climbing. Confirmed the flue damper is sticking open.",
-          "created_at": "2026-07-17T22:10:21.216Z"
+          "created_at": "2026-07-17T22:10:21.216Z",
+          "reactions": [
+            {
+              "id": "frc1",
+              "emoji": "tada",
+              "mine": false
+            },
+            {
+              "id": "frc2",
+              "emoji": "tada",
+              "mine": true
+            },
+            {
+              "id": "frc3",
+              "emoji": "eggplant",
+              "mine": false
+            }
+          ]
         },
         {
           "author": "danniieelg",
           "body": "Swapped the thermocouple this morning. Will watch it tonight.",
-          "created_at": "2026-07-17T22:10:20.980Z"
+          "created_at": "2026-07-17T22:10:20.980Z",
+          "reactions": []
+        }
+      ],
+      "reactions": [
+        {
+          "id": "fri1",
+          "emoji": "eyes",
+          "mine": true
+        },
+        {
+          "id": "fri2",
+          "emoji": "rocket",
+          "mine": false
         }
       ]
     },

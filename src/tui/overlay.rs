@@ -1,9 +1,10 @@
 use ratatui::widgets::ListState;
 
 use super::action::{self, Action};
+use super::emoji::{self, PaletteEmoji};
 use super::focus::{Direction, Edge, Focus};
 use super::message::Command;
-use crate::api::{StateOption, User};
+use crate::api::{Reaction, ReactionTarget, StateOption, User};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PickerKind {
@@ -231,10 +232,155 @@ pub struct Find {
     pub origin: Option<usize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputPurpose {
     Jump,
     Search,
+    CustomReaction { target: ReactionTarget },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Section {
+    Current,
+    Add,
+}
+
+pub struct ReactionChoice {
+    pub name: String,
+    pub glyph: String,
+    pub count: usize,
+    pub mine: bool,
+    pub section: Section,
+}
+
+impl ReactionChoice {
+    fn current(name: String, mine: bool) -> Self {
+        Self {
+            glyph: emoji::glyph(&name),
+            name,
+            count: 1,
+            mine,
+            section: Section::Current,
+        }
+    }
+
+    fn palette(entry: &PaletteEmoji) -> Self {
+        Self {
+            name: entry.name.to_string(),
+            glyph: entry.glyph.to_string(),
+            count: 0,
+            mine: false,
+            section: Section::Add,
+        }
+    }
+
+    pub fn in_section(&self, section: Section) -> bool {
+        self.section == section
+    }
+}
+
+pub struct Reactions {
+    pub target: ReactionTarget,
+    pub choices: Vec<ReactionChoice>,
+    pub state: ListState,
+}
+
+impl Reactions {
+    pub fn new(target: ReactionTarget, reactions: &[Reaction]) -> Self {
+        let mut choices: Vec<ReactionChoice> = Vec::new();
+
+        for reaction in reactions {
+            match choices
+                .iter_mut()
+                .find(|choice| choice.name == reaction.emoji)
+            {
+                Some(choice) => {
+                    choice.count += 1;
+                    choice.mine |= reaction.mine;
+                }
+                None => choices.push(ReactionChoice::current(
+                    reaction.emoji.clone(),
+                    reaction.mine,
+                )),
+            }
+        }
+
+        for entry in emoji::REACTION_PALETTE {
+            if !choices.iter().any(|choice| choice.name == entry.name) {
+                choices.push(ReactionChoice::palette(entry));
+            }
+        }
+
+        let split = Self::split_at(&choices);
+        let start = if split < choices.len() { split } else { 0 };
+
+        Self {
+            target,
+            choices,
+            state: ListState::default().with_selected(Some(start)),
+        }
+    }
+
+    pub fn selected_name(&self) -> Option<&str> {
+        self.state
+            .selected()
+            .and_then(|index| self.choices.get(index))
+            .map(|choice| choice.name.as_str())
+    }
+
+    fn split_at(choices: &[ReactionChoice]) -> usize {
+        choices
+            .iter()
+            .take_while(|choice| choice.in_section(Section::Current))
+            .count()
+    }
+
+    fn split(&self) -> usize {
+        Self::split_at(&self.choices)
+    }
+
+    pub fn move_horizontal(&mut self, direction: Direction) {
+        let split = self.split();
+        let len = self.choices.len();
+        let selected = self.state.selected().unwrap_or(0);
+
+        let (lo, hi) = if selected < split {
+            (0, split)
+        } else {
+            (split, len)
+        };
+
+        if hi <= lo {
+            return;
+        }
+
+        let next = match direction {
+            Direction::Next => (selected + 1).min(hi - 1),
+            Direction::Prev => selected.saturating_sub(1).max(lo),
+        };
+
+        self.state.select(Some(next));
+    }
+
+    pub fn move_vertical(&mut self, direction: Direction) {
+        let split = self.split();
+        let len = self.choices.len();
+
+        if split == 0 || split == len {
+            return;
+        }
+
+        let selected = self.state.selected().unwrap_or(0);
+        let in_current = selected < split;
+
+        let next = match direction {
+            Direction::Prev if !in_current => (selected - split).min(split - 1),
+            Direction::Next if in_current => split + selected.min(len - split - 1),
+            _ => return,
+        };
+
+        self.state.select(Some(next));
+    }
 }
 
 pub struct Input {
@@ -501,4 +647,5 @@ pub enum Overlay {
     Editor(Editor),
     Search(Search),
     Find(Find),
+    Reactions(Reactions),
 }

@@ -39,6 +39,20 @@ pub struct CommentParent {
 }
 
 #[derive(Debug, Clone, QueryFragment)]
+#[cynic(schema_path = "schema.graphql", graphql_type = "User")]
+pub struct ReactionUser {
+    pub is_me: bool,
+}
+
+#[derive(Debug, Clone, QueryFragment)]
+#[cynic(schema_path = "schema.graphql")]
+pub struct Reaction {
+    pub id: cynic::Id,
+    pub emoji: String,
+    pub user: Option<ReactionUser>,
+}
+
+#[derive(Debug, Clone, QueryFragment)]
 #[cynic(schema_path = "schema.graphql")]
 pub struct Comment {
     pub id: cynic::Id,
@@ -46,6 +60,7 @@ pub struct Comment {
     pub created_at: DateTime,
     pub user: Option<User>,
     pub parent: Option<CommentParent>,
+    pub reactions: Vec<Reaction>,
 }
 
 #[derive(Debug, Clone, QueryFragment)]
@@ -76,6 +91,7 @@ pub struct Issue {
     pub assignee: Option<User>,
     pub labels: IssueLabelConnection,
     pub comments: CommentConnection,
+    pub reactions: Vec<Reaction>,
 }
 
 #[derive(Debug, QueryFragment)]

@@ -156,6 +156,12 @@ fn render_overlay(overlay: &mut Overlay, feeds: &FeedStore, spinner: Spinner, fr
                 overlays::prefix::render(prefix.keymap, prefix.title, frame, area);
             }
         },
+        Overlay::Reactions(reactions) => {
+            let area = overlays::reactions::area(reactions, frame_area);
+
+            frame.render_widget(Clear, area);
+            overlays::reactions::render(reactions, frame, area);
+        }
         Overlay::Find(_) | Overlay::None => {}
     }
 }
@@ -520,6 +526,7 @@ fn footer_hint(app: &App) -> String {
         Overlay::Prefix(prefix) => return format!("{}   esc cancel", prefix.keymap.summary()),
         Overlay::Input(_) => return action::INPUT.hint_bar(action::INPUT_HINTS),
         Overlay::Editor(_) => return action::EDITOR.hint_bar(action::EDITOR_HINTS),
+        Overlay::Reactions(_) => return action::REACTIONS.hint_bar(action::REACTIONS_HINTS),
         Overlay::Find(_) | Overlay::None => {}
     }
 

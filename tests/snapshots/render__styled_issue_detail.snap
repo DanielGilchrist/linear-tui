@@ -106,14 +106,14 @@ expression: "render_styled_to_string(&mut app, 110, 26)"
     [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "█"
-│                                        ││• Expected: steady 430°C                                          █
+│                                        ││• Expected: steady 430°C                                          ║
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [43] fg=Some(Rgb(129, 161, 193)) bg=Some(Reset) mod=NONE "• "
     [45] fg=Some(Reset) bg=Some(Reset) mod=NONE "Expected: steady "
     [62] fg=Some(Rgb(163, 190, 140)) bg=Some(Reset) mod=NONE "430°C"
-    [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "█"
+    [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
 │                                        ││• Actual: 470-480°C                                               ║
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
@@ -189,6 +189,6 @@ expression: "render_styled_to_string(&mut app, 110, 26)"
     [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 2 "
     [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "────────────────────────────────┘"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└──────────────────────────────────────────────────────────────────┘"
- j/k scroll   C-d/C-u page   s status   a assign   c comment   m comments   o browser   … Dan's Donuts · @dan
-    [0] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " j/k scroll   C-d/C-u page   s status   a assign   c comment   m comments   o browser   …"
+ j/k scroll   C-d/C-u page   s status   a assign   c comment   m comments   + react   o … Dan's Donuts · @dan
+    [0] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " j/k scroll   C-d/C-u page   s status   a assign   c comment   m comments   + react   o …"
     [90] fg=Some(Cyan) bg=Some(Reset) mod=NONE "Dan's Donuts · @dan "

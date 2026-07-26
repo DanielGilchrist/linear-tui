@@ -85,12 +85,17 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             app.workspace.set_detail(*detail, app.now);
             app.status = None;
 
-            app.scroll_position = match reveal {
-                Reveal::Top | Reveal::NewestComment => 0,
-                Reveal::Bottom => usize::MAX,
-            };
-
-            app.scroll_state = ScrollbarState::default();
+            match reveal {
+                Reveal::Keep => {}
+                Reveal::Top | Reveal::NewestComment => {
+                    app.scroll_position = 0;
+                    app.scroll_state = ScrollbarState::default();
+                }
+                Reveal::Bottom => {
+                    app.scroll_position = usize::MAX;
+                    app.scroll_state = ScrollbarState::default();
+                }
+            }
 
             let detail = app.workspace.detail().value()?;
             let summary = IssueSummary::from_detail(detail);
@@ -217,6 +222,14 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             Some(Command::LoadDetail {
                 id,
                 reveal: Reveal::Top,
+            })
+        }
+        Message::ReactionToggled { id } => {
+            app.workspace.begin_detail();
+
+            Some(Command::LoadDetail {
+                id,
+                reveal: Reveal::Keep,
             })
         }
         Message::Failed { target, error } => {

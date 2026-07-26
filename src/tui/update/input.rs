@@ -4,7 +4,8 @@ use ratatui::widgets::ListState;
 use super::feed::{force_feed, load_more, reload};
 use super::issue::{
     clear_recent, enter_comments, open_assign_picker, open_comment_input, open_delete_comment,
-    open_edit_editor, open_in_browser, open_issue, open_reply_editor, open_status_picker, yank_url,
+    open_edit_editor, open_in_browser, open_issue, open_reactions, open_reply_editor,
+    open_status_picker, toggle_reaction, yank_url,
 };
 use super::nav::{
     ascend, cycle_panel, cycle_view, cycle_view_group, cycle_view_sort, descend, history_step,
@@ -12,7 +13,7 @@ use super::nav::{
 };
 use crate::api::IssueUpdate;
 use crate::tui::action::{
-    self, Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput,
+    self, Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput, ReactionInput,
 };
 use crate::tui::app::App;
 use crate::tui::feed::FeedKey;
@@ -21,7 +22,7 @@ use crate::tui::issue_ref::parse_issue_ref;
 use crate::tui::message::Command;
 use crate::tui::overlay::{
     Compose, Confirm, Editor, Find, Input, InputPurpose, MentionMenu, Menu, Overlay, Picker,
-    PickerAction, Prefix, PrefixUnder, Search,
+    PickerAction, Prefix, PrefixUnder, Reactions, Search,
 };
 use crate::tui::status::Status;
 
@@ -236,6 +237,7 @@ pub(super) fn submit_input(app: &mut App, input: Input) -> Option<Command> {
             app.overlay = Overlay::Search(Search::new(query));
             Some(command)
         }
+        InputPurpose::CustomReaction { target } => toggle_reaction(app, target, &query),
     }
 }
 
@@ -543,6 +545,54 @@ pub(super) fn open_menu(app: &mut App) {
     app.overlay = Overlay::Menu(Menu::for_focus(app.focus));
 }
 
+pub(super) fn apply_reactions(
+    app: &mut App,
+    mut reactions: Reactions,
+    key: KeyEvent,
+) -> Option<Command> {
+    let Some(input) = ReactionInput::from_key(key) else {
+        app.overlay = Overlay::Reactions(reactions);
+        return None;
+    };
+
+    match input {
+        ReactionInput::Left => {
+            reactions.move_horizontal(Direction::Prev);
+            app.overlay = Overlay::Reactions(reactions);
+            None
+        }
+        ReactionInput::Right => {
+            reactions.move_horizontal(Direction::Next);
+            app.overlay = Overlay::Reactions(reactions);
+            None
+        }
+        ReactionInput::Up => {
+            reactions.move_vertical(Direction::Prev);
+            app.overlay = Overlay::Reactions(reactions);
+            None
+        }
+        ReactionInput::Down => {
+            reactions.move_vertical(Direction::Next);
+            app.overlay = Overlay::Reactions(reactions);
+            None
+        }
+        ReactionInput::Toggle => match reactions.selected_name().map(str::to_string) {
+            Some(name) => toggle_reaction(app, reactions.target, &name),
+            None => None,
+        },
+        ReactionInput::Custom => {
+            app.overlay = Overlay::Input(Input::new(
+                InputPurpose::CustomReaction {
+                    target: reactions.target,
+                },
+                "React with an emoji",
+            ));
+            None
+        }
+        ReactionInput::Cancel => None,
+    }
+}
+
 pub(super) fn apply_action(app: &mut App, action: Action) -> Option<Command> {
     match action {
         Action::Quit => {
@@ -568,6 +618,7 @@ pub(super) fn apply_action(app: &mut App, action: Action) -> Option<Command> {
         Action::Reply => open_reply_editor(app),
         Action::EditComment => open_edit_editor(app),
         Action::DeleteComment => open_delete_comment(app),
+        Action::React => open_reactions(app),
         Action::CycleGroup => {
             cycle_view_group(app);
             None

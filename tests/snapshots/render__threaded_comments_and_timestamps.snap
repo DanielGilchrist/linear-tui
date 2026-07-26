@@ -32,19 +32,19 @@ expression: "render_to_string(&mut app, 90, 46)"
 │                                ││▏ sudo oven-ctl --reset-pid                           █
 │                                ││▏ oven-ctl --set-target 430                           █
 │                                ││                                                      █
+│                                ││👀  1  🚀  1                                            █
+│                                ││                                                      █
 │                                ││Comments (4)                                          █
 │                                ││                                                      █
-│                                ││dan · 11h ago                                         █
-│                                ││  Swapped the thermocouple this morning. Readings so  █
-└ 1 of 7 ────────────────────────┘│far:                                                  █
-┌Recently viewed─────────────────┐│                                                      █
-│Issues you open land here       ││  1. 6pm - 445°C                                      █
-└────────────────────────────────┘│  2. 7pm - 462°C                                      █
-┌Saved Views─────────────────────┐│                                                      █
-│⠋  Loading…                     ││  └ danniiee · 10h ago                                ║
-└────────────────────────────────┘│    Agreed, the sensor looks fine. Next suspect is the║
-┌Teams───────────────────────────┐│flue damper.                                          ║
-│Dan's Pizza                     ││                                                      ║
-│Dan's Donuts                    ││  └ dan · 10h ago                                     ↓
+└ 1 of 7 ────────────────────────┘│dan · 11h ago                                         █
+┌Recently viewed─────────────────┐│  Swapped the thermocouple this morning. Readings so  █
+│Issues you open land here       ││far:                                                  ║
+└────────────────────────────────┘│                                                      ║
+┌Saved Views─────────────────────┐│  1. 6pm - 445°C                                      ║
+│⠋  Loading…                     ││  2. 7pm - 462°C                                      ║
+└────────────────────────────────┘│  👍  2  ❤️  1                                          ║
+┌Teams───────────────────────────┐│                                                      ║
+│Dan's Pizza                     ││  └ danniiee · 10h ago                                ║
+│Dan's Donuts                    ││    Agreed, the sensor looks fine. Next suspect is the↓
 └ 1 of 2 ────────────────────────┘└──────────────────────────────────────────────────────┘
  j/k scroll   C-d/C-u page   s status   a assign   c comment   m com… Dan's Donuts · @dan

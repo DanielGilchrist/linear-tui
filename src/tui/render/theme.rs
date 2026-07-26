@@ -16,6 +16,8 @@ pub const WORKSPACE: Style = Style::new().fg(Color::Cyan);
 pub const GROUP_HEADER: Style = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
 pub const COMMENT_AUTHOR: Style = GROUP_HEADER;
 pub const MENU_HEADER: Style = Style::new().fg(Color::Green).add_modifier(Modifier::BOLD);
+pub const REACTION: Style = Style::new().fg(Color::Gray);
+pub const REACTION_MINE: Style = Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD);
 pub const FIND_LABEL: Style = Style::new()
     .fg(Color::Black)
     .bg(Color::Yellow)

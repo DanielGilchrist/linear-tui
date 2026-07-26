@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::model::{
     Comment, Cursor, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, Label, NotificationItem,
-    Page, Priority, Rgb, SavedView, Session, StateOption, StateType, User, WorkflowState,
+    Page, Priority, Reaction, ReactionTarget, Rgb, SavedView, Session, StateOption, StateType,
+    User, WorkflowState,
 };
 use crate::api::{ApiResult, LinearApi};
 
@@ -199,12 +200,28 @@ impl LinearApi for FixtureClient {
     async fn delete_comment(&self, _comment_id: &str) -> ApiResult<()> {
         Ok(())
     }
+
+    async fn create_reaction(&self, _target: &ReactionTarget, _emoji: &str) -> ApiResult<()> {
+        Ok(())
+    }
+
+    async fn delete_reaction(&self, _reaction_id: &str) -> ApiResult<()> {
+        Ok(())
+    }
 }
 
 fn state(name: &str, state_type: StateType) -> WorkflowState {
     WorkflowState {
         name: name.into(),
         state_type,
+    }
+}
+
+fn reaction(id: &str, emoji: &str, mine: bool) -> Reaction {
+    Reaction {
+        id: id.into(),
+        emoji: emoji.into(),
+        mine,
     }
 }
 
@@ -369,6 +386,11 @@ oven-ctl --set-target 430
                 is_mine: true,
                 body: "Swapped the thermocouple this morning. Readings so far:\n\n1. 6pm - `445°C`\n2. 7pm - `462°C`".into(),
                 created_at: "2026-07-16T09:24:00Z".into(),
+                reactions: vec![
+                    reaction("r1", "+1", true),
+                    reaction("r2", "+1", false),
+                    reaction("r3", "heart", false),
+                ],
             },
             Comment {
                 id: "c1a".into(),
@@ -377,6 +399,7 @@ oven-ctl --set-target 430
                 is_mine: false,
                 body: "Agreed, the sensor looks fine. Next suspect is the `flue damper`.".into(),
                 created_at: "2026-07-16T10:02:00Z".into(),
+                reactions: vec![reaction("r4", "tada", false)],
             },
             Comment {
                 id: "c1b".into(),
@@ -385,6 +408,7 @@ oven-ctl --set-target 430
                 is_mine: true,
                 body: "Adding the damper check to the list.".into(),
                 created_at: "2026-07-16T10:05:00Z".into(),
+                reactions: Vec::new(),
             },
             Comment {
                 id: "c2".into(),
@@ -393,8 +417,10 @@ oven-ctl --set-target 430
                 is_mine: true,
                 body: "Still climbing. Confirmed the flue damper is sticking open.".into(),
                 created_at: "2026-07-16T18:40:00Z".into(),
+                reactions: Vec::new(),
             },
         ],
+        reactions: vec![reaction("ri1", "eyes", true), reaction("ri2", "rocket", false)],
         branch_name: "dan/dan2-7".into(),
         team_id: "t_pizza".into(),
         updated_at: "2026-07-16T18:40:00Z".into(),

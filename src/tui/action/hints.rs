@@ -1,5 +1,7 @@
 use super::keymap::Hint;
-use super::keys::{Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput};
+use super::keys::{
+    Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput, ReactionInput,
+};
 
 pub const MY_WORK_HINTS: &[Hint<Action>] = &[
     Hint::Bound(Action::SelectNext),
@@ -67,6 +69,10 @@ pub const DETAIL_HINTS: &[Hint<Action>] = &[
         keys: "m",
         label: "comments",
     },
+    Hint::Literal {
+        keys: "+",
+        label: "react",
+    },
     Hint::Bound(Action::OpenInBrowser),
     Hint::Bound(Action::YankUrl),
     Hint::Bound(Action::ToggleZoom),
@@ -95,6 +101,10 @@ pub const COMMENTS_HINTS: &[Hint<Action>] = &[
         keys: "d",
         label: "delete",
     },
+    Hint::Literal {
+        keys: "+",
+        label: "react",
+    },
     Hint::Bound(Action::Comment),
     Hint::Bound(Action::Ascend),
     Hint::Bound(Action::Quit),
@@ -104,6 +114,20 @@ pub const PICKER_HINTS: &[Hint<PickerInput>] = &[
     Hint::Bound(PickerInput::Next),
     Hint::Bound(PickerInput::Accept),
     Hint::Bound(PickerInput::Cancel),
+];
+
+pub const REACTIONS_HINTS: &[Hint<ReactionInput>] = &[
+    Hint::Literal {
+        keys: "h/l",
+        label: "move",
+    },
+    Hint::Literal {
+        keys: "j/k",
+        label: "row",
+    },
+    Hint::Bound(ReactionInput::Toggle),
+    Hint::Bound(ReactionInput::Custom),
+    Hint::Bound(ReactionInput::Cancel),
 ];
 
 pub const VIEW_HINTS: &[Hint<Action>] = &[

@@ -233,6 +233,21 @@ fn dispatch(
                 Ok(()) => Message::CommentDeleted { id: issue_id },
                 Err(error) => ephemeral_failure(error.to_string()),
             }),
+            Command::CreateReaction {
+                issue_id,
+                target,
+                emoji,
+            } => Some(match api.create_reaction(&target, &emoji).await {
+                Ok(()) => Message::ReactionToggled { id: issue_id },
+                Err(error) => ephemeral_failure(error.to_string()),
+            }),
+            Command::DeleteReaction {
+                issue_id,
+                reaction_id,
+            } => Some(match api.delete_reaction(&reaction_id).await {
+                Ok(()) => Message::ReactionToggled { id: issue_id },
+                Err(error) => ephemeral_failure(error.to_string()),
+            }),
             Command::OpenUrl(url) => {
                 match tokio::task::spawn_blocking(move || platform.open_url(&url)).await {
                     Ok(Ok(())) => None,

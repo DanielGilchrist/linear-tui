@@ -41,4 +41,6 @@ pub trait LinearApi: Send + Sync {
     ) -> ApiResult<()>;
     async fn update_comment(&self, comment_id: &str, body: &str) -> ApiResult<()>;
     async fn delete_comment(&self, comment_id: &str) -> ApiResult<()>;
+    async fn create_reaction(&self, target: &ReactionTarget, emoji: &str) -> ApiResult<()>;
+    async fn delete_reaction(&self, reaction_id: &str) -> ApiResult<()>;
 }

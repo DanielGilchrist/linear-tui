@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
-use linear_tui::api::{Cursor, IssueSummary, Page, Timestamp};
+use linear_tui::api::{Cursor, IssueSummary, Page, Reaction, ReactionTarget, Timestamp};
 use linear_tui::api::{IssueUpdate, LinearApi};
 use linear_tui::tui::app::App;
 use linear_tui::tui::cache::{CacheStatus, Remote};
@@ -8,7 +8,7 @@ use linear_tui::tui::event::Redraw;
 use linear_tui::tui::feed::{Feed, FeedKey, FeedRequest};
 use linear_tui::tui::focus::{DetailView, Focus, LeftPanel, Reveal};
 use linear_tui::tui::message::{Command, FailureTarget, Message};
-use linear_tui::tui::overlay::{Compose, InputPurpose, PickerKind, Search};
+use linear_tui::tui::overlay::{Compose, InputPurpose, Overlay, PickerKind, Search};
 use linear_tui::tui::status::Status;
 use linear_tui::tui::update::{apply, handle_key, tick};
 use linear_tui::tui::view::ViewKind;
@@ -585,6 +585,161 @@ fn esc_from_a_detail_opened_from_recent_returns_to_recent() {
 
     handle_key(&mut app, press(KeyCode::Esc));
     assert_eq!(app.focus, Focus::Recent);
+}
+
+#[test]
+fn react_in_reading_targets_the_issue() {
+    let mut app = detail_app();
+
+    handle_key(&mut app, press(KeyCode::Char('+')));
+
+    match &app.overlay {
+        Overlay::Reactions(reactions) => {
+            assert_eq!(reactions.target, ReactionTarget::Issue("i1".into()));
+        }
+        _ => panic!("expected the reactions overlay"),
+    }
+}
+
+#[test]
+fn react_in_comments_targets_the_selected_comment() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    handle_key(&mut app, press(KeyCode::Char('+')));
+
+    match &app.overlay {
+        Overlay::Reactions(reactions) => {
+            assert_eq!(reactions.target, ReactionTarget::Comment("c1".into()));
+        }
+        _ => panic!("expected the reactions overlay"),
+    }
+}
+
+#[test]
+fn toggling_reactions_deletes_your_own_and_creates_a_new_one() {
+    let mut app = list_app_with_issue();
+    app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.reactions = vec![Reaction {
+        id: "rx".into(),
+        emoji: "+1".into(),
+        mine: true,
+    }];
+    app.workspace.set_detail(detail, app.now);
+
+    // Open, step up into the Current row (your +1), toggle it off.
+    handle_key(&mut app, press(KeyCode::Char('+')));
+    handle_key(&mut app, press(KeyCode::Char('k')));
+    let deleted = handle_key(&mut app, press(KeyCode::Enter));
+    match deleted {
+        Some(Command::DeleteReaction {
+            reaction_id,
+            issue_id,
+        }) => {
+            assert_eq!(reaction_id, "rx");
+            assert_eq!(issue_id, "i1");
+        }
+        other => panic!("expected DeleteReaction, got {other:?}"),
+    }
+
+    // Reopen: the highlight starts on the first Add item (heart), toggle it on.
+    handle_key(&mut app, press(KeyCode::Char('+')));
+    let created = handle_key(&mut app, press(KeyCode::Enter));
+    match created {
+        Some(Command::CreateReaction {
+            target,
+            emoji,
+            issue_id,
+        }) => {
+            assert_eq!(target, ReactionTarget::Issue("i1".into()));
+            assert_eq!(emoji, "heart");
+            assert_eq!(issue_id, "i1");
+        }
+        other => panic!("expected CreateReaction, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_custom_reaction_you_made_is_removable_from_the_current_section() {
+    let mut app = list_app_with_issue();
+    app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.reactions = vec![Reaction {
+        id: "re".into(),
+        emoji: "eggplant".into(),
+        mine: true,
+    }];
+    app.workspace.set_detail(detail, app.now);
+
+    // The custom reaction sits in the Current row: step up, toggle it off.
+    handle_key(&mut app, press(KeyCode::Char('+')));
+    handle_key(&mut app, press(KeyCode::Char('k')));
+    let removed = handle_key(&mut app, press(KeyCode::Enter));
+    match removed {
+        Some(Command::DeleteReaction { reaction_id, .. }) => assert_eq!(reaction_id, "re"),
+        other => panic!("expected DeleteReaction for the custom reaction, got {other:?}"),
+    }
+}
+
+#[test]
+fn custom_reaction_routes_through_the_input_overlay() {
+    let mut app = detail_app();
+
+    handle_key(&mut app, press(KeyCode::Char('+')));
+    handle_key(&mut app, press(KeyCode::Char('c')));
+
+    match &app.overlay {
+        Overlay::Input(input) => assert_eq!(
+            input.purpose,
+            InputPurpose::CustomReaction {
+                target: ReactionTarget::Issue("i1".into())
+            }
+        ),
+        _ => panic!("expected the input overlay"),
+    }
+
+    handle_key(&mut app, press(KeyCode::Char('🚀')));
+    let command = handle_key(&mut app, press(KeyCode::Enter));
+    match command {
+        Some(Command::CreateReaction { emoji, .. }) => assert_eq!(emoji, "🚀"),
+        other => panic!("expected CreateReaction, got {other:?}"),
+    }
+}
+
+#[test]
+fn reaction_toggled_reloads_the_detail() {
+    let mut app = detail_app();
+
+    let command = apply(&mut app, Message::ReactionToggled { id: "i1".into() });
+    match command {
+        Some(Command::LoadDetail { id, reveal }) => {
+            assert_eq!(id, "i1");
+            assert_eq!(reveal, Reveal::Keep);
+        }
+        other => panic!("expected LoadDetail, got {other:?}"),
+    }
+    assert!(app.workspace.detail().in_flight());
+}
+
+#[test]
+fn reveal_keep_preserves_scroll_and_comment_selection() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+    app.comment_state.select(Some(2));
+    app.scroll_position = 9;
+
+    let detail = app.workspace.detail().value().cloned().expect("detail");
+    apply(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Keep,
+        },
+    );
+
+    assert_eq!(app.scroll_position, 9);
+    assert_eq!(app.comment_state.selected(), Some(2));
 }
 
 #[test]
@@ -1230,6 +1385,7 @@ fn newest_comment_reveal_selects_the_new_comment() {
         is_mine: true,
         body: "fresh".into(),
         created_at: linear_tui::api::Timestamp::from("2026-07-16T12:00:00Z"),
+        reactions: vec![],
     });
     apply(
         &mut app,
@@ -1552,7 +1708,10 @@ fn gi_opens_a_jump_input_that_loads_the_referenced_issue() {
 
     handle_key(&mut app, press(KeyCode::Char('g')));
     handle_key(&mut app, press(KeyCode::Char('i')));
-    assert_eq!(app.input().map(|i| i.purpose), Some(InputPurpose::Jump));
+    assert_eq!(
+        app.input().map(|i| i.purpose.clone()),
+        Some(InputPurpose::Jump)
+    );
 
     for c in "dan2-7".chars() {
         handle_key(&mut app, press(KeyCode::Char(c)));
@@ -1706,7 +1865,10 @@ fn gs_searches_then_enter_opens_a_result() {
 
     handle_key(&mut app, press(KeyCode::Char('g')));
     handle_key(&mut app, press(KeyCode::Char('s')));
-    assert_eq!(app.input().map(|i| i.purpose), Some(InputPurpose::Search));
+    assert_eq!(
+        app.input().map(|i| i.purpose.clone()),
+        Some(InputPurpose::Search)
+    );
 
     for c in "oven".chars() {
         handle_key(&mut app, press(KeyCode::Char(c)));
@@ -2118,6 +2280,7 @@ fn sample_detail(id: &str, identifier: &str) -> linear_tui::api::IssueDetail {
         assignee: None,
         labels: vec![],
         comments: vec![],
+        reactions: vec![],
         branch_name: format!("dan/{}", identifier.to_lowercase()),
         team_id: "t_pizza".into(),
         updated_at: linear_tui::api::Timestamp::default(),
@@ -2132,6 +2295,7 @@ fn comment(id: &str, parent: Option<&str>, body: &str) -> linear_tui::api::Comme
         is_mine: true,
         body: body.into(),
         created_at: linear_tui::api::Timestamp::from("2026-07-16T09:00:00Z"),
+        reactions: vec![],
     }
 }
 

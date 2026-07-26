@@ -7,7 +7,9 @@ use ratatui::{
 };
 
 use super::super::theme::{self, Emphasis};
-use super::super::widgets::{notification_preview_text, preview_text, text_panel, ScrollableText};
+use super::super::widgets::{
+    notification_preview_text, preview_text, reaction_chips, text_panel, ScrollableText,
+};
 use crate::api::{IssueDetail, IssueSummary, NotificationItem, ThreadedComment, Timestamp};
 use crate::tui::cache::{Phase, Remote};
 use crate::tui::spinner::Spinner;
@@ -157,6 +159,11 @@ fn detail_text(
         lines.push(Line::from(""));
     }
 
+    if let Some(chips) = reaction_chips(&detail.reactions) {
+        lines.push(chips);
+        lines.push(Line::from(""));
+    }
+
     let mut comment_offsets = Vec::new();
 
     if !detail.comments.is_empty() {
@@ -224,6 +231,13 @@ fn append_comment(
         let mut spans = vec![Span::raw(body_indent.clone())];
         spans.extend(line.spans.iter().cloned());
 
+        lines.push(Line::from(spans));
+    }
+
+    if let Some(chips) = reaction_chips(&comment.reactions) {
+        let mut spans = vec![Span::raw(body_indent.clone())];
+
+        spans.extend(chips.spans);
         lines.push(Line::from(spans));
     }
 
