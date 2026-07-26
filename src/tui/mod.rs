@@ -1,7 +1,6 @@
 pub mod action;
 pub mod app;
 pub mod cache;
-pub mod components;
 pub mod display;
 pub mod feed;
 pub mod focus;
@@ -21,5 +20,5 @@ pub mod view;
 pub mod workspace;
 
 pub use app::App;
-pub use render::{render, render_to_string};
+pub use render::{render, render_styled_to_string, render_to_string};
 pub use run::run;

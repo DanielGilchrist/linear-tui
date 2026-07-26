@@ -6,9 +6,9 @@ use linear_tui::tui::cache::Remote;
 use linear_tui::tui::feed::{Feed, FeedKey, FeedRequest};
 use linear_tui::tui::focus::{DetailView, Focus, LeftPanel};
 use linear_tui::tui::message::Message;
-use linear_tui::tui::render_to_string;
 use linear_tui::tui::update::{apply, handle_key};
 use linear_tui::tui::view::ViewKind;
+use linear_tui::tui::{render_styled_to_string, render_to_string};
 
 async fn home_app(client: &FixtureClient, view: usize) -> App {
     let mut app = App::new();
@@ -455,4 +455,127 @@ async fn confirm_dialog() {
     handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     insta::assert_snapshot!(render_to_string(&mut app, 100, 20));
+}
+
+#[tokio::test]
+async fn detail_viewport_is_the_pane_height_minus_border() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+    let _ = render_to_string(&mut app, 110, 26);
+    // right pane = body (26 - 1 footer) = 25, minus 2 for the border.
+    assert_eq!(app.viewport, 23);
+}
+
+#[tokio::test]
+async fn view_surface_viewport_accounts_for_the_group_sort_header() {
+    let client = FixtureClient::sample();
+    let mut app = open_view_app(&client).await;
+    let _ = render_to_string(&mut app, 110, 26);
+    // right pane 25, minus 2 border, minus the 3-row group/sort header.
+    assert_eq!(app.viewport, 20);
+}
+
+#[tokio::test]
+async fn styled_assigned_view() {
+    let client = FixtureClient::sample();
+    let mut app = home_app(&client, 0).await;
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 110, 16));
+}
+
+#[tokio::test]
+async fn styled_issue_detail() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 110, 26));
+}
+
+#[tokio::test]
+async fn styled_view_in_right_pane() {
+    let client = FixtureClient::sample();
+    let mut app = open_view_app(&client).await;
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 110, 26));
+}
+
+#[tokio::test]
+async fn styled_view_grouped_by_priority() {
+    let client = FixtureClient::sample();
+    let mut app = open_view_app(&client).await;
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE),
+    );
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+    );
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 110, 26));
+}
+
+#[tokio::test]
+async fn styled_status_picker_overlay() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+    );
+    let states = client.workflow_states("t_pizza").await.unwrap();
+    apply(
+        &mut app,
+        Message::StatesLoaded {
+            team_id: "t_pizza".into(),
+            states,
+        },
+    );
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 100, 20));
+}
+
+#[tokio::test]
+async fn styled_local_find_bar() {
+    let client = FixtureClient::sample();
+    let mut app = home_app(&client, 0).await;
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+    );
+    for c in "oven".chars() {
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        );
+    }
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 100, 14));
+}
+
+#[tokio::test]
+async fn styled_help_overlay() {
+    let mut app = App::new();
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
+    );
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 84, 24));
+}
+
+#[tokio::test]
+async fn styled_comment_editor_overlay() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+    );
+    let members = client.team_members("t_pizza").await.unwrap();
+    apply(
+        &mut app,
+        Message::MembersLoaded {
+            team_id: "t_pizza".into(),
+            members,
+        },
+    );
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+    );
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 90, 24));
 }

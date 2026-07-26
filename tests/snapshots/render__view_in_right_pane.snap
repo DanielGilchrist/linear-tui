@@ -3,7 +3,7 @@ source: tests/render.rs
 expression: "render_to_string(&mut app, 110, 26)"
 ---
 ┌Assigned to me · In Progress · Inbox────┐┌ Urgent & unassigned  ·  6 issues ────────────────────────────────┐
-│No issues in this view                  ││group status    sort manual                                       │
+│⠋  Loading…                             ││group status    sort manual                                       │
 └────────────────────────────────────────┘│3 In Progress  ·  2 Todo  ·  1 Backlog                            │
 ┌Recently viewed─────────────────────────┐│                                                                  │
 │Issues you open land here               ││In Progress  3                                                    │

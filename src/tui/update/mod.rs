@@ -14,7 +14,10 @@ mod nav;
 pub use feed::{initial_commands, restore_feeds};
 pub use message::apply;
 
-use input::*;
+use input::{
+    apply_action, apply_confirm, apply_editor, apply_find, apply_input, apply_menu, apply_picker,
+    apply_prefix, apply_search, resolve_browse,
+};
 
 pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Command> {
     if super::action::is_quit(&key) {

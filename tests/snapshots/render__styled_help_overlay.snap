@@ -1,0 +1,137 @@
+---
+source: tests/render.rs
+expression: "render_styled_to_string(&mut app, 84, 24)"
+---
+┌Assigned to me 1/3────────────┐┌Preview───────────────────────────────────────────┐
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "┌"
+    [1] fg=Some(White) bg=Some(Reset) mod=BOLD "Assigned to me"
+    [15] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1/3"
+    [19] fg=Some(Yellow) bg=Some(Reset) mod=NONE "────────────┐"
+    [32] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Preview───────────────────────────────────────────┐"
+│⠋  Loading…                   ││No issue selected                                 │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "⠋  Loading…"
+    [31] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [32] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [33] fg=Some(Reset) bg=Some(Reset) mod=NONE "No issue selected                                 "
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│                              ││                                                  │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [31] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [32] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│                              ││                                                  │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [31] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [32] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│                       ┌Keybindings───────────────────────┐                       │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "┌Keybindings───────────────────────┐"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│                       │Local                             │                       │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [25] fg=Some(Green) bg=Some(Reset) mod=BOLD "Local"
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│                       │      j/↓  move                   │                       │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [25] fg=Some(White) bg=Some(DarkGray) mod=NONE "      j/↓  move                   "
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│                       │        ]  view                   │                       │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│        ]"
+    [36] fg=Some(White) bg=Some(Reset) mod=NONE "view"
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│                       │enter/l/→  open                   │                       │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│enter/l/→"
+    [36] fg=Some(White) bg=Some(Reset) mod=NONE "open"
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│                       │        /  find                   │                       │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│        /"
+    [36] fg=Some(White) bg=Some(Reset) mod=NONE "find"
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│                       │        n  next match             │                       │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│        n"
+    [36] fg=Some(White) bg=Some(Reset) mod=NONE "next match"
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│                       │        o  browser                │                       │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│        o"
+    [36] fg=Some(White) bg=Some(Reset) mod=NONE "browser"
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+└───────────────────────│        y  yank                   │                       │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└───────────────────────│        y"
+    [36] fg=Some(White) bg=Some(Reset) mod=NONE "yank"
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+┌Recently viewed────────│        r  reload                 │                       │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Recently viewed────────"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│        r"
+    [36] fg=Some(White) bg=Some(Reset) mod=NONE "reload"
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│Issues you open land he│Global                            │                       │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Issues you open land he"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [25] fg=Some(Green) bg=Some(Reset) mod=BOLD "Global"
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+└───────────────────────│        g  go to                  │                       │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└───────────────────────"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│        g"
+    [36] fg=Some(White) bg=Some(Reset) mod=NONE "go to"
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+┌Saved Views────────────│      tab  panel                  │                       │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Saved Views────────────"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│      tab"
+    [36] fg=Some(White) bg=Some(Reset) mod=NONE "panel"
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│⠋  Loading…            │shift+tab  panel                  │                       │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "⠋  Loading…"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│shift+tab"
+    [36] fg=Some(White) bg=Some(Reset) mod=NONE "panel"
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+└───────────────────────│        ?  help                   │                       │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└───────────────────────"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│        ?"
+    [36] fg=Some(White) bg=Some(Reset) mod=NONE "help"
+    [59] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+┌Teams──────────────────└──────────────────────────────────┘                       │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Teams──────────────────"
+    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└──────────────────────────────────┘"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│Dan's Pizza                   ││                                                  │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(Reset) bg=Some(Rgb(45, 45, 48)) mod=NONE "Dan's Pizza                   "
+    [31] fg=Some(Gray) bg=Some(Reset) mod=NONE "││"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│Dan's Donuts                  ││                                                  │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Dan's Donuts                  "
+    [31] fg=Some(Gray) bg=Some(Reset) mod=NONE "││"
+    [83] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+└ 1 of 2 ──────────────────────┘└──────────────────────────────────────────────────┘
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 2 "
+    [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "──────────────────────┘└──────────────────────────────────────────────────┘"
+ j move   tab section   enter run   esc close                           connecting…
+    [0] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " j move   tab section   enter run   esc close"
+    [72] fg=Some(Cyan) bg=Some(Reset) mod=NONE "connecting… "

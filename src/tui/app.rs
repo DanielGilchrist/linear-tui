@@ -247,25 +247,11 @@ impl App {
     }
 
     pub fn active_issues(&self) -> &[IssueSummary] {
-        match &self.active_view().kind {
-            ViewKind::Issues(filter) => self
-                .workspace
-                .feeds
-                .get(&FeedKey::Issues(filter.clone()))
-                .map_or(&[], |feed| feed.items()),
-            ViewKind::Inbox => &[],
-        }
+        self.workspace.issues_for(self.active_view())
     }
 
     pub fn active_feed_status(&self) -> CacheStatus {
-        match self.active_feed_key() {
-            Some(key) => self
-                .workspace
-                .feeds
-                .get(&key)
-                .map_or(CacheStatus::Idle, |feed| feed.status().clone()),
-            None => self.workspace.inbox.status().clone(),
-        }
+        self.workspace.feed_status_for(self.active_view())
     }
 
     fn feed_in_flight(&self, key: &FeedKey) -> bool {
@@ -275,18 +261,8 @@ impl App {
         }
     }
 
-    fn feed_appending(&self, key: &FeedKey) -> bool {
-        match self.workspace.feeds.get(key) {
-            Some(feed) => feed.appending(),
-            None => false,
-        }
-    }
-
     pub fn active_appending(&self) -> bool {
-        match self.active_feed_key() {
-            Some(key) => self.feed_appending(&key),
-            None => self.workspace.inbox.appending(),
-        }
+        self.workspace.appending_for(self.active_view())
     }
 
     pub fn main_len(&self) -> usize {
@@ -325,13 +301,6 @@ impl App {
                 None => false,
             },
             Focus::Detail(..) => self.workspace.detail.in_flight(),
-        }
-    }
-
-    pub fn detail_ready(&self) -> bool {
-        match (self.workspace.detail.value(), self.selected_issue()) {
-            (Some(detail), Some(selected)) => detail.id == selected.id,
-            _ => false,
         }
     }
 

@@ -15,7 +15,7 @@ expression: "render_to_string(&mut app, 90, 20)"
 │Issues you open land here       ││                                                      ║
 └────────────────────────────────┘│  └ danniiee · 10h ago                                █
 ┌Saved Views─────────────────────┐│    Agreed, the sensor looks fine. Next suspect is the█
-│No saved views                  ││flue damper.                                          █
+│⠋  Loading…                     ││flue damper.                                          █
 └────────────────────────────────┘│                                                      █
 ┌Teams───────────────────────────┐│  └ dan · 10h ago                                     █
 │Dan's Pizza                     ││    Adding the damper check to the list.              ║

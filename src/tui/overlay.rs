@@ -25,6 +25,10 @@ pub struct PickerItem {
 }
 
 impl PickerItem {
+    pub fn hint(&self) -> Option<&str> {
+        (!self.hint.is_empty()).then_some(self.hint.as_str())
+    }
+
     pub fn unassign() -> Self {
         Self {
             label: "Unassigned".into(),

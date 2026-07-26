@@ -3,7 +3,7 @@ source: tests/render.rs
 expression: "render_to_string(&mut app, 110, 26)"
 ---
 ┌Assigned to me · In Progress · Inbox────┐┌ Urgent & unassigned  ·  6 issues ────────────────────────────────┐
-│No issues in this view                  ││group priority    sort manual                                     │
+│⠋  Loading…                             ││group priority    sort manual                                     │
 └────────────────────────────────────────┘│3 Urgent  ·  3 High                                               │
 ┌Recently viewed─────────────────────────┐│                                                                  │
 │Issues you open land here               ││Urgent  3                                                         │

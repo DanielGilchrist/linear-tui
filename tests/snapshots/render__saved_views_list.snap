@@ -3,7 +3,7 @@ source: tests/render.rs
 expression: "render_to_string(&mut app, 110, 16)"
 ---
 ┌Assigned to me · In Progress · Inbox────┐┌ Urgent & unassigned  ·  6 issues ────────────────────────────────┐
-│No issues in this view                  ││3 In Progress  ·  2 Todo  ·  1 Backlog                            │
+│⠋  Loading…                             ││3 In Progress  ·  2 Todo  ·  1 Backlog                            │
 └────────────────────────────────────────┘│                                                                  │
 ┌Recently viewed─────────────────────────┐│In Progress  3                                                    │
 │Issues you open land here               ││!!! DAN2-7 Wood-fired oven runs 40°C too hot on F…   oven  dan  1d│

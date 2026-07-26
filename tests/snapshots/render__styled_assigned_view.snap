@@ -1,0 +1,90 @@
+---
+source: tests/render.rs
+expression: "render_styled_to_string(&mut app, 110, 16)"
+---
+┌Assigned to me · In Progress · Inbox────┐┌DAN2-7────────────────────────────────────────────────────────────┐
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "┌"
+    [1] fg=Some(White) bg=Some(Reset) mod=BOLD "Assigned to me"
+    [15] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " · In Progress · Inbox"
+    [37] fg=Some(Yellow) bg=Some(Reset) mod=NONE "────┐"
+    [42] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌DAN2-7────────────────────────────────────────────────────────────┐"
+│!!! DAN2-7 In Progress Wood-fired oven r││DAN2-7  In Progress  Urgent                                       │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(White) bg=Some(DarkGray) mod=NONE "!!! DAN2-7 In Progress Wood-fired oven r"
+    [41] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [42] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [43] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "DAN2-7"
+    [51] fg=Some(Yellow) bg=Some(Reset) mod=NONE "In Progress"
+    [64] fg=Some(Red) bg=Some(Reset) mod=NONE "Urgent"
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│!!! DAN-10 In Progress Sprinkle dispense││Wood-fired oven runs 40°C too hot on Friday nights                │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(Red) bg=Some(Reset) mod=NONE "!!!"
+    [5] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "DAN-10"
+    [12] fg=Some(Yellow) bg=Some(Reset) mod=NONE "In Progress"
+    [24] fg=Some(White) bg=Some(Reset) mod=NONE "Sprinkle dispense"
+    [41] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [42] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [43] fg=Some(White) bg=Some(Reset) mod=BOLD "Wood-fired oven runs 40°C too hot on Friday nights"
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│!!  DAN2-2 In Progress Delivery driver G││@dan  oven                                                        │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(LightRed) bg=Some(Reset) mod=NONE "!! "
+    [5] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "DAN2-2"
+    [12] fg=Some(Yellow) bg=Some(Reset) mod=NONE "In Progress"
+    [24] fg=Some(White) bg=Some(Reset) mod=NONE "Delivery driver G"
+    [41] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [42] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [43] fg=Some(Blue) bg=Some(Reset) mod=NONE "@dan"
+    [48] fg=Some(Black) bg=Some(Rgb(235, 87, 87)) mod=NONE " oven "
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+└ 1 of 7 ────────────────────────────────┘│https://linear.app/dans-donuts/issue/DAN2-7                       │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 7 "
+    [9] fg=Some(Yellow) bg=Some(Reset) mod=NONE "────────────────────────────────┘"
+    [42] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [43] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "https://linear.app/dans-donuts/issue/DAN2-7"
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+┌Recently viewed─────────────────────────┐│                                                                  │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Recently viewed─────────────────────────┐│"
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│Issues you open land here               ││Press enter to load the description and comments                  │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Issues you open land here               "
+    [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "││"
+    [43] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "Press enter to load the description and comments"
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+└────────────────────────────────────────┘│                                                                  │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└────────────────────────────────────────┘│"
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+┌Saved Views─────────────────────────────┐│                                                                  │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Saved Views─────────────────────────────┐│"
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│⠋  Loading…                             ││                                                                  │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "⠋  Loading…"
+    [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "││"
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+└────────────────────────────────────────┘│                                                                  │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└────────────────────────────────────────┘│"
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+┌Teams───────────────────────────────────┐│                                                                  │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Teams───────────────────────────────────┐│"
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│Dan's Pizza                             ││                                                                  │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(Reset) bg=Some(Rgb(45, 45, 48)) mod=NONE "Dan's Pizza                             "
+    [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "││"
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+│Dan's Donuts                            ││                                                                  │
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Dan's Donuts                            "
+    [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "││"
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+└ 1 of 2 ────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 2 "
+    [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘"
+ j move   ] view   tab panel   1-9 jump   enter open   o browser   y yank   / find   z z… Dan's Donuts · @dan
+    [0] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " j move   ] view   tab panel   1-9 jump   enter open   o browser   y yank   / find   z z…"
+    [90] fg=Some(Cyan) bg=Some(Reset) mod=NONE "Dan's Donuts · @dan "

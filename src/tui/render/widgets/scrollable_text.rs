@@ -1,23 +1,26 @@
 use ratatui::{
+    buffer::Buffer,
     layout::{Margin, Rect},
-    style::{Color, Style},
+    style::Style,
     text::Text,
-    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
-    Frame,
+    widgets::{
+        Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget,
+        Widget, Wrap,
+    },
 };
 
 pub struct ScrollableText<'a> {
     content: Text<'a>,
-    scroll_position: usize,
+    scroll_position: &'a mut usize,
     scroll_state: &'a mut ScrollbarState,
     title: Option<&'a str>,
-    border_colour: Color,
+    border: Style,
 }
 
 impl<'a> ScrollableText<'a> {
     pub fn new(
         content: Text<'a>,
-        scroll_position: usize,
+        scroll_position: &'a mut usize,
         scroll_state: &'a mut ScrollbarState,
     ) -> Self {
         Self {
@@ -25,7 +28,7 @@ impl<'a> ScrollableText<'a> {
             scroll_position,
             scroll_state,
             title: None,
-            border_colour: Color::Yellow,
+            border: Style::default(),
         }
     }
 
@@ -34,44 +37,41 @@ impl<'a> ScrollableText<'a> {
         self
     }
 
-    pub fn border_colour(mut self, colour: Color) -> Self {
-        self.border_colour = colour;
+    pub fn border_style(mut self, border: Style) -> Self {
+        self.border = border;
         self
     }
+}
 
-    pub fn clamped_scroll_position(&self) -> usize {
-        self.scroll_position
-    }
-
-    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+impl Widget for ScrollableText<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
         let text_height = area.height.saturating_sub(2) as usize;
         let text_width = area.width.saturating_sub(2);
-        let paragraph = Paragraph::new(self.content.clone()).wrap(Wrap { trim: false });
+        let paragraph = Paragraph::new(self.content).wrap(Wrap { trim: false });
         let wrapped_line_count = paragraph.line_count(text_width);
         let max_scroll = wrapped_line_count.saturating_sub(text_height);
 
-        self.scroll_position = self.scroll_position.min(max_scroll);
+        *self.scroll_position = (*self.scroll_position).min(max_scroll);
 
         let mut block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.border_colour));
+            .border_style(self.border);
 
         if let Some(title) = self.title {
             block = block.title(title);
         }
 
-        let paragraph = paragraph
+        paragraph
             .block(block)
-            .scroll((self.scroll_position as u16, 0));
-
-        frame.render_widget(paragraph, area);
+            .scroll((*self.scroll_position as u16, 0))
+            .render(area, buf);
 
         *self.scroll_state = self
             .scroll_state
             .content_length(max_scroll)
-            .position(self.scroll_position);
+            .position(*self.scroll_position);
 
-        frame.render_stateful_widget(
+        StatefulWidget::render(
             Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(Some("↑"))
                 .end_symbol(Some("↓")),
@@ -79,6 +79,7 @@ impl<'a> ScrollableText<'a> {
                 vertical: 1,
                 horizontal: 0,
             }),
+            buf,
             self.scroll_state,
         );
     }

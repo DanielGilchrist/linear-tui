@@ -15,7 +15,7 @@ expression: "render_to_string(&mut app, 100, 20)"
 │Issues you open land here  │                                          │lts.                       ║
 └───────────────────────────│                                          │                           ║
 ┌Saved Views────────────────│                                          │                           ║
-│No saved views             │                                          │                           ║
+│⠋  Loading…                │                                          │                           ║
 └───────────────────────────└ 1 of 4 ──────────────────────────────────┘king open                  ║
 ┌Teams───────────────────────────────┐│                                                            ║
 │Dan's Pizza                         ││Checklist                                                   ║

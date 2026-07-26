@@ -21,7 +21,7 @@ expression: "render_to_string(&mut app, 110, 26)"
 │Issues you open land here               ││Checklist                                                         ║
 └────────────────────────────────────────┘│                                                                  ║
 ┌Saved Views─────────────────────────────┐│[x] Swap the thermocouple                                         ║
-│No saved views                          ││[ ] Inspect the flue damper                                       ║
+│⠋  Loading…                             ││[ ] Inspect the flue damper                                       ║
 └────────────────────────────────────────┘│[ ] Recalibrate the PID loop                                      ║
 ┌Teams───────────────────────────────────┐│                                                                  ║
 │Dan's Pizza                             ││▌ Damper was replaced 6 months ago, should still be under         ║

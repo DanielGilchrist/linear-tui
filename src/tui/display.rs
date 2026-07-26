@@ -34,6 +34,22 @@ impl GroupBy {
             GroupBy::Assignee => "assignee",
         }
     }
+
+    pub fn omitted_column(self) -> Option<Column> {
+        match self {
+            GroupBy::Priority => Some(Column::Priority),
+            GroupBy::Status => Some(Column::State),
+            GroupBy::Assignee => Some(Column::Assignee),
+            GroupBy::None => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Column {
+    Priority,
+    State,
+    Assignee,
 }
 
 impl SortBy {

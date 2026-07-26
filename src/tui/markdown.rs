@@ -382,6 +382,7 @@ fn profile_handle(url: &str) -> Option<&str> {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_types)]
 mod tests {
     use super::*;
     use ratatui::style::Color;

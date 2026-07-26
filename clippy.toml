@@ -1,0 +1,3 @@
+disallowed-types = [
+    { path = "ratatui::style::Color", reason = "use the render::theme tokens and mappers, not raw Color" },
+]

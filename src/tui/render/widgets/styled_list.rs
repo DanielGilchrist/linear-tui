@@ -1,18 +1,19 @@
 use ratatui::{
+    buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-    Frame,
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Widget},
 };
+
+use super::super::theme::{self, Emphasis};
 
 pub struct StyledList<'a> {
     items: Vec<ListItem<'a>>,
     title: String,
     title_line: Option<Line<'a>>,
-    focused: bool,
+    emphasis: Emphasis,
     state: Option<&'a mut ListState>,
-    placeholder: Option<String>,
+    placeholder: Option<Line<'a>>,
     position: Option<(Option<usize>, usize)>,
 }
 
@@ -22,7 +23,7 @@ impl<'a> StyledList<'a> {
             items: Vec::new(),
             title: title.to_string(),
             title_line: None,
-            focused: false,
+            emphasis: Emphasis::Blurred,
             state: None,
             placeholder: None,
             position: None,
@@ -34,8 +35,8 @@ impl<'a> StyledList<'a> {
         self
     }
 
-    pub fn focused(mut self, focused: bool) -> Self {
-        self.focused = focused;
+    pub fn emphasis(mut self, emphasis: Emphasis) -> Self {
+        self.emphasis = emphasis;
         self
     }
 
@@ -49,8 +50,8 @@ impl<'a> StyledList<'a> {
         self
     }
 
-    pub fn placeholder(mut self, placeholder: &str) -> Self {
-        self.placeholder = Some(placeholder.to_string());
+    pub fn placeholder(mut self, placeholder: Line<'a>) -> Self {
+        self.placeholder = Some(placeholder);
         self
     }
 
@@ -58,14 +59,10 @@ impl<'a> StyledList<'a> {
         self.position = Some((selected, total));
         self
     }
+}
 
-    pub fn render(self, frame: &mut Frame, area: Rect) {
-        let border_style = if self.focused {
-            Style::default().fg(Color::Yellow)
-        } else {
-            Style::default().fg(Color::Gray)
-        };
-
+impl Widget for StyledList<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
         let title = self
             .title_line
             .unwrap_or_else(|| Line::from(Span::from(self.title.clone())));
@@ -74,6 +71,7 @@ impl<'a> StyledList<'a> {
             if total == 0 {
                 return None;
             }
+
             let current = selected.map(|s| s + 1).unwrap_or(0);
             Some(format!(" {} of {} ", current, total))
         });
@@ -81,31 +79,24 @@ impl<'a> StyledList<'a> {
         let mut block = Block::default()
             .title(title)
             .borders(Borders::ALL)
-            .border_style(border_style);
+            .border_style(self.emphasis.border());
 
         if let Some(pos) = position_text {
-            block = block.title_bottom(Span::styled(pos, Style::default().fg(Color::DarkGray)));
+            block = block.title_bottom(Span::styled(pos, theme::DIM));
         }
 
-        if let Some(placeholder) = self.placeholder {
-            let placeholder = Paragraph::new(placeholder).block(block);
-            return frame.render_widget(placeholder, area);
+        if let (true, Some(placeholder)) = (self.items.is_empty(), self.placeholder) {
+            Paragraph::new(placeholder).block(block).render(area, buf);
+            return;
         }
-
-        let highlight_style = if self.focused {
-            Style::default().bg(Color::DarkGray).fg(Color::White)
-        } else {
-            Style::default().bg(Color::Rgb(45, 45, 48))
-        };
 
         let list = List::new(self.items)
             .block(block)
-            .highlight_style(highlight_style);
+            .highlight_style(self.emphasis.highlight());
 
-        if let Some(state) = self.state {
-            frame.render_stateful_widget(list, area, state);
-        } else {
-            frame.render_widget(list, area);
+        match self.state {
+            Some(state) => StatefulWidget::render(list, area, buf, state),
+            None => Widget::render(list, area, buf),
         }
     }
 }

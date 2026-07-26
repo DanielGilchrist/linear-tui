@@ -3,7 +3,7 @@ source: tests/render.rs
 expression: "render_to_string(&mut app, 84, 24)"
 ---
 ┌Assigned to me 1/3────────────┐┌Preview───────────────────────────────────────────┐
-│No issues in this view        ││No issue selected                                 │
+│⠋  Loading…                   ││No issue selected                                 │
 │                              ││                                                  │
 │                              ││                                                  │
 │                       ┌Keybindings───────────────────────┐                       │
@@ -19,7 +19,7 @@ expression: "render_to_string(&mut app, 84, 24)"
 │Issues you open land he│Global                            │                       │
 └───────────────────────│        g  go to                  │                       │
 ┌Saved Views────────────│      tab  panel                  │                       │
-│No saved views         │shift+tab  panel                  │                       │
+│⠋  Loading…            │shift+tab  panel                  │                       │
 └───────────────────────│        ?  help                   │                       │
 ┌Teams──────────────────└──────────────────────────────────┘                       │
 │Dan's Pizza                   ││                                                  │

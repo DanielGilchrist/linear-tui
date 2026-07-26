@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_types)]
+
 use pulldown_cmark::HeadingLevel;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
