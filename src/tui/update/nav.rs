@@ -122,7 +122,7 @@ pub(super) fn ascend(app: &mut App) -> Option<Command> {
 pub(super) fn leave_detail(app: &mut App) {
     match app.search_return.take() {
         Some(search) => app.overlay = Overlay::Search(search),
-        None => app.focus = Focus::MyWork,
+        None => app.focus = app.focus.left().focus(),
     }
 }
 

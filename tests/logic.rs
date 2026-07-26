@@ -556,6 +556,38 @@ fn enter_on_issue_opens_detail() {
 }
 
 #[test]
+fn esc_from_a_detail_returns_to_the_panel_it_was_opened_from() {
+    let mut app = list_app_with_issue();
+
+    handle_key(&mut app, press(KeyCode::Enter));
+    assert!(matches!(app.focus, Focus::Detail(LeftPanel::MyWork, _)));
+
+    handle_key(&mut app, press(KeyCode::Esc));
+    assert_eq!(app.focus, Focus::MyWork);
+}
+
+#[test]
+fn esc_from_a_detail_opened_from_recent_returns_to_recent() {
+    let mut app = App::new();
+    apply(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i1", "DAN-1")),
+            reveal: Reveal::Top,
+        },
+    );
+
+    handle_key(&mut app, press(KeyCode::Char('2')));
+    assert_eq!(app.focus, Focus::Recent);
+
+    handle_key(&mut app, press(KeyCode::Enter));
+    assert!(matches!(app.focus, Focus::Detail(LeftPanel::Recent, _)));
+
+    handle_key(&mut app, press(KeyCode::Esc));
+    assert_eq!(app.focus, Focus::Recent);
+}
+
+#[test]
 fn a_fresh_cached_view_is_not_refetched() {
     let mut app = App::new();
     let filter = linear_tui::api::IssueFilter::in_progress_mine();
