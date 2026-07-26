@@ -1,6 +1,5 @@
 ---
 source: tests/render.rs
-assertion_line: 247
 expression: "render_to_string(&mut app, 100, 20)"
 ---
 ┌Assigned to me · In Progress · Inbox┐┌DAN2-7──────────────────────────────────────────────────────┐
@@ -16,7 +15,7 @@ expression: "render_to_string(&mut app, 100, 20)"
 │Issues you open land here  │                                          │lts.                       ║
 └───────────────────────────│                                          │                           ║
 ┌Saved Views────────────────│                                          │                           ║
-│Loading…                   │                                          │                           ║
+│No saved views             │                                          │                           ║
 └───────────────────────────└ 1 of 4 ──────────────────────────────────┘king open                  ║
 ┌Teams───────────────────────────────┐│                                                            ║
 │Dan's Pizza                         ││Checklist                                                   ║

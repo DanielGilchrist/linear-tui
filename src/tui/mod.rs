@@ -1,7 +1,9 @@
 pub mod action;
 pub mod app;
+pub mod cache;
 pub mod components;
 pub mod display;
+pub mod feed;
 pub mod focus;
 pub mod issue_ref;
 pub mod layout;
@@ -16,6 +18,7 @@ pub mod spinner;
 pub mod status;
 pub mod update;
 pub mod view;
+pub mod workspace;
 
 pub use app::App;
 pub use render::{render, render_to_string};

@@ -1,6 +1,5 @@
 ---
 source: tests/render.rs
-assertion_line: 176
 expression: "render_to_string(&mut app, 90, 20)"
 ---
 ┌Assigned to me 1/3──────────────┐┌DAN2-7────────────────────────────────────────────────┐
@@ -16,7 +15,7 @@ expression: "render_to_string(&mut app, 90, 20)"
 │Issues you open land here       ││                                                      ║
 └────────────────────────────────┘│  └ danniiee · 10h ago                                █
 ┌Saved Views─────────────────────┐│    Agreed, the sensor looks fine. Next suspect is the█
-│Loading…                        ││flue damper.                                          █
+│No saved views                  ││flue damper.                                          █
 └────────────────────────────────┘│                                                      █
 ┌Teams───────────────────────────┐│  └ dan · 10h ago                                     █
 │Dan's Pizza                     ││    Adding the damper check to the list.              ║

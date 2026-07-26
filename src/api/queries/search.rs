@@ -7,6 +7,14 @@ use super::schema;
 pub struct SearchVariables {
     pub term: String,
     pub first: Option<i32>,
+    pub after: Option<String>,
+}
+
+#[derive(Debug, Clone, QueryFragment)]
+#[cynic(schema_path = "schema.graphql")]
+pub struct PageInfo {
+    pub has_next_page: bool,
+    pub end_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, QueryFragment)]
@@ -63,6 +71,7 @@ pub struct IssueSearchResult {
 #[cynic(schema_path = "schema.graphql")]
 pub struct IssueSearchPayload {
     pub nodes: Vec<IssueSearchResult>,
+    pub page_info: PageInfo,
 }
 
 #[derive(Debug, QueryFragment)]
@@ -72,6 +81,6 @@ pub struct IssueSearchPayload {
     variables = "SearchVariables"
 )]
 pub struct SearchIssuesQuery {
-    #[arguments(term: $term, first: $first)]
+    #[arguments(term: $term, first: $first, after: $after)]
     pub search_issues: IssueSearchPayload,
 }

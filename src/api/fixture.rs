@@ -4,9 +4,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::api::model::{
-    Comment, IssueDetail, IssueFilter, IssuePage, IssueSummary, IssueUpdate, Label,
-    NotificationItem, Priority, Rgb, SavedView, Session, StateOption, StateType, User,
-    WorkflowState,
+    Comment, Cursor, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, Label, NotificationItem,
+    Page, Priority, Rgb, SavedView, Session, StateOption, StateType, User, WorkflowState,
 };
 use crate::api::{ApiResult, LinearApi};
 
@@ -77,7 +76,11 @@ impl LinearApi for FixtureClient {
         Ok(self.fixture.saved_views.clone())
     }
 
-    async fn custom_view_issues(&self, id: &str) -> ApiResult<IssuePage> {
+    async fn custom_view_issues(
+        &self,
+        id: &str,
+        _after: Option<&Cursor>,
+    ) -> ApiResult<Page<IssueSummary>> {
         let issues = self
             .fixture
             .saved_view_issues
@@ -85,37 +88,44 @@ impl LinearApi for FixtureClient {
             .cloned()
             .unwrap_or_else(|| self.fixture.issues.clone());
 
-        Ok(IssuePage {
-            issues,
-            truncated: false,
-        })
+        Ok(Page::single(issues))
     }
 
-    async fn issues(&self, filter: &IssueFilter) -> ApiResult<Vec<IssueSummary>> {
-        Ok(self
-            .fixture
-            .issues
-            .iter()
-            .filter(|issue| matches(issue, filter))
-            .cloned()
-            .collect())
+    async fn issues(
+        &self,
+        filter: &IssueFilter,
+        _after: Option<&Cursor>,
+    ) -> ApiResult<Page<IssueSummary>> {
+        Ok(Page::single(
+            self.fixture
+                .issues
+                .iter()
+                .filter(|issue| matches(issue, filter))
+                .cloned()
+                .collect(),
+        ))
     }
 
-    async fn search_issues(&self, term: &str) -> ApiResult<Vec<IssueSummary>> {
+    async fn search_issues(
+        &self,
+        term: &str,
+        _after: Option<&Cursor>,
+    ) -> ApiResult<Page<IssueSummary>> {
         let needle = term.to_lowercase();
-        Ok(self
-            .fixture
-            .issues
-            .iter()
-            .filter(|issue| {
-                issue.identifier.to_lowercase().contains(&needle)
-                    || issue
-                        .title
-                        .as_deref()
-                        .is_some_and(|title| title.to_lowercase().contains(&needle))
-            })
-            .cloned()
-            .collect())
+        Ok(Page::single(
+            self.fixture
+                .issues
+                .iter()
+                .filter(|issue| {
+                    issue.identifier.to_lowercase().contains(&needle)
+                        || issue
+                            .title
+                            .as_deref()
+                            .is_some_and(|title| title.to_lowercase().contains(&needle))
+                })
+                .cloned()
+                .collect(),
+        ))
     }
 
     async fn issue_detail(&self, id: &str) -> ApiResult<Option<IssueDetail>> {
@@ -127,8 +137,8 @@ impl LinearApi for FixtureClient {
             .cloned())
     }
 
-    async fn notifications(&self) -> ApiResult<Vec<NotificationItem>> {
-        Ok(self.fixture.notifications.clone())
+    async fn notifications(&self, _after: Option<&Cursor>) -> ApiResult<Page<NotificationItem>> {
+        Ok(Page::single(self.fixture.notifications.clone()))
     }
 
     async fn workflow_states(&self, _team_id: &str) -> ApiResult<Vec<StateOption>> {

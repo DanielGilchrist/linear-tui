@@ -8,7 +8,7 @@ pub enum IssueUpdate {
     Assignee(Option<String>),
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct IssueFilter {
     #[serde(default)]
     pub assigned_to_me: bool,

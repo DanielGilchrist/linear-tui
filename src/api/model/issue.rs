@@ -65,12 +65,6 @@ impl IssueSummary {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct IssuePage {
-    pub issues: Vec<IssueSummary>,
-    pub truncated: bool,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Comment {
     #[serde(default)]

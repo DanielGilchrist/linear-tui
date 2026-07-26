@@ -10,19 +10,28 @@ use super::schema;
     variables = "NotificationsVariables"
 )]
 pub struct NotificationsQuery {
-    #[arguments(first: $first)]
+    #[arguments(first: $first, after: $after)]
     pub notifications: NotificationConnection,
 }
 
 #[derive(Debug, QueryVariables)]
 pub struct NotificationsVariables {
     pub first: Option<i32>,
+    pub after: Option<String>,
+}
+
+#[derive(Debug, Clone, QueryFragment)]
+#[cynic(schema_path = "schema.graphql")]
+pub struct PageInfo {
+    pub has_next_page: bool,
+    pub end_cursor: Option<String>,
 }
 
 #[derive(Debug, QueryFragment)]
 #[cynic(schema_path = "schema.graphql")]
 pub struct NotificationConnection {
     pub nodes: Vec<Notification>,
+    pub page_info: PageInfo,
 }
 
 #[derive(Debug, InlineFragments)]

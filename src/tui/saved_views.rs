@@ -1,49 +1,29 @@
-use std::collections::HashMap;
-
 use ratatui::widgets::ListState;
 
+use super::cache::Remote;
 use super::display::Display;
+use super::feed::{FeedKey, FeedStore};
 use crate::api::{IssueSummary, SavedView};
 
-pub enum ViewIssues {
-    Loading,
-    Loaded {
-        issues: Vec<IssueSummary>,
-        truncated: bool,
-    },
-    Failed,
-}
-
 pub struct SavedViewsPanel {
-    pub views: Vec<SavedView>,
+    pub views: Remote<Vec<SavedView>>,
     pub state: ListState,
-    pub loading: bool,
-    pub issues: HashMap<String, ViewIssues>,
 }
 
 impl SavedViewsPanel {
     pub fn new() -> Self {
         Self {
-            views: Vec::new(),
+            views: Remote::default(),
             state: ListState::default().with_selected(Some(0)),
-            loading: true,
-            issues: HashMap::new(),
         }
+    }
+
+    pub fn list(&self) -> &[SavedView] {
+        self.views.value().map_or(&[], Vec::as_slice)
     }
 
     pub fn selected_view(&self) -> Option<&SavedView> {
-        self.state.selected().and_then(|i| self.views.get(i))
-    }
-
-    pub fn issues_for(&self, id: &str) -> Option<&ViewIssues> {
-        self.issues.get(id)
-    }
-
-    pub fn loaded(&self, id: &str) -> Option<&[IssueSummary]> {
-        match self.issues.get(id) {
-            Some(ViewIssues::Loaded { issues, .. }) => Some(issues),
-            _ => None,
-        }
+        self.state.selected().and_then(|i| self.list().get(i))
     }
 }
 
@@ -53,8 +33,6 @@ impl Default for SavedViewsPanel {
     }
 }
 
-/// A saved view opened as a right-pane surface: its display options and the
-/// selection/scroll cursors over the issues held in the panel cache.
 pub struct ViewSurface {
     pub saved: SavedView,
     pub display: Display,
@@ -80,22 +58,26 @@ impl ViewSurface {
         &self.saved.name
     }
 
-    pub fn issues<'a>(&self, panel: &'a SavedViewsPanel) -> Option<&'a [IssueSummary]> {
-        panel.loaded(self.id())
+    pub fn key(&self) -> FeedKey {
+        FeedKey::View(self.saved.id.clone())
     }
 
-    pub fn len(&self, panel: &SavedViewsPanel) -> usize {
-        self.issues(panel).map_or(0, |issues| issues.len())
+    pub fn issues<'a>(&self, feeds: &'a FeedStore) -> Option<&'a [IssueSummary]> {
+        feeds.get(&self.key()).map(|feed| feed.items())
     }
 
-    pub fn ordered(&self, panel: &SavedViewsPanel) -> Vec<usize> {
-        self.issues(panel)
+    pub fn len(&self, feeds: &FeedStore) -> usize {
+        self.issues(feeds).map_or(0, |issues| issues.len())
+    }
+
+    pub fn ordered(&self, feeds: &FeedStore) -> Vec<usize> {
+        self.issues(feeds)
             .map(|issues| self.display.order(issues))
             .unwrap_or_default()
     }
 
-    pub fn selected_issue<'a>(&self, panel: &'a SavedViewsPanel) -> Option<&'a IssueSummary> {
-        let issues = self.issues(panel)?;
+    pub fn selected_issue<'a>(&self, feeds: &'a FeedStore) -> Option<&'a IssueSummary> {
+        let issues = self.issues(feeds)?;
         let pos = self.state.selected()?;
         let index = *self.display.order(issues).get(pos)?;
         issues.get(index)

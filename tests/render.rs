@@ -2,9 +2,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
 use linear_tui::api::{LinearApi, Timestamp};
 use linear_tui::tui::app::App;
+use linear_tui::tui::cache::Remote;
+use linear_tui::tui::feed::{Feed, FeedKey, FeedRequest};
 use linear_tui::tui::focus::{DetailView, Focus, LeftPanel};
 use linear_tui::tui::message::Message;
-use linear_tui::tui::overlay::PickerItem;
 use linear_tui::tui::render_to_string;
 use linear_tui::tui::update::{apply, handle_key};
 use linear_tui::tui::view::ViewKind;
@@ -12,26 +13,48 @@ use linear_tui::tui::view::ViewKind;
 async fn home_app(client: &FixtureClient, view: usize) -> App {
     let mut app = App::new();
     app.now = Timestamp::from("2026-07-16T21:00:00Z").epoch();
-    app.session = client.session().await.ok();
+    app.workspace.session = client.session().await.ok();
     app.view_state.select(Some(view));
     match &app.active_view().kind {
-        ViewKind::Issues(filter) => app.issues = client.issues(&filter.clone()).await.unwrap(),
-        ViewKind::Inbox => app.notifications = client.notifications().await.unwrap(),
+        ViewKind::Issues(filter) => {
+            let page = client.issues(&filter.clone(), None).await.unwrap();
+            app.workspace
+                .feeds
+                .insert(FeedKey::Issues(filter.clone()), Feed::ready(page, app.now));
+        }
+        ViewKind::Inbox => {
+            let page = client.notifications(None).await.unwrap();
+            app.workspace.inbox = Feed::ready(page, app.now);
+        }
     }
     app
+}
+
+async fn load_view(app: &mut App, client: &FixtureClient, id: &str) {
+    let page = client.custom_view_issues(id, None).await.unwrap();
+    apply(
+        app,
+        Message::FeedLoaded {
+            key: FeedKey::View(id.to_string()),
+            request: FeedRequest::Refresh,
+            page,
+        },
+    );
 }
 
 async fn opened_detail_app(client: &FixtureClient) -> App {
     let mut app = home_app(client, 0).await;
     app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
-    app.detail = client.issue_detail("DAN2-7").await.unwrap();
+    if let Some(detail) = client.issue_detail("DAN2-7").await.unwrap() {
+        app.workspace.detail = Remote::ready(detail, app.now);
+    }
     app
 }
 
 async fn saved_views_app(client: &FixtureClient) -> App {
     let mut app = App::new();
     app.now = Timestamp::from("2026-07-16T21:00:00Z").epoch();
-    app.session = client.session().await.ok();
+    app.workspace.session = client.session().await.ok();
     app.focus = Focus::SavedViews;
     apply(
         &mut app,
@@ -72,30 +95,28 @@ async fn issue_detail() {
 async fn saved_views_list() {
     let client = FixtureClient::sample();
     let mut app = saved_views_app(&client).await;
-    let id = app.saved_views.selected_view().unwrap().id.clone();
-    apply(
-        &mut app,
-        Message::CustomViewIssuesLoaded {
-            id: id.clone(),
-            issues: client.custom_view_issues(&id).await.unwrap().issues,
-            truncated: false,
-        },
-    );
+    let id = app
+        .workspace
+        .saved_views
+        .selected_view()
+        .unwrap()
+        .id
+        .clone();
+    load_view(&mut app, &client, &id).await;
     insta::assert_snapshot!(render_to_string(&mut app, 110, 16));
 }
 
 async fn open_view_app(client: &FixtureClient) -> App {
     let mut app = saved_views_app(client).await;
-    let id = app.saved_views.selected_view().unwrap().id.clone();
+    let id = app
+        .workspace
+        .saved_views
+        .selected_view()
+        .unwrap()
+        .id
+        .clone();
     handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    apply(
-        &mut app,
-        Message::CustomViewIssuesLoaded {
-            id: id.clone(),
-            issues: client.custom_view_issues(&id).await.unwrap().issues,
-            truncated: false,
-        },
-    );
+    load_view(&mut app, client, &id).await;
     app
 }
 
@@ -121,15 +142,24 @@ async fn view_zoomed() {
 async fn a_truncated_view_marks_the_count_with_a_plus() {
     let client = FixtureClient::sample();
     let mut app = saved_views_app(&client).await;
-    let id = app.saved_views.selected_view().unwrap().id.clone();
+    let id = app
+        .workspace
+        .saved_views
+        .selected_view()
+        .unwrap()
+        .id
+        .clone();
     handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    let page = client.custom_view_issues(&id).await.unwrap();
+    let items = client.custom_view_issues(&id, None).await.unwrap().items;
     apply(
         &mut app,
-        Message::CustomViewIssuesLoaded {
-            id,
-            issues: page.issues,
-            truncated: true,
+        Message::FeedLoaded {
+            key: FeedKey::View(id),
+            request: FeedRequest::Refresh,
+            page: linear_tui::api::Page {
+                items,
+                next: Some(linear_tui::api::Cursor("more".into())),
+            },
         },
     );
 
@@ -192,7 +222,11 @@ async fn detail_view_keeps_the_source_panel_expanded() {
 #[tokio::test]
 async fn loading_placeholder() {
     let mut app = App::new();
-    app.loading = true;
+    let key = app.active_feed_key().unwrap();
+    app.workspace
+        .feeds
+        .get_or_default(&key)
+        .begin(&FeedRequest::Refresh);
     insta::assert_snapshot!(render_to_string(&mut app, 110, 10));
 }
 
@@ -224,8 +258,13 @@ async fn status_picker_overlay() {
         KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
     );
     let states = client.workflow_states("t_pizza").await.unwrap();
-    let items = states.into_iter().map(PickerItem::from).collect();
-    apply(&mut app, Message::PickerLoaded(items));
+    apply(
+        &mut app,
+        Message::StatesLoaded {
+            team_id: "t_pizza".into(),
+            states,
+        },
+    );
 
     insta::assert_snapshot!(render_to_string(&mut app, 100, 20));
 }
@@ -240,9 +279,13 @@ async fn assign_picker_overlay() {
         KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
     );
     let members = client.team_members("t_pizza").await.unwrap();
-    let mut items = vec![PickerItem::unassign()];
-    items.extend(members.into_iter().map(PickerItem::from));
-    apply(&mut app, Message::PickerLoaded(items));
+    apply(
+        &mut app,
+        Message::MembersLoaded {
+            team_id: "t_pizza".into(),
+            members,
+        },
+    );
 
     insta::assert_snapshot!(render_to_string(&mut app, 100, 20));
 }
@@ -278,7 +321,13 @@ async fn mention_autocomplete_popup() {
         KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
     );
     let members = client.team_members("t_pizza").await.unwrap();
-    apply(&mut app, Message::MentionMembersLoaded(members));
+    apply(
+        &mut app,
+        Message::MembersLoaded {
+            team_id: "t_pizza".into(),
+            members,
+        },
+    );
     handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
@@ -372,8 +421,15 @@ async fn search_results_overlay() {
         );
     }
     handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    let results = client.search_issues("oven").await.unwrap();
-    apply(&mut app, Message::SearchResults(results));
+    let page = client.search_issues("oven", None).await.unwrap();
+    apply(
+        &mut app,
+        Message::FeedLoaded {
+            key: FeedKey::Search("oven".to_string()),
+            request: FeedRequest::Refresh,
+            page,
+        },
+    );
 
     insta::assert_snapshot!(render_to_string(&mut app, 100, 20));
 }
@@ -388,8 +444,13 @@ async fn confirm_dialog() {
         KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
     );
     let states = client.workflow_states("t_pizza").await.unwrap();
-    let items = states.into_iter().map(PickerItem::from).collect();
-    apply(&mut app, Message::PickerLoaded(items));
+    apply(
+        &mut app,
+        Message::StatesLoaded {
+            team_id: "t_pizza".into(),
+            states,
+        },
+    );
     handle_key(&mut app, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 

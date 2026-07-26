@@ -15,7 +15,7 @@ expression: "render_to_string(&mut app, 100, 20)"
 │Issues you open lan│                                                          │                   │
 └───────────────────│                                                          │                   │
 ┌Saved Views────────│                                                          │                   │
-│Loading…           │                                                          │                   │
+│No saved views     │                                                          │                   │
 └───────────────────│                                                          │                   │
 ┌Teams──────────────└ 1 of 1 ──────────────────────────────────────────────────┘                   │
 │Dan's Pizza                         ││                                                            │

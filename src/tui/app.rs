@@ -1,19 +1,20 @@
 use ratatui::widgets::{ListState, ScrollbarState};
 
+use super::cache::CacheStatus;
+use super::feed::FeedKey;
 use super::focus::{DetailView, Focus, LeftPanel, Nav};
 use super::overlay::{Confirm, Editor, Find, Input, Menu, Overlay, Picker, Prefix, Search};
-use super::saved_views::{SavedViewsPanel, ViewSurface};
+use super::saved_views::ViewSurface;
 use super::spinner::Spinner;
 use super::status::Status;
 use super::view::{View, ViewKind};
-use crate::api::{IssueDetail, IssueSummary, NotificationItem, Session};
+use super::workspace::WorkspaceData;
+use crate::api::{IssueDetail, IssueSummary, NotificationItem};
 
 pub const SCROLL_STEP: usize = 2;
 
 pub const RECENT_CAP: usize = 50;
 
-/// Whether the focused surface is shown in the split layout or enlarged to fill
-/// the whole body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Zoom {
     Normal,
@@ -76,23 +77,14 @@ impl FocusedIssue {
 }
 
 pub struct App {
-    pub session: Option<Session>,
+    pub workspace: WorkspaceData,
     pub views: Vec<View>,
     pub view_state: ListState,
-    pub issues: Vec<IssueSummary>,
-    pub notifications: Vec<NotificationItem>,
     pub list_state: ListState,
-    pub recently_viewed: Vec<IssueSummary>,
-    pub recent_state: ListState,
     pub comment_state: ListState,
-    pub saved_views: SavedViewsPanel,
-    pub view_open: Option<ViewSurface>,
     pub zoom: Zoom,
     pub stubs: Vec<StubPanel>,
-    pub detail: Option<IssueDetail>,
-    pub detail_loading: bool,
     pub focus: Focus,
-    pub loading: bool,
     pub status: Option<Status>,
     pub spinner: Spinner,
     pub scroll_position: usize,
@@ -117,23 +109,14 @@ pub fn now_epoch() -> i64 {
 impl App {
     pub fn new() -> Self {
         Self {
-            session: None,
+            workspace: WorkspaceData::new(),
             views: View::defaults(),
             view_state: ListState::default().with_selected(Some(0)),
-            issues: Vec::new(),
-            notifications: Vec::new(),
             list_state: ListState::default().with_selected(Some(0)),
             comment_state: ListState::default().with_selected(Some(0)),
-            saved_views: SavedViewsPanel::new(),
-            view_open: None,
             zoom: Zoom::Normal,
-            recently_viewed: Vec::new(),
-            recent_state: ListState::default().with_selected(Some(0)),
             stubs: vec![StubPanel::new("Teams", &["Dan's Pizza", "Dan's Donuts"])],
-            detail: None,
-            detail_loading: false,
             focus: Focus::MyWork,
-            loading: false,
             status: None,
             spinner: Spinner::default(),
             scroll_position: 0,
@@ -183,40 +166,48 @@ impl App {
     }
 
     pub fn view(&self) -> Option<&ViewSurface> {
-        self.view_open.as_ref()
+        self.workspace.view_open.as_ref()
     }
 
     pub fn open_view_surface(&mut self, surface: ViewSurface) {
-        self.view_open = Some(surface);
+        self.workspace.view_open = Some(surface);
         self.focus = Focus::View;
     }
 
     pub fn close_view_surface(&mut self) {
-        self.view_open = None;
+        self.workspace.view_open = None;
         if self.focus == Focus::View {
             self.focus = Focus::SavedViews;
         }
     }
 
     pub fn view_issues(&self) -> Option<&[IssueSummary]> {
-        self.view_open.as_ref()?.issues(&self.saved_views)
+        self.workspace
+            .view_open
+            .as_ref()?
+            .issues(&self.workspace.feeds)
     }
 
     pub fn view_len(&self) -> usize {
-        self.view_open
+        self.workspace
+            .view_open
             .as_ref()
-            .map_or(0, |view| view.len(&self.saved_views))
+            .map_or(0, |view| view.len(&self.workspace.feeds))
     }
 
     pub fn view_ordered(&self) -> Vec<usize> {
-        self.view_open
+        self.workspace
+            .view_open
             .as_ref()
-            .map(|view| view.ordered(&self.saved_views))
+            .map(|view| view.ordered(&self.workspace.feeds))
             .unwrap_or_default()
     }
 
     pub fn view_selected_issue(&self) -> Option<&IssueSummary> {
-        self.view_open.as_ref()?.selected_issue(&self.saved_views)
+        self.workspace
+            .view_open
+            .as_ref()?
+            .selected_issue(&self.workspace.feeds)
     }
 
     pub fn editor(&self) -> Option<&Editor> {
@@ -248,34 +239,118 @@ impl App {
         &self.views[self.active_view_index().min(self.views.len() - 1)]
     }
 
+    pub fn active_feed_key(&self) -> Option<FeedKey> {
+        match &self.active_view().kind {
+            ViewKind::Issues(filter) => Some(FeedKey::Issues(filter.clone())),
+            ViewKind::Inbox => None,
+        }
+    }
+
+    pub fn active_issues(&self) -> &[IssueSummary] {
+        match &self.active_view().kind {
+            ViewKind::Issues(filter) => self
+                .workspace
+                .feeds
+                .get(&FeedKey::Issues(filter.clone()))
+                .map_or(&[], |feed| feed.items()),
+            ViewKind::Inbox => &[],
+        }
+    }
+
+    pub fn active_feed_status(&self) -> CacheStatus {
+        match self.active_feed_key() {
+            Some(key) => self
+                .workspace
+                .feeds
+                .get(&key)
+                .map_or(CacheStatus::Idle, |feed| feed.status().clone()),
+            None => self.workspace.inbox.status().clone(),
+        }
+    }
+
+    fn feed_in_flight(&self, key: &FeedKey) -> bool {
+        match self.workspace.feeds.get(key) {
+            Some(feed) => feed.in_flight(),
+            None => false,
+        }
+    }
+
+    fn feed_appending(&self, key: &FeedKey) -> bool {
+        match self.workspace.feeds.get(key) {
+            Some(feed) => feed.appending(),
+            None => false,
+        }
+    }
+
+    pub fn active_appending(&self) -> bool {
+        match self.active_feed_key() {
+            Some(key) => self.feed_appending(&key),
+            None => self.workspace.inbox.appending(),
+        }
+    }
+
     pub fn main_len(&self) -> usize {
         match self.active_view().kind {
-            ViewKind::Issues(_) => self.issues.len(),
-            ViewKind::Inbox => self.notifications.len(),
+            ViewKind::Issues(_) => self.active_issues().len(),
+            ViewKind::Inbox => self.workspace.inbox.items().len(),
         }
     }
 
     pub fn selected_issue(&self) -> Option<&IssueSummary> {
-        self.list_state.selected().and_then(|i| self.issues.get(i))
+        self.list_state
+            .selected()
+            .and_then(|i| self.active_issues().get(i))
     }
 
     pub fn selected_notification(&self) -> Option<&NotificationItem> {
         self.list_state
             .selected()
-            .and_then(|i| self.notifications.get(i))
+            .and_then(|i| self.workspace.inbox.items().get(i))
+    }
+
+    fn active_in_flight(&self) -> bool {
+        match self.active_feed_key() {
+            Some(key) => self.feed_in_flight(&key),
+            None => self.workspace.inbox.in_flight(),
+        }
+    }
+
+    pub fn is_loading(&self) -> bool {
+        match self.focus {
+            Focus::MyWork => self.active_in_flight(),
+            Focus::Recent | Focus::Stub(_) => false,
+            Focus::SavedViews => self.workspace.saved_views.views.in_flight(),
+            Focus::View => match self.workspace.view_open.as_ref() {
+                Some(view) => self.feed_in_flight(&view.key()),
+                None => false,
+            },
+            Focus::Detail(..) => self.workspace.detail.in_flight(),
+        }
     }
 
     pub fn detail_ready(&self) -> bool {
-        match (&self.detail, self.selected_issue()) {
+        match (self.workspace.detail.value(), self.selected_issue()) {
             (Some(detail), Some(selected)) => detail.id == selected.id,
             _ => false,
         }
     }
 
     pub fn has_comments(&self) -> bool {
-        self.detail
-            .as_ref()
-            .is_some_and(|detail| !detail.comments.is_empty())
+        match self.workspace.detail.value() {
+            Some(detail) => !detail.comments.is_empty(),
+            None => false,
+        }
+    }
+
+    pub fn search_results(&self, query: &str) -> &[IssueSummary] {
+        match self
+            .workspace
+            .feeds
+            .get(&FeedKey::Search(query.to_string()))
+        {
+            Some(feed) => feed.items(),
+            None => &[],
+        }
     }
 
     pub fn panels(&self) -> Vec<LeftPanel> {
@@ -295,8 +370,8 @@ impl App {
     pub fn panel_len(&self, focus: Focus) -> usize {
         match focus {
             Focus::MyWork => self.main_len(),
-            Focus::Recent => self.recently_viewed.len(),
-            Focus::SavedViews => self.saved_views.views.len(),
+            Focus::Recent => self.workspace.recently_viewed.len(),
+            Focus::SavedViews => self.workspace.saved_views.list().len(),
             Focus::View => self.view_len(),
             Focus::Stub(index) => self.stubs[index].items.len(),
             Focus::Detail(..) => 0,
@@ -310,9 +385,13 @@ impl App {
     pub fn focused_list_mut(&mut self) -> Option<&mut ListState> {
         match self.focus {
             Focus::MyWork => Some(&mut self.list_state),
-            Focus::Recent => Some(&mut self.recent_state),
-            Focus::SavedViews => Some(&mut self.saved_views.state),
-            Focus::View => self.view_open.as_mut().map(|view| &mut view.state),
+            Focus::Recent => Some(&mut self.workspace.recent_state),
+            Focus::SavedViews => Some(&mut self.workspace.saved_views.state),
+            Focus::View => self
+                .workspace
+                .view_open
+                .as_mut()
+                .map(|view| &mut view.state),
             Focus::Stub(index) => Some(&mut self.stubs[index].state),
             Focus::Detail(..) => None,
         }
@@ -327,8 +406,9 @@ impl App {
             },
             Focus::Detail(_, DetailView::Comments) => {
                 let len = self
+                    .workspace
                     .detail
-                    .as_ref()
+                    .value()
                     .map_or(0, |detail| detail.comments.len());
 
                 Nav::List {
@@ -346,32 +426,35 @@ impl App {
                 }
             }
             Focus::Recent => {
-                let len = self.recently_viewed.len();
+                let len = self.workspace.recently_viewed.len();
+
                 Nav::List {
-                    state: &mut self.recent_state,
+                    state: &mut self.workspace.recent_state,
                     len,
                     viewport,
                 }
             }
             Focus::SavedViews => {
-                let len = self.saved_views.views.len();
+                let len = self.workspace.saved_views.list().len();
+
                 Nav::List {
-                    state: &mut self.saved_views.state,
+                    state: &mut self.workspace.saved_views.state,
                     len,
                     viewport,
                 }
             }
             Focus::View => {
                 let len = self.view_len();
-                let panel_len = self.saved_views.views.len();
-                match self.view_open.as_mut() {
+                let panel_len = self.workspace.saved_views.list().len();
+
+                match self.workspace.view_open.as_mut() {
                     Some(view) => Nav::List {
                         state: &mut view.state,
                         len,
                         viewport,
                     },
                     None => Nav::List {
-                        state: &mut self.saved_views.state,
+                        state: &mut self.workspace.saved_views.state,
                         len: panel_len,
                         viewport,
                     },
@@ -391,9 +474,10 @@ impl App {
     pub fn focused_selection(&self) -> Option<usize> {
         match self.focus {
             Focus::MyWork => self.list_state.selected(),
-            Focus::Recent => self.recent_state.selected(),
-            Focus::SavedViews => self.saved_views.state.selected(),
+            Focus::Recent => self.workspace.recent_state.selected(),
+            Focus::SavedViews => self.workspace.saved_views.state.selected(),
             Focus::View => self
+                .workspace
                 .view_open
                 .as_ref()
                 .and_then(|view| view.state.selected()),
@@ -403,38 +487,61 @@ impl App {
     }
 
     pub fn selected_recent(&self) -> Option<&IssueSummary> {
-        self.recent_state
+        self.workspace
+            .recent_state
             .selected()
-            .and_then(|i| self.recently_viewed.get(i))
+            .and_then(|i| self.workspace.recently_viewed.get(i))
     }
 
     pub fn record_recent(&mut self, issue: IssueSummary) {
-        let position = match self.recently_viewed.iter().position(|i| i.id == issue.id) {
+        let position = match self
+            .workspace
+            .recently_viewed
+            .iter()
+            .position(|i| i.id == issue.id)
+        {
             Some(position) => position,
             None => {
-                self.recently_viewed.insert(0, issue);
-                self.recently_viewed.truncate(RECENT_CAP);
+                self.workspace.recently_viewed.insert(0, issue);
+                self.workspace.recently_viewed.truncate(RECENT_CAP);
                 0
             }
         };
-        self.recent_state.select(Some(position));
+
+        self.workspace.recent_state.select(Some(position));
     }
 
     pub fn open_recent_pos(&self) -> Option<usize> {
-        let detail = self.detail.as_ref()?;
-        self.recently_viewed.iter().position(|i| i.id == detail.id)
+        let detail = self.workspace.detail.value()?;
+
+        self.workspace
+            .recently_viewed
+            .iter()
+            .position(|i| i.id == detail.id)
     }
 
     fn focused_row_texts(&self) -> Vec<String> {
         match self.focus {
             Focus::MyWork => match self.active_view().kind {
-                ViewKind::Issues(_) => self.issues.iter().map(issue_search_text).collect(),
-                ViewKind::Inbox => self.notifications.iter().map(|n| n.title.clone()).collect(),
+                ViewKind::Issues(_) => self.active_issues().iter().map(issue_search_text).collect(),
+                ViewKind::Inbox => self
+                    .workspace
+                    .inbox
+                    .items()
+                    .iter()
+                    .map(|n| n.title.clone())
+                    .collect(),
             },
-            Focus::Recent => self.recently_viewed.iter().map(issue_search_text).collect(),
+            Focus::Recent => self
+                .workspace
+                .recently_viewed
+                .iter()
+                .map(issue_search_text)
+                .collect(),
             Focus::SavedViews => self
+                .workspace
                 .saved_views
-                .views
+                .list()
                 .iter()
                 .map(|v| v.name.clone())
                 .collect(),
@@ -469,8 +576,9 @@ impl App {
             Focus::SavedViews => None,
             Focus::View => self.view_selected_issue().map(FocusedIssue::from_summary),
             Focus::Detail(..) => self
+                .workspace
                 .detail
-                .as_ref()
+                .value()
                 .map(FocusedIssue::from_detail)
                 .or_else(|| self.selected_issue().map(FocusedIssue::from_summary)),
             Focus::Stub(_) => None,
@@ -479,7 +587,7 @@ impl App {
 
     pub fn action_target(&self) -> Option<FocusedIssue> {
         match self.focus {
-            Focus::Detail(..) => self.detail.as_ref().map(FocusedIssue::from_detail),
+            Focus::Detail(..) => self.workspace.detail.value().map(FocusedIssue::from_detail),
             Focus::View => self.view_selected_issue().map(FocusedIssue::from_summary),
             Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::Stub(_) => None,
         }

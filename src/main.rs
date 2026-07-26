@@ -14,6 +14,8 @@ use linear_tui::api::{self, fixture::FixtureClient, Client, LinearApi};
 use linear_tui::tui::{
     self,
     app::App,
+    cache::Remote,
+    feed::{Feed, FeedKey},
     focus::{DetailView, Focus, LeftPanel},
     view::ViewKind,
 };
@@ -78,11 +80,12 @@ fn resolve_api_key(flag: &Option<String>) -> Result<String> {
 }
 
 async fn run_tui(api_key: String) -> Result<()> {
+    let namespace = linear_tui::store::namespace(&api_key);
     let api: Arc<dyn LinearApi> = Arc::new(Client::new(api_key));
 
     let mut terminal = setup_terminal()?;
     let mut app = App::new();
-    let result = tui::run(&mut terminal, &mut app, api).await;
+    let result = tui::run(&mut terminal, &mut app, api, namespace).await;
 
     cleanup_terminal()?;
     result
@@ -95,18 +98,28 @@ async fn headless_render(args: RenderArgs) -> Result<()> {
     };
 
     let mut app = App::new();
-    app.session = api.session().await.ok();
+    app.workspace.session = api.session().await.ok();
 
     let index = view_index(&args.view);
     app.view_state.select(Some(index));
     match &app.active_view().kind {
-        ViewKind::Issues(filter) => app.issues = api.issues(&filter.clone()).await?,
-        ViewKind::Inbox => app.notifications = api.notifications().await?,
+        ViewKind::Issues(filter) => {
+            let key = FeedKey::Issues(filter.clone());
+            let page = api.issues(&filter.clone(), None).await?;
+
+            app.workspace.feeds.insert(key, Feed::ready(page, app.now));
+        }
+        ViewKind::Inbox => {
+            let page = api.notifications(None).await?;
+            app.workspace.inbox = Feed::ready(page, app.now);
+        }
     }
 
     if let Some(id) = &args.detail {
         app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
-        app.detail = api.issue_detail(id).await?;
+        if let Some(detail) = api.issue_detail(id).await? {
+            app.workspace.detail = Remote::ready(detail, app.now);
+        }
     }
 
     let output = tui::render_to_string(&mut app, args.width, args.height);
@@ -128,8 +141,12 @@ async fn record(api_key: &str, args: RecordArgs) -> Result<()> {
 
     let client = Client::new(api_key.to_string());
     let session = client.session().await?;
-    let issues = client.issues(&IssueFilter::assigned_to_me()).await?;
-    let notifications = client.notifications().await?;
+    let issues = client
+        .issues(&IssueFilter::assigned_to_me(), None)
+        .await?
+        .items;
+
+    let notifications = client.notifications(None).await?.items;
     let saved_views = client.custom_views().await?;
 
     let mut details = Vec::new();
@@ -141,8 +158,8 @@ async fn record(api_key: &str, args: RecordArgs) -> Result<()> {
 
     let mut saved_view_issues = std::collections::HashMap::new();
     for view in &saved_views {
-        let page = client.custom_view_issues(&view.id).await?;
-        saved_view_issues.insert(view.id.clone(), page.issues);
+        let page = client.custom_view_issues(&view.id, None).await?;
+        saved_view_issues.insert(view.id.clone(), page.items);
     }
 
     let fixture = Fixture {

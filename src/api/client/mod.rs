@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::model::{
-    IssueDetail, IssueFilter, IssuePage, IssueSummary, IssueUpdate, NotificationItem, SavedView,
+    Cursor, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, NotificationItem, Page, SavedView,
     Session, StateOption, StateType, User,
 };
 use crate::api::queries::actions::{
@@ -30,6 +30,10 @@ use map::build_cynic_filter;
 const API_ENDPOINT: &str = "https://api.linear.app/graphql";
 
 const PAGE_SIZE: i32 = 100;
+
+fn next_cursor(has_next_page: bool, end_cursor: Option<String>) -> Option<Cursor> {
+    has_next_page.then_some(end_cursor).flatten().map(Cursor)
+}
 
 pub struct Client {
     http_client: HttpClient,
@@ -128,17 +132,25 @@ impl LinearApi for Client {
             .collect())
     }
 
-    async fn custom_view_issues(&self, id: &str) -> ApiResult<IssuePage> {
+    async fn custom_view_issues(
+        &self,
+        id: &str,
+        after: Option<&Cursor>,
+    ) -> ApiResult<Page<IssueSummary>> {
         let operation = CustomViewIssuesQuery::build(CustomViewIssuesVariables {
             id: id.to_string(),
             first: Some(PAGE_SIZE),
+            after: after.map(|cursor| cursor.0.clone()),
         });
         let result = self.fetch_json(operation).await?;
         let connection = result.custom_view.issues;
 
-        Ok(IssuePage {
-            truncated: connection.page_info.has_next_page,
-            issues: connection
+        Ok(Page {
+            next: next_cursor(
+                connection.page_info.has_next_page,
+                connection.page_info.end_cursor,
+            ),
+            items: connection
                 .nodes
                 .into_iter()
                 .map(IssueSummary::from)
@@ -146,34 +158,56 @@ impl LinearApi for Client {
         })
     }
 
-    async fn issues(&self, filter: &IssueFilter) -> ApiResult<Vec<IssueSummary>> {
+    async fn issues(
+        &self,
+        filter: &IssueFilter,
+        after: Option<&Cursor>,
+    ) -> ApiResult<Page<IssueSummary>> {
         let operation = IssuesQuery::build(IssuesVariables {
             filter: Some(build_cynic_filter(filter)),
             first: Some(PAGE_SIZE),
+            after: after.map(|cursor| cursor.0.clone()),
         });
         let result = self.fetch_json(operation).await?;
+        let connection = result.issues;
 
-        Ok(result
-            .issues
-            .nodes
-            .into_iter()
-            .map(IssueSummary::from)
-            .collect())
+        Ok(Page {
+            next: next_cursor(
+                connection.page_info.has_next_page,
+                connection.page_info.end_cursor,
+            ),
+            items: connection
+                .nodes
+                .into_iter()
+                .map(IssueSummary::from)
+                .collect(),
+        })
     }
 
-    async fn search_issues(&self, term: &str) -> ApiResult<Vec<IssueSummary>> {
+    async fn search_issues(
+        &self,
+        term: &str,
+        after: Option<&Cursor>,
+    ) -> ApiResult<Page<IssueSummary>> {
         let operation = SearchIssuesQuery::build(SearchVariables {
             term: term.to_string(),
             first: Some(PAGE_SIZE),
+            after: after.map(|cursor| cursor.0.clone()),
         });
         let result = self.fetch_json(operation).await?;
+        let connection = result.search_issues;
 
-        Ok(result
-            .search_issues
-            .nodes
-            .into_iter()
-            .map(IssueSummary::from)
-            .collect())
+        Ok(Page {
+            next: next_cursor(
+                connection.page_info.has_next_page,
+                connection.page_info.end_cursor,
+            ),
+            items: connection
+                .nodes
+                .into_iter()
+                .map(IssueSummary::from)
+                .collect(),
+        })
     }
 
     async fn issue_detail(&self, id: &str) -> ApiResult<Option<IssueDetail>> {
@@ -183,18 +217,25 @@ impl LinearApi for Client {
         Ok(result.issue.map(IssueDetail::from))
     }
 
-    async fn notifications(&self) -> ApiResult<Vec<NotificationItem>> {
+    async fn notifications(&self, after: Option<&Cursor>) -> ApiResult<Page<NotificationItem>> {
         let operation = NotificationsQuery::build(NotificationsVariables {
             first: Some(PAGE_SIZE),
+            after: after.map(|cursor| cursor.0.clone()),
         });
         let result = self.fetch_json(operation).await?;
+        let connection = result.notifications;
 
-        Ok(result
-            .notifications
-            .nodes
-            .iter()
-            .map(NotificationItem::from)
-            .collect())
+        Ok(Page {
+            next: next_cursor(
+                connection.page_info.has_next_page,
+                connection.page_info.end_cursor,
+            ),
+            items: connection
+                .nodes
+                .iter()
+                .map(NotificationItem::from)
+                .collect(),
+        })
     }
 
     async fn workflow_states(&self, team_id: &str) -> ApiResult<Vec<StateOption>> {

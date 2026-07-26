@@ -50,6 +50,14 @@ pub struct IssueFilter {
 pub struct IssuesVariables {
     pub filter: Option<IssueFilter>,
     pub first: Option<i32>,
+    pub after: Option<String>,
+}
+
+#[derive(Debug, Clone, QueryFragment)]
+#[cynic(schema_path = "schema.graphql")]
+pub struct PageInfo {
+    pub has_next_page: bool,
+    pub end_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, QueryFragment)]
@@ -106,6 +114,7 @@ pub struct Issue {
 #[cynic(schema_path = "schema.graphql")]
 pub struct IssueConnection {
     pub nodes: Vec<Issue>,
+    pub page_info: PageInfo,
 }
 
 #[derive(Debug, QueryFragment)]
@@ -115,6 +124,6 @@ pub struct IssueConnection {
     variables = "IssuesVariables"
 )]
 pub struct IssuesQuery {
-    #[arguments(filter: $filter, first: $first)]
+    #[arguments(filter: $filter, first: $first, after: $after)]
     pub issues: IssueConnection,
 }

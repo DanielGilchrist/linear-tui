@@ -8,15 +8,17 @@ use ratatui::{
 
 use super::action;
 use super::app::{App, Zoom};
+use super::cache::{CacheStatus, Phase};
 use super::components::{ScrollableText, StyledList};
 use super::display::{self, GroupBy, SortBy};
+use super::feed::{Feed, FeedKey, FeedStore};
 use super::focus::{DetailView, Focus, LeftPanel};
 use super::layout;
 use super::markdown;
 use super::overlay::{
     Cell, Confirm, Editor, Input, MentionMenu, Menu, MenuRow, Overlay, Picker, PrefixUnder, Search,
 };
-use super::saved_views::{SavedViewsPanel, ViewIssues, ViewSurface};
+use super::saved_views::ViewSurface;
 use super::spinner::Spinner;
 use super::view::{View, ViewKind};
 use crate::api::{
@@ -50,10 +52,9 @@ pub fn render(app: &mut App, frame: &mut Frame) {
 
     render_footer(app, frame, footer);
 
-    render_overlay(&mut app.overlay, app.spinner, frame);
+    render_overlay(&mut app.overlay, &app.workspace.feeds, app.spinner, frame);
 }
 
-/// Full-screen render of whatever surface is focused.
 fn render_zoomed(app: &mut App, frame: &mut Frame, area: Rect) {
     app.viewport = (area.height as usize).saturating_sub(2);
 
@@ -63,43 +64,29 @@ fn render_zoomed(app: &mut App, frame: &mut Frame, area: Rect) {
         Focus::SavedViews => render_saved_views(app, frame, area),
         Focus::View => {
             app.viewport = view_list_viewport(area);
-            let saved = &app.saved_views;
+            let feeds = &app.workspace.feeds;
             let spinner = app.spinner;
             let now = app.now;
-            if let Some(view) = app.view_open.as_mut() {
-                render_view(saved, view, frame, area, spinner, Color::Yellow, now);
+
+            if let Some(view) = app.workspace.view_open.as_mut() {
+                render_view(feeds, view, frame, area, spinner, Color::Yellow, now);
             }
         }
         Focus::Stub(index) => render_stub(app, frame, area, index),
-        Focus::Detail(..) => {
-            if render_detail_if_loaded(app, frame, area, Color::Yellow) {
-                return;
-            }
-            if app.detail_loading {
-                render_text_panel(
-                    frame,
-                    area,
-                    "Issue",
-                    Text::from(format!("{}  Loading issue…", app.spinner)),
-                    Color::Yellow,
-                );
-            } else {
-                render_work_preview(app, frame, area, Color::Yellow);
-            }
-        }
+        Focus::Detail(..) => render_detail_pane(app, frame, area, Color::Yellow),
     }
 }
 
-fn render_overlay(overlay: &mut Overlay, spinner: Spinner, frame: &mut Frame) {
+fn render_overlay(overlay: &mut Overlay, feeds: &FeedStore, spinner: Spinner, frame: &mut Frame) {
     match overlay {
         Overlay::Picker(picker) => render_picker(picker, spinner, frame),
         Overlay::Confirm(confirm) => render_confirm(confirm, frame),
         Overlay::Menu(menu) => render_menu(menu, frame),
         Overlay::Input(input) => render_input(input, frame),
         Overlay::Editor(editor) => render_editor(editor, frame),
-        Overlay::Search(search) => render_search(search, spinner, frame),
+        Overlay::Search(search) => render_search(search, feeds, spinner, frame),
         Overlay::Prefix(prefix) => match &mut prefix.under {
-            PrefixUnder::Modal(modal) => render_overlay(modal, spinner, frame),
+            PrefixUnder::Modal(modal) => render_overlay(modal, feeds, spinner, frame),
             PrefixUnder::Browse => render_prefix(prefix.keymap, prefix.title, frame),
         },
         Overlay::Find(_) | Overlay::None => {}
@@ -275,14 +262,16 @@ fn cursor_line(text: &str, col: usize) -> Line<'static> {
     ])
 }
 
-fn render_search(search: &mut Search, spinner: Spinner, frame: &mut Frame) {
+fn render_search(search: &mut Search, feeds: &FeedStore, spinner: Spinner, frame: &mut Frame) {
     use ratatui::widgets::Clear;
 
     let area = layout::centred_rect(frame.area(), 60, 60);
     frame.render_widget(Clear, area);
 
-    let items: Vec<ListItem> = search
-        .results
+    let feed = feeds.get(&FeedKey::Search(search.query.clone()));
+    let results: &[IssueSummary] = feed.map_or(&[], |feed| feed.items());
+
+    let mut items: Vec<ListItem> = results
         .iter()
         .map(|issue| {
             ListItem::new(Line::from(vec![
@@ -299,14 +288,18 @@ fn render_search(search: &mut Search, spinner: Spinner, frame: &mut Frame) {
         })
         .collect();
 
+    append_loading_row(&mut items, feed, spinner);
+
     let title = format!("Search  {}", search.query);
     let mut list = StyledList::new(&title).items(items).focused(true);
 
-    if search.results.is_empty() {
-        let placeholder = if search.loading {
-            format!("{spinner}  Searching…")
-        } else {
-            "No matches".to_string()
+    if results.is_empty() {
+        let placeholder = match feed.map(Feed::status) {
+            Some(CacheStatus::Loading) => format!("{spinner}  Searching…"),
+            Some(CacheStatus::Failed(_)) => "Search failed  ·  esc to close".to_string(),
+            None | Some(CacheStatus::Idle | CacheStatus::Revalidating | CacheStatus::Ready) => {
+                "No matches".to_string()
+            }
         };
 
         list = list.placeholder(&placeholder);
@@ -314,7 +307,7 @@ fn render_search(search: &mut Search, spinner: Spinner, frame: &mut Frame) {
         list.render(frame, area);
     } else {
         let selected = search.state.selected();
-        let total = search.results.len();
+        let total = results.len();
 
         list.state(&mut search.state)
             .position(selected, total)
@@ -323,7 +316,7 @@ fn render_search(search: &mut Search, spinner: Spinner, frame: &mut Frame) {
 }
 
 fn render_view(
-    saved: &SavedViewsPanel,
+    feeds: &FeedStore,
     view: &mut ViewSurface,
     frame: &mut Frame,
     area: Rect,
@@ -333,43 +326,27 @@ fn render_view(
 ) {
     use ratatui::widgets::{Block, Borders, List, Paragraph};
 
-    let entry = saved.issues_for(view.id());
+    let feed = feeds.get(&view.key());
 
     let block = Block::default()
-        .title(view_title(view.name(), entry))
+        .title(view_title(view.name(), feed))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let issues = match entry {
-        Some(ViewIssues::Loaded { issues, .. }) => issues,
-        Some(ViewIssues::Failed) => {
+    let issues = match feed.filter(|feed| !feed.items().is_empty()) {
+        Some(feed) => feed.items(),
+        None => {
+            let (text, colour) = empty_feed_message(feed.map(Feed::status), spinner);
             frame.render_widget(
-                Paragraph::new("Failed to load  ·  r to retry")
-                    .style(Style::default().fg(Color::Red)),
-                inner,
-            );
-            return;
-        }
-        Some(ViewIssues::Loading) | None => {
-            frame.render_widget(
-                Paragraph::new(format!("{spinner}  Loading…"))
-                    .style(Style::default().fg(Color::DarkGray)),
+                Paragraph::new(text).style(Style::default().fg(colour)),
                 inner,
             );
             return;
         }
     };
-
-    if issues.is_empty() {
-        frame.render_widget(
-            Paragraph::new("No issues in this view").style(Style::default().fg(Color::DarkGray)),
-            inner,
-        );
-        return;
-    }
 
     let groups = view.display.arrange(issues);
     let rows =
@@ -392,7 +369,7 @@ fn render_view(
 
     let id_width = id_column_width(issues);
     let width = rows[1].width as usize;
-    let (items, selected_row) = view_items(
+    let (mut items, selected_row) = view_items(
         issues,
         &groups,
         view.display.group,
@@ -402,6 +379,8 @@ fn render_view(
         now,
     );
 
+    append_loading_row(&mut items, feed, spinner);
+
     view.layout.select(selected_row);
 
     let list =
@@ -410,11 +389,21 @@ fn render_view(
     frame.render_stateful_widget(list, rows[1], &mut view.layout);
 }
 
-fn view_title(name: &str, entry: Option<&ViewIssues>) -> String {
-    match entry {
-        Some(ViewIssues::Loaded { issues, truncated }) => {
-            let more = if *truncated { "+" } else { "" };
-            format!(" {name}  ·  {}{more} issues ", issues.len())
+fn empty_feed_message(status: Option<&CacheStatus>, spinner: Spinner) -> (String, Color) {
+    match status {
+        Some(CacheStatus::Failed(_)) => ("Failed to load  ·  r to retry".to_string(), Color::Red),
+        Some(CacheStatus::Ready) => ("No issues in this view".to_string(), Color::DarkGray),
+        None | Some(CacheStatus::Idle | CacheStatus::Loading | CacheStatus::Revalidating) => {
+            (format!("{spinner}  Loading…"), Color::DarkGray)
+        }
+    }
+}
+
+fn view_title(name: &str, feed: Option<&Feed<IssueSummary>>) -> String {
+    match feed.filter(|feed| !feed.items().is_empty()) {
+        Some(feed) => {
+            let more = if feed.truncated() { "+" } else { "" };
+            format!(" {name}  ·  {}{more} issues ", feed.items().len())
         }
         _ => format!(" {name} "),
     }
@@ -452,9 +441,8 @@ fn breakdown_line(groups: &[display::Group]) -> Line<'static> {
     Line::from(spans)
 }
 
-/// A read-only preview of a view's issues (shown while browsing the Saved Views list).
 fn render_view_preview(
-    saved: &SavedViewsPanel,
+    feeds: &FeedStore,
     id: &str,
     name: &str,
     frame: &mut Frame,
@@ -464,43 +452,27 @@ fn render_view_preview(
 ) {
     use ratatui::widgets::{Block, Borders, List, Paragraph};
 
-    let entry = saved.issues_for(id);
+    let feed = feeds.get(&FeedKey::View(id.to_string()));
 
     let block = Block::default()
-        .title(view_title(name, entry))
+        .title(view_title(name, feed))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Gray));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let issues = match entry {
-        Some(ViewIssues::Loaded { issues, .. }) => issues,
-        Some(ViewIssues::Failed) => {
+    let issues = match feed.filter(|feed| !feed.items().is_empty()) {
+        Some(feed) => feed.items(),
+        None => {
+            let (text, colour) = empty_feed_message(feed.map(Feed::status), spinner);
             frame.render_widget(
-                Paragraph::new("Failed to load  ·  r to retry")
-                    .style(Style::default().fg(Color::Red)),
-                inner,
-            );
-            return;
-        }
-        Some(ViewIssues::Loading) | None => {
-            frame.render_widget(
-                Paragraph::new(format!("{spinner}  Loading…"))
-                    .style(Style::default().fg(Color::DarkGray)),
+                Paragraph::new(text).style(Style::default().fg(colour)),
                 inner,
             );
             return;
         }
     };
-
-    if issues.is_empty() {
-        frame.render_widget(
-            Paragraph::new("No issues in this view").style(Style::default().fg(Color::DarkGray)),
-            inner,
-        );
-        return;
-    }
 
     let groups = display::arrange(issues, GroupBy::Status, SortBy::Manual);
     let rows = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).split(inner);
@@ -517,8 +489,6 @@ fn render_view_preview(
     frame.render_widget(List::new(items), rows[1]);
 }
 
-/// Build the grouped rows (section headers + issue rows) and, if `selected` is a valid
-/// issue position, the display-row index to highlight.
 fn view_items(
     issues: &[IssueSummary],
     groups: &[display::Group],
@@ -731,12 +701,13 @@ fn render_stub(app: &mut App, frame: &mut Frame, rect: Rect, index: usize) {
 
 fn render_saved_views(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::SavedViews;
-    let panel = &mut app.saved_views;
+    let panel = &mut app.workspace.saved_views;
 
     let selected = panel.state.selected();
-    let total = panel.views.len();
+    let total = panel.list().len();
+    let placeholder = panel.views.status().empty_placeholder("No saved views");
     let items: Vec<ListItem> = panel
-        .views
+        .list()
         .iter()
         .map(|view| ListItem::new(Line::from(view.name.clone())))
         .collect();
@@ -748,11 +719,7 @@ fn render_saved_views(app: &mut App, frame: &mut Frame, area: Rect) {
         .position(selected, total);
 
     if total == 0 {
-        list = list.placeholder(if panel.loading {
-            "Loading…"
-        } else {
-            "No saved views"
-        });
+        list = list.placeholder(placeholder);
     }
 
     list.render(frame, area);
@@ -760,14 +727,14 @@ fn render_saved_views(app: &mut App, frame: &mut Frame, area: Rect) {
 
 fn render_recent(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Recent;
-    let selected = app.recent_state.selected();
-    let total = app.recently_viewed.len();
-    let items = issue_items(&app.recently_viewed);
+    let selected = app.workspace.recent_state.selected();
+    let total = app.workspace.recently_viewed.len();
+    let items = issue_items(&app.workspace.recently_viewed);
 
     let mut list = StyledList::new("Recently viewed")
         .items(items)
         .focused(focused)
-        .state(&mut app.recent_state)
+        .state(&mut app.workspace.recent_state)
         .position(selected, total);
 
     if total == 0 {
@@ -781,28 +748,31 @@ fn render_my_work(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::MyWork;
     let selected = app.list_state.selected();
     let max_title = area.width.saturating_sub(2) as usize;
+    let status = app.active_feed_status();
+    let appending = app.active_appending();
     let title = view_tabs(
         &app.views,
         app.active_view_index(),
-        app.loading,
+        status.in_flight() || appending,
         app.spinner,
         max_title,
     );
-    let is_inbox = matches!(app.active_view().kind, ViewKind::Inbox);
-
-    let (items, total, empty) = if is_inbox {
-        (
-            notification_items(&app.notifications),
-            app.notifications.len(),
+    let (mut items, total, empty) = match app.active_view().kind {
+        ViewKind::Inbox => (
+            notification_items(app.workspace.inbox.items()),
+            app.workspace.inbox.items().len(),
             "Inbox empty",
-        )
-    } else {
-        (
-            issue_items(&app.issues),
-            app.issues.len(),
+        ),
+        ViewKind::Issues(_) => (
+            issue_items(app.active_issues()),
+            app.active_issues().len(),
             "No issues in this view",
-        )
+        ),
     };
+
+    if appending {
+        items.push(loading_more_row(app.spinner));
+    }
 
     let mut list = StyledList::new("My Work")
         .title_line(title)
@@ -811,9 +781,30 @@ fn render_my_work(app: &mut App, frame: &mut Frame, area: Rect) {
         .state(&mut app.list_state)
         .position(selected, total);
     if total == 0 {
-        list = list.placeholder(if app.loading { "Loading…" } else { empty });
+        list = list.placeholder(status.empty_placeholder(empty));
     }
     list.render(frame, area);
+}
+
+fn append_loading_row(
+    items: &mut Vec<ListItem<'static>>,
+    feed: Option<&Feed<IssueSummary>>,
+    spinner: Spinner,
+) {
+    let appending = match feed {
+        Some(feed) => feed.appending(),
+        None => false,
+    };
+    if appending {
+        items.push(loading_more_row(spinner));
+    }
+}
+
+fn loading_more_row(spinner: Spinner) -> ListItem<'static> {
+    ListItem::new(Line::from(Span::styled(
+        format!("{spinner}  loading more…"),
+        Style::default().fg(Color::DarkGray),
+    )))
 }
 
 fn view_tabs(
@@ -884,11 +875,19 @@ fn render_right(app: &mut App, frame: &mut Frame, area: Rect) {
         Focus::SavedViews => {
             let spinner = app.spinner;
             let now = app.now;
-            match app.saved_views.selected_view() {
+            match app.workspace.saved_views.selected_view() {
                 Some(view) => {
                     let id = view.id.clone();
                     let name = view.name.clone();
-                    render_view_preview(&app.saved_views, &id, &name, frame, area, spinner, now);
+                    render_view_preview(
+                        &app.workspace.feeds,
+                        &id,
+                        &name,
+                        frame,
+                        area,
+                        spinner,
+                        now,
+                    );
                 }
                 None => render_text_panel(
                     frame,
@@ -901,36 +900,38 @@ fn render_right(app: &mut App, frame: &mut Frame, area: Rect) {
         }
         Focus::View => {
             app.viewport = view_list_viewport(area);
-            let saved = &app.saved_views;
+            let feeds = &app.workspace.feeds;
             let spinner = app.spinner;
             let now = app.now;
-            if let Some(view) = app.view_open.as_mut() {
-                render_view(saved, view, frame, area, spinner, Color::Yellow, now);
+            if let Some(view) = app.workspace.view_open.as_mut() {
+                render_view(feeds, view, frame, area, spinner, Color::Yellow, now);
             }
         }
         Focus::MyWork => {
-            if app.detail_ready() && render_detail_if_loaded(app, frame, area, Color::Gray) {
-                return;
+            if app.detail_ready() {
+                render_detail(app, frame, area, Color::Gray);
+            } else {
+                render_work_preview(app, frame, area, Color::Gray);
             }
-            render_work_preview(app, frame, area, Color::Gray);
         }
         Focus::Detail(..) => {
             app.viewport = (area.height as usize).saturating_sub(2);
-            if render_detail_if_loaded(app, frame, area, Color::Yellow) {
-                return;
-            }
-            if app.detail_loading {
-                render_text_panel(
-                    frame,
-                    area,
-                    "Issue",
-                    Text::from(format!("{}  Loading issue…", app.spinner)),
-                    Color::Yellow,
-                );
-                return;
-            }
-            render_work_preview(app, frame, area, Color::Yellow);
+            render_detail_pane(app, frame, area, Color::Yellow);
         }
+    }
+}
+
+fn render_detail_pane(app: &mut App, frame: &mut Frame, area: Rect, border: Color) {
+    match app.workspace.detail.phase() {
+        Phase::Ready => render_detail(app, frame, area, border),
+        Phase::Loading => render_text_panel(
+            frame,
+            area,
+            "Issue",
+            Text::from(format!("{}  Loading issue…", app.spinner)),
+            border,
+        ),
+        Phase::Missing | Phase::Failed => render_work_preview(app, frame, area, border),
     }
 }
 
@@ -942,6 +943,7 @@ fn render_stub_placeholder(app: &mut App, frame: &mut Frame, area: Rect, index: 
         .and_then(|i| stub.items.get(i))
         .cloned()
         .unwrap_or_default();
+
     let text = Text::from(vec![
         Line::from(Span::styled(
             "Not implemented yet",
@@ -950,17 +952,18 @@ fn render_stub_placeholder(app: &mut App, frame: &mut Frame, area: Rect, index: 
         Line::from(""),
         Line::from(selected),
     ]);
+
     render_text_panel(frame, area, &stub.title, text, Color::Yellow);
 }
 
-fn render_detail_if_loaded(app: &mut App, frame: &mut Frame, area: Rect, border: Color) -> bool {
+fn render_detail(app: &mut App, frame: &mut Frame, area: Rect, border: Color) {
     let selected = match app.focus {
         Focus::Detail(_, DetailView::Comments) => app.comment_state.selected(),
         _ => None,
     };
 
-    let Some(detail) = app.detail.as_ref() else {
-        return false;
+    let Some(detail) = app.workspace.detail.value() else {
+        return;
     };
 
     let body = detail_text(detail, app.now, selected);
@@ -979,7 +982,6 @@ fn render_detail_if_loaded(app: &mut App, frame: &mut Frame, area: Rect, border:
         scrollable.clamped_scroll_position()
     };
     app.scroll_position = clamped;
-    true
 }
 
 fn render_work_preview(app: &mut App, frame: &mut Frame, area: Rect, border: Color) {
@@ -1124,7 +1126,7 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
         return;
     }
 
-    let workspace = match &app.session {
+    let workspace = match &app.workspace.session {
         Some(session) => format!("{} · @{} ", session.org_name, session.user.display_name),
         None => "connecting… ".to_string(),
     };
@@ -1318,9 +1320,6 @@ fn issue_item(issue: &IssueSummary) -> ListItem<'static> {
     ListItem::new(Line::from(spans))
 }
 
-/// A column-aligned issue row inside a grouped view: priority · id · title (flexes) with the
-/// metadata (labels · assignee · age) right-aligned to `width`. The field the rows are grouped by
-/// is omitted (its section header already carries it).
 fn issue_row(
     issue: &IssueSummary,
     group: GroupBy,
@@ -1331,7 +1330,6 @@ fn issue_row(
     let (icon, priority_colour) = priority_indicator(issue.priority);
     let state_colour = state_type_colour(issue.state.state_type);
 
-    // left: priority icon (blanked when grouped by priority) + padded identifier
     let mut left: Vec<Span> = Vec::new();
     if group == GroupBy::Priority {
         left.push(Span::raw("    "));
@@ -1349,7 +1347,6 @@ fn issue_row(
     left.push(Span::raw(" "));
     let left_w = 4 + id_width + 1;
 
-    // right block: state (unless grouped by status) · labels · assignee (unless grouped) · age
     let mut right: Vec<Span> = Vec::new();
     if group != GroupBy::Status {
         right.push(Span::styled(
@@ -1382,7 +1379,6 @@ fn issue_row(
     ));
     let right_w: usize = right.iter().map(|span| span.content.chars().count()).sum();
 
-    // title flexes to fill the gap, pushing the right block to the edge
     let gap = 2;
     let title_area = width.saturating_sub(left_w + right_w + gap);
     let title = fit(

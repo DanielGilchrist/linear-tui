@@ -1,6 +1,5 @@
 ---
 source: tests/render.rs
-assertion_line: 68
 expression: "render_to_string(&mut app, 110, 26)"
 ---
 ┌Assigned to me · In Progress · Inbox────┐┌DAN2-7────────────────────────────────────────────────────────────┐
@@ -22,7 +21,7 @@ expression: "render_to_string(&mut app, 110, 26)"
 │Issues you open land here               ││Checklist                                                         ║
 └────────────────────────────────────────┘│                                                                  ║
 ┌Saved Views─────────────────────────────┐│[x] Swap the thermocouple                                         ║
-│Loading…                                ││[ ] Inspect the flue damper                                       ║
+│No saved views                          ││[ ] Inspect the flue damper                                       ║
 └────────────────────────────────────────┘│[ ] Recalibrate the PID loop                                      ║
 ┌Teams───────────────────────────────────┐│                                                                  ║
 │Dan's Pizza                             ││▌ Damper was replaced 6 months ago, should still be under         ║

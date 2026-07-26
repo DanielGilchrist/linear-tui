@@ -11,7 +11,7 @@ expression: "render_to_string(&mut app, 84, 16)"
 │Issues you open ┌Issue id or URL─────────────────────────────────┐                │
 └────────────────│ DAN2-7                                         │                │
 ┌Saved Views─────└────────────────────────────────────────────────┘                │
-│Loading…                      ││                                                  │
+│No saved views                ││                                                  │
 └──────────────────────────────┘│                                                  │
 ┌Teams─────────────────────────┐│                                                  │
 │Dan's Pizza                   ││                                                  │

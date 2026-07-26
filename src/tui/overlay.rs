@@ -3,7 +3,7 @@ use ratatui::widgets::ListState;
 use super::action::{self, Action};
 use super::focus::{Direction, Edge, Focus};
 use super::message::Command;
-use crate::api::{IssueSummary, StateOption, User};
+use crate::api::{StateOption, User};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PickerKind {
@@ -473,23 +473,15 @@ impl Editor {
 
 pub struct Search {
     pub query: String,
-    pub results: Vec<IssueSummary>,
     pub state: ListState,
-    pub loading: bool,
 }
 
 impl Search {
     pub fn new(query: String) -> Self {
         Self {
             query,
-            results: Vec::new(),
             state: ListState::default().with_selected(Some(0)),
-            loading: true,
         }
-    }
-
-    pub fn selected(&self) -> Option<&IssueSummary> {
-        self.state.selected().and_then(|i| self.results.get(i))
     }
 }
 
