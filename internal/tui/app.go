@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/DanielGilchrist/linear-tui/internal/api"
 	"github.com/charmbracelet/bubbles/list"
@@ -163,14 +162,12 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch model.state {
-	case stateTeamsList, stateIssuesList:
+	case stateTeamsList:
 		model.teamsList, cmd = model.teamsList.Update(msg)
-		cmds := append(cmds, cmd)
-
-		if model.state == stateIssuesList {
-			model.issuesList, cmd = model.issuesList.Update(msg)
-			cmds = append(cmds, cmd)
-		}
+		cmds = append(cmds, cmd)
+	case stateIssuesList:
+		model.issuesList, cmd = model.issuesList.Update(msg)
+		cmds = append(cmds, cmd)
 	}
 
 	return model, tea.Batch(cmds...)
@@ -266,6 +263,4 @@ func (i issueItem) Description() string {
 	return description[:limit-3] + "..."
 }
 
-func (i issueItem) FilterValue() string {
-	return strconv.FormatFloat(float64(i.issue.SortOrder), 'f', -1, 32)
-}
+func (i issueItem) FilterValue() string { return i.issue.Title }

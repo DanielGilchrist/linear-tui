@@ -7,10 +7,9 @@ type Team struct {
 }
 
 type Issue struct {
-	ID          string  `json:"id"`
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	SortOrder   float32 `json:"sortOrder"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }
 
 type Teams struct {
