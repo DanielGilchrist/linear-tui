@@ -39,4 +39,3 @@ pub struct TeamIssuesQuery {
 pub struct TeamIssuesVariables {
     pub id: String,
 }
-

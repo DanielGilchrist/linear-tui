@@ -40,4 +40,3 @@ pub struct IssueQuery {
 pub struct IssueVariables {
     pub id: String,
 }
-
