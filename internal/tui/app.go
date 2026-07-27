@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -210,18 +211,35 @@ func (model Model) renderIssueDetail() string {
 		return "No issue selected"
 	}
 
-	var comments strings.Builder
+	containerStyle := lipgloss.NewStyle().
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("69")).
+		Padding(1).
+		Width(model.width).
+		Height(model.height)
 
+	var comments strings.Builder
 	for _, comment := range issue.Comments.Nodes {
-		comments.WriteString(fmt.Sprintf("\tBody:%s\n", comment.Body))
+		comments.WriteString(fmt.Sprintf("\n\tBody:%s\n", renderMarkdown(comment.Body)))
 	}
 
-	return fmt.Sprintf(
+	content := fmt.Sprintf(
 		"Title: %s\nDescription:%s\nComments:%s",
 		issue.Title,
-		issue.Description,
+		renderMarkdown(issue.Description),
 		comments.String(),
 	)
+
+	return containerStyle.Render(content)
+}
+
+func renderMarkdown(text string) string {
+	markdown, err := glamour.Render(text, "dark")
+	if err != nil {
+		return text
+	}
+
+	return markdown
 }
 
 type teamsLoadedMsg struct{ teams []api.Team }
