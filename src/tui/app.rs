@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use super::components::{IssueDetail, IssuesList, Renderable, TeamsList};
 use super::layout::TwoColumnLayout;
-use crate::api::{Client, Issue, Team, TeamIssue};
+use crate::api::{issue, team_issues, Client, Team};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
@@ -26,10 +26,10 @@ pub struct App {
     pub state: AppState,
     pub teams: Vec<Team>,
     pub team_list_state: ListState,
-    pub issues: Vec<TeamIssue>,
+    pub issues: Vec<team_issues::Issue>,
     pub issue_list_state: ListState,
     pub selected_team: Option<Team>,
-    pub selected_issue: Option<Issue>,
+    pub selected_issue: Option<issue::Issue>,
     pub scroll_position: usize,
     pub scroll_state: ScrollbarState,
 }
@@ -77,8 +77,9 @@ impl App {
     }
 
     pub async fn load_issue_detail(&mut self, issue_id: &str) -> Result<()> {
-        let issue = self.client.get_issue(issue_id).await?;
-        self.selected_issue = Some(issue);
+        if let Some(issue) = self.client.get_issue(issue_id).await? {
+            self.selected_issue = Some(issue);
+        }
 
         self.reset_scroll_position();
 
@@ -154,7 +155,7 @@ impl App {
             .and_then(|i| self.teams.get(i))
     }
 
-    pub fn get_selected_team_issue(&self) -> Option<&TeamIssue> {
+    pub fn get_selected_team_issue(&self) -> Option<&team_issues::Issue> {
         self.issue_list_state
             .selected()
             .and_then(|i| self.issues.get(i))

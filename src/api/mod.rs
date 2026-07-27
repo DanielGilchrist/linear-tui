@@ -1,5 +1,5 @@
 pub mod client;
-pub mod models;
+pub mod queries;
 
 pub use client::Client;
-pub use models::*;
+pub use queries::*;

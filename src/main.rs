@@ -101,7 +101,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                         AppEvent::NavigateTo => match app.state {
                             AppState::TeamsList => {
                                 if let Some(team) = app.get_selected_team() {
-                                    let team_id = team.id.clone();
+                                    let team_id = team.id.inner().to_string();
                                     app.selected_team = Some(team.clone());
                                     app.state = AppState::IssuesList;
                                     app.load_team_issues(&team_id).await?;
@@ -109,7 +109,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                             }
                             AppState::IssuesList => {
                                 if let Some(issue) = app.get_selected_team_issue() {
-                                    let issue_id = issue.id.clone();
+                                    let issue_id = issue.id.inner().to_string();
                                     app.state = AppState::IssueDetail;
                                     app.load_issue_detail(&issue_id).await?;
                                 }

@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use super::{Renderable, ScrollableText};
-use crate::api::Issue;
+use crate::api::issue::Issue;
 
 pub struct IssueDetail<'a> {
     issue: &'a Issue,
@@ -41,22 +41,24 @@ impl<'a> IssueDetail<'a> {
             Line::from(""),
             Line::from(vec![
                 Span::styled("Title: ", Style::default().fg(Color::Yellow)),
-                Span::raw(&issue.title),
+                Span::raw(issue.title.as_deref().unwrap_or("Untitled")),
             ]),
             Line::from(""),
         ];
 
-        if !issue.description.is_empty() {
-            content.push(Line::from(Span::styled(
-                "Description:",
-                Style::default().fg(Color::Yellow),
-            )));
-            content.push(Line::from(""));
+        if let Some(description) = &issue.description {
+            if !description.is_empty() {
+                content.push(Line::from(Span::styled(
+                    "Description:",
+                    Style::default().fg(Color::Yellow),
+                )));
+                content.push(Line::from(""));
 
-            for line in issue.description.lines() {
-                content.push(Line::from(line));
+                for line in description.lines() {
+                    content.push(Line::from(line));
+                }
+                content.push(Line::from(""));
             }
-            content.push(Line::from(""));
         }
 
         if !issue.comments.nodes.is_empty() {

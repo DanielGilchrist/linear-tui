@@ -8,17 +8,17 @@ use ratatui::{
 
 use super::styled_list::StyledList;
 use super::Renderable;
-use crate::api::TeamIssue;
+use crate::api::team_issues;
 
 pub struct IssuesList<'a> {
-    issues: &'a [TeamIssue],
+    issues: &'a [team_issues::Issue],
     state: &'a mut ListState,
     focused: bool,
     show_placeholder: bool,
 }
 
 impl<'a> IssuesList<'a> {
-    pub fn new(issues: &'a [TeamIssue], state: &'a mut ListState) -> Self {
+    pub fn new(issues: &'a [team_issues::Issue], state: &'a mut ListState) -> Self {
         Self {
             issues,
             state,
@@ -61,7 +61,7 @@ impl<'a> Renderable for IssuesList<'a> {
 
                 ListItem::new(vec![
                     Line::from(Span::styled(
-                        &issue.title,
+                        issue.title.as_deref().unwrap_or("Untitled"),
                         Style::default().fg(Color::White),
                     )),
                     Line::from(Span::styled(description, Style::default().fg(Color::Gray))),
