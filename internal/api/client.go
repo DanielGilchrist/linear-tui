@@ -54,6 +54,7 @@ func (client *Client) GetIssue(issueId string) (*IssueResponse, error) {
             body
           }
         }
+        url
       }
     }
   `

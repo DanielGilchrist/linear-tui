@@ -10,6 +10,7 @@ type Issue struct {
 	Comments    struct {
 		Nodes []Comment `json:"nodes"`
 	} `json:"comments"`
+	URL string `json:"url"`
 }
 
 type Team struct {

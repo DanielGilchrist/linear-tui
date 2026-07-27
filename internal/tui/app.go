@@ -224,7 +224,8 @@ func (model Model) renderIssueDetail() string {
 	}
 
 	content := fmt.Sprintf(
-		"Title: %s\nDescription:%s\nComments:%s",
+		"URL: %s\n\nTitle: %s\nDescription:%s\nComments:%s",
+		issue.URL,
 		issue.Title,
 		renderMarkdown(issue.Description),
 		comments.String(),
