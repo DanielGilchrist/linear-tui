@@ -20,9 +20,9 @@ func main() {
 
 	client := api.NewClient(apiToken)
 	model := tui.NewModel(client)
-	p := tea.NewProgram(model)
+	program := tea.NewProgram(model, tea.WithAltScreen())
 
-	if _, err := p.Run(); err != nil {
+	if _, err := program.Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
