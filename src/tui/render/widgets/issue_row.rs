@@ -123,11 +123,13 @@ pub(super) fn issue_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::{Priority, StateType, Timestamp, User, WorkflowState};
+    use crate::api::{
+        IssueId, Priority, StateType, TeamId, Timestamp, User, UserId, WorkflowState,
+    };
 
     fn issue(identifier: &str, title: &str) -> IssueSummary {
         IssueSummary {
-            id: identifier.into(),
+            id: IssueId::from_raw(identifier),
             identifier: identifier.into(),
             title: Some(title.into()),
             state: WorkflowState {
@@ -136,7 +138,7 @@ mod tests {
             },
             priority: Priority::Urgent,
             assignee: Some(User {
-                id: "u".into(),
+                id: UserId::from_raw("u"),
                 name: "dan".into(),
                 display_name: "dan".into(),
                 url: String::new(),
@@ -145,7 +147,7 @@ mod tests {
             labels: Vec::new(),
             url: String::new(),
             branch_name: String::new(),
-            team_id: String::new(),
+            team_id: TeamId::default(),
             updated_at: Timestamp::default(),
         }
     }

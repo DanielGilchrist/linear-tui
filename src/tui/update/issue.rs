@@ -1,10 +1,10 @@
 use ratatui::widgets::{ListState, ScrollbarState};
 
 use super::nav::clamp_selection;
-use crate::api::{Reaction, ReactionTarget, StateOption, User};
+use crate::api::{IssueRef, Reaction, ReactionTarget, StateOption, TeamId, User};
 use crate::tui::app::{App, FocusedIssue};
 use crate::tui::cache::{RefreshPolicy, Remote};
-use crate::tui::focus::{DetailView, Focus, Reveal};
+use crate::tui::focus::{DetailFocus, DetailView, Focus, Reveal};
 use crate::tui::message::Command;
 use crate::tui::overlay::{
     Compose, Confirm, Editor, Overlay, Picker, PickerItem, PickerKind, Reactions,
@@ -20,14 +20,16 @@ pub(super) fn enter_comments(app: &mut App) -> Option<Command> {
         return None;
     }
 
-    app.focus = Focus::Detail(app.focus.left(), DetailView::Comments);
-    app.comment_state.select(Some(0));
+    if let Focus::Detail(detail_focus) = &app.focus {
+        app.focus = Focus::Detail(detail_focus.with_view(DetailView::Comments));
+        app.comment_state.select(Some(0));
+    }
 
     None
 }
 
 pub(super) fn open_reply_editor(app: &mut App) -> Option<Command> {
-    let detail = app.workspace.detail().value()?;
+    let detail = app.open_detail()?;
     let team_id = detail.team_id.clone();
     let selected = app.comment_state.selected()?;
     let parent_id = detail
@@ -42,7 +44,7 @@ pub(super) fn open_reply_editor(app: &mut App) -> Option<Command> {
 pub(super) fn open_edit_editor(app: &mut App) -> Option<Command> {
     let selected = app.comment_state.selected()?;
 
-    let picked = app.workspace.detail().value().and_then(|detail| {
+    let picked = app.open_detail().and_then(|detail| {
         detail.threaded_comments().get(selected).map(|threaded| {
             (
                 detail.team_id.clone(),
@@ -64,10 +66,10 @@ pub(super) fn open_edit_editor(app: &mut App) -> Option<Command> {
 }
 
 pub(super) fn open_reactions(app: &mut App) -> Option<Command> {
-    let detail = app.workspace.detail().value()?;
+    let detail = app.open_detail()?;
 
-    let (target, reactions) = match app.focus {
-        Focus::Detail(_, DetailView::Comments) => {
+    let (target, reactions) = match app.focus.detail()?.view {
+        DetailView::Comments => {
             let selected = app.comment_state.selected()?;
             let comment = detail.threaded_comments().get(selected)?.comment;
             (
@@ -75,13 +77,10 @@ pub(super) fn open_reactions(app: &mut App) -> Option<Command> {
                 comment.reactions.clone(),
             )
         }
-        Focus::Detail(_, DetailView::Reading) => (
+        DetailView::Reading => (
             ReactionTarget::Issue(detail.id.clone()),
             detail.reactions.clone(),
         ),
-        Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::View | Focus::Stub(_) => {
-            return None
-        }
     };
 
     app.overlay = Overlay::Reactions(Reactions::new(target, &reactions));
@@ -93,7 +92,7 @@ pub(super) fn toggle_reaction(
     target: ReactionTarget,
     emoji: &str,
 ) -> Option<Command> {
-    let detail = app.workspace.detail().value()?;
+    let detail = app.open_detail()?;
     let issue_id = detail.id.clone();
 
     let reactions: &[Reaction] = match &target {
@@ -127,7 +126,7 @@ pub(super) fn toggle_reaction(
 pub(super) fn open_delete_comment(app: &mut App) -> Option<Command> {
     let selected = app.comment_state.selected()?;
 
-    let picked = app.workspace.detail().value().and_then(|detail| {
+    let picked = app.open_detail().and_then(|detail| {
         detail.threaded_comments().get(selected).map(|threaded| {
             (
                 detail.id.clone(),
@@ -155,19 +154,21 @@ pub(super) fn open_delete_comment(app: &mut App) -> Option<Command> {
     None
 }
 
-pub(super) fn open_issue(app: &mut App, id: String) -> Option<Command> {
+pub(super) fn open_issue(app: &mut App, target: impl Into<IssueRef>) -> Option<Command> {
+    let target = target.into();
+
     app.search_return = None;
-    app.focus = Focus::Detail(app.focus.left(), DetailView::Reading);
+    app.focus = Focus::Detail(DetailFocus::reading(target.clone(), app.focus.left()));
     app.scroll_position = 0;
     app.scroll_state = ScrollbarState::default();
 
-    let already_open = app
+    let already_loaded = app
         .workspace
         .detail()
         .value()
-        .is_some_and(|detail| detail.id == id);
+        .is_some_and(|detail| target.matches_detail(detail));
 
-    if already_open {
+    if already_loaded {
         return None;
     }
 
@@ -175,7 +176,7 @@ pub(super) fn open_issue(app: &mut App, id: String) -> Option<Command> {
     app.workspace.begin_detail();
 
     Some(Command::LoadDetail {
-        id,
+        target,
         reveal: Reveal::Top,
     })
 }
@@ -241,23 +242,23 @@ pub(super) fn stop_picker(overlay: &mut Overlay, kind: PickerKind) {
     }
 }
 
-pub(super) fn access_states(app: &mut App, team_id: &str) -> Option<Command> {
+pub(super) fn access_states(app: &mut App, team_id: &TeamId) -> Option<Command> {
     app.workspace
         .states
-        .get_or_default(&team_id.to_string())
+        .get_or_default(team_id)
         .begin_access(app.now, &STATES_REFRESH)
         .then(|| Command::LoadStates {
-            team_id: team_id.to_string(),
+            team_id: team_id.clone(),
         })
 }
 
-pub(super) fn access_members(app: &mut App, team_id: &str) -> Option<Command> {
+pub(super) fn access_members(app: &mut App, team_id: &TeamId) -> Option<Command> {
     app.workspace
         .members
-        .get_or_default(&team_id.to_string())
+        .get_or_default(team_id)
         .begin_access(app.now, &MEMBERS_REFRESH)
         .then(|| Command::LoadMembers {
-            team_id: team_id.to_string(),
+            team_id: team_id.clone(),
         })
 }
 
@@ -305,7 +306,7 @@ pub(super) fn open_picker(
 pub(super) fn open_editor(
     app: &mut App,
     compose: Compose,
-    team_id: String,
+    team_id: TeamId,
     seed: Option<&str>,
 ) -> Option<Command> {
     let mut editor = match seed {

@@ -2,6 +2,7 @@ use cynic::{InlineFragments, QueryFragment, QueryVariables};
 
 use super::scalars::DateTime;
 use super::schema;
+use crate::api::model::IssueId;
 
 #[derive(Debug, QueryFragment)]
 #[cynic(
@@ -46,10 +47,16 @@ pub enum Notification {
 }
 
 #[derive(Debug, QueryFragment)]
+#[cynic(schema_path = "schema.graphql", graphql_type = "Issue")]
+pub struct NotificationIssue {
+    pub id: cynic::Id,
+}
+
+#[derive(Debug, QueryFragment)]
 #[cynic(schema_path = "schema.graphql", graphql_type = "IssueNotification")]
 pub struct IssueNotificationFields {
     pub title: String,
-    pub issue_id: Option<String>,
+    pub issue: NotificationIssue,
     pub read_at: Option<DateTime>,
     pub grouping_key: String,
 }
@@ -106,9 +113,9 @@ impl Notification {
         }
     }
 
-    pub fn issue_id(&self) -> Option<&str> {
+    pub fn issue_id(&self) -> Option<IssueId> {
         match self {
-            Notification::IssueNotification(n) => n.issue_id.as_deref(),
+            Notification::IssueNotification(n) => Some(n.issue.id.clone().into()),
             _ => None,
         }
     }

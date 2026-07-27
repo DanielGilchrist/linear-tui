@@ -4,9 +4,10 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::api::model::{
-    Comment, Cursor, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, Label, NotificationItem,
-    Page, Priority, Reaction, ReactionTarget, Rgb, SavedView, Session, StateOption, StateType,
-    User, WorkflowState,
+    Comment, CommentId, Cursor, IssueDetail, IssueFilter, IssueId, IssueRef, IssueSummary,
+    IssueUpdate, Label, NotificationItem, Page, Priority, Reaction, ReactionId, ReactionTarget,
+    Rgb, SavedView, Session, StateId, StateOption, StateType, TeamId, User, UserId, ViewId,
+    WorkflowState,
 };
 use crate::api::{ApiResult, LinearApi};
 
@@ -24,7 +25,7 @@ pub struct Fixture {
     #[serde(default)]
     pub issues: Vec<IssueSummary>,
     #[serde(default)]
-    pub saved_view_issues: std::collections::HashMap<String, Vec<IssueSummary>>,
+    pub saved_view_issues: std::collections::HashMap<ViewId, Vec<IssueSummary>>,
     #[serde(default)]
     pub details: Vec<IssueDetail>,
 }
@@ -79,7 +80,7 @@ impl LinearApi for FixtureClient {
 
     async fn custom_view_issues(
         &self,
-        id: &str,
+        id: &ViewId,
         _after: Option<&Cursor>,
     ) -> ApiResult<Page<IssueSummary>> {
         let issues = self
@@ -129,12 +130,12 @@ impl LinearApi for FixtureClient {
         ))
     }
 
-    async fn issue_detail(&self, id: &str) -> ApiResult<Option<IssueDetail>> {
+    async fn issue_detail(&self, target: &IssueRef) -> ApiResult<Option<IssueDetail>> {
         Ok(self
             .fixture
             .details
             .iter()
-            .find(|d| d.id == id || d.identifier == id)
+            .find(|detail| target.matches_detail(detail))
             .cloned())
     }
 
@@ -142,37 +143,37 @@ impl LinearApi for FixtureClient {
         Ok(Page::single(self.fixture.notifications.clone()))
     }
 
-    async fn workflow_states(&self, _team_id: &str) -> ApiResult<Vec<StateOption>> {
+    async fn workflow_states(&self, _team_id: &TeamId) -> ApiResult<Vec<StateOption>> {
         Ok(vec![
             StateOption {
-                id: "s_backlog".into(),
+                id: StateId::from_raw("s_backlog"),
                 name: "Backlog".into(),
                 state_type: StateType::Backlog,
             },
             StateOption {
-                id: "s_todo".into(),
+                id: StateId::from_raw("s_todo"),
                 name: "Todo".into(),
                 state_type: StateType::Unstarted,
             },
             StateOption {
-                id: "s_started".into(),
+                id: StateId::from_raw("s_started"),
                 name: "In Progress".into(),
                 state_type: StateType::Started,
             },
             StateOption {
-                id: "s_done".into(),
+                id: StateId::from_raw("s_done"),
                 name: "Done".into(),
                 state_type: StateType::Completed,
             },
             StateOption {
-                id: "s_canceled".into(),
+                id: StateId::from_raw("s_canceled"),
                 name: "Cancelled".into(),
                 state_type: StateType::Cancelled,
             },
         ])
     }
 
-    async fn team_members(&self, _team_id: &str) -> ApiResult<Vec<User>> {
+    async fn team_members(&self, _team_id: &TeamId) -> ApiResult<Vec<User>> {
         Ok(vec![
             person("dan", true),
             person("sam", false),
@@ -180,24 +181,24 @@ impl LinearApi for FixtureClient {
         ])
     }
 
-    async fn update_issue(&self, _id: &str, _update: IssueUpdate) -> ApiResult<()> {
+    async fn update_issue(&self, _id: &IssueId, _update: IssueUpdate) -> ApiResult<()> {
         Ok(())
     }
 
     async fn create_comment(
         &self,
-        _issue_id: &str,
+        _issue_id: &IssueId,
         _body: &str,
-        _parent_id: Option<&str>,
+        _parent_id: Option<&CommentId>,
     ) -> ApiResult<()> {
         Ok(())
     }
 
-    async fn update_comment(&self, _comment_id: &str, _body: &str) -> ApiResult<()> {
+    async fn update_comment(&self, _comment_id: &CommentId, _body: &str) -> ApiResult<()> {
         Ok(())
     }
 
-    async fn delete_comment(&self, _comment_id: &str) -> ApiResult<()> {
+    async fn delete_comment(&self, _comment_id: &CommentId) -> ApiResult<()> {
         Ok(())
     }
 
@@ -205,7 +206,7 @@ impl LinearApi for FixtureClient {
         Ok(())
     }
 
-    async fn delete_reaction(&self, _reaction_id: &str) -> ApiResult<()> {
+    async fn delete_reaction(&self, _reaction_id: &ReactionId) -> ApiResult<()> {
         Ok(())
     }
 }
@@ -219,7 +220,7 @@ fn state(name: &str, state_type: StateType) -> WorkflowState {
 
 fn reaction(id: &str, emoji: &str, mine: bool) -> Reaction {
     Reaction {
-        id: id.into(),
+        id: ReactionId::from_raw(id),
         emoji: emoji.into(),
         mine,
     }
@@ -227,7 +228,7 @@ fn reaction(id: &str, emoji: &str, mine: bool) -> Reaction {
 
 fn person(display_name: &str, is_me: bool) -> User {
     User {
-        id: format!("u_{display_name}"),
+        id: UserId::from_raw(format!("u_{display_name}")),
         name: display_name.into(),
         display_name: display_name.into(),
         url: format!("https://linear.app/dans-donuts/profiles/{display_name}"),
@@ -245,7 +246,7 @@ fn summary(
     labels: &[(&str, &str)],
 ) -> IssueSummary {
     IssueSummary {
-        id: id.into(),
+        id: IssueId::from_raw(id),
         identifier: identifier.into(),
         title: Some(title.into()),
         state: st,
@@ -265,11 +266,11 @@ fn summary(
     }
 }
 
-fn team_for(identifier: &str) -> String {
+fn team_for(identifier: &str) -> TeamId {
     if identifier.starts_with("DAN2") {
-        "t_pizza".into()
+        TeamId::from_raw("t_pizza")
     } else {
-        "t_donut".into()
+        TeamId::from_raw("t_donut")
     }
 }
 
@@ -341,7 +342,7 @@ fn sample_fixture() -> Fixture {
     ];
 
     let details = vec![IssueDetail {
-        id: "i1".into(),
+        id: IssueId::from_raw("i1"),
         identifier: "DAN2-7".into(),
         title: Some("Wood-fired oven runs 40°C too hot on Friday nights".into()),
         description: Some(
@@ -380,7 +381,7 @@ oven-ctl --set-target 430
         }],
         comments: vec![
             Comment {
-                id: "c1".into(),
+                id: CommentId::from_raw("c1"),
                 parent_id: None,
                 author: Some("dan".into()),
                 is_mine: true,
@@ -393,8 +394,8 @@ oven-ctl --set-target 430
                 ],
             },
             Comment {
-                id: "c1a".into(),
-                parent_id: Some("c1".into()),
+                id: CommentId::from_raw("c1a"),
+                parent_id: Some(CommentId::from_raw("c1")),
                 author: Some("danniiee".into()),
                 is_mine: false,
                 body: "Agreed, the sensor looks fine. Next suspect is the `flue damper`.".into(),
@@ -402,8 +403,8 @@ oven-ctl --set-target 430
                 reactions: vec![reaction("r4", "tada", false)],
             },
             Comment {
-                id: "c1b".into(),
-                parent_id: Some("c1".into()),
+                id: CommentId::from_raw("c1b"),
+                parent_id: Some(CommentId::from_raw("c1")),
                 author: Some("dan".into()),
                 is_mine: true,
                 body: "Adding the damper check to the list.".into(),
@@ -411,7 +412,7 @@ oven-ctl --set-target 430
                 reactions: Vec::new(),
             },
             Comment {
-                id: "c2".into(),
+                id: CommentId::from_raw("c2"),
                 parent_id: None,
                 author: Some("dan".into()),
                 is_mine: true,
@@ -422,26 +423,26 @@ oven-ctl --set-target 430
         ],
         reactions: vec![reaction("ri1", "eyes", true), reaction("ri2", "rocket", false)],
         branch_name: "dan/dan2-7".into(),
-        team_id: "t_pizza".into(),
+        team_id: TeamId::from_raw("t_pizza"),
         updated_at: "2026-07-16T18:40:00Z".into(),
     }];
 
     let notifications = vec![
         NotificationItem {
             title: "New comment on DAN2-7 (wood-fired oven)".into(),
-            issue_id: Some("i1".into()),
+            issue_id: Some(IssueId::from_raw("i1")),
             is_read: false,
             grouping_key: "g1".into(),
         },
         NotificationItem {
             title: "You were assigned DAN-10 (sprinkle dispenser jams)".into(),
-            issue_id: Some("i2".into()),
+            issue_id: Some(IssueId::from_raw("i2")),
             is_read: false,
             grouping_key: "g2".into(),
         },
         NotificationItem {
             title: "DAN2-5 moved to Backlog (pineapple debate)".into(),
-            issue_id: Some("i6".into()),
+            issue_id: Some(IssueId::from_raw("i6")),
             is_read: true,
             grouping_key: "g3".into(),
         },
@@ -449,31 +450,36 @@ oven-ctl --set-target 430
 
     let saved_views = vec![
         SavedView {
-            id: "v_urgent".into(),
+            id: ViewId::from_raw("v_urgent"),
             name: "Urgent & unassigned".into(),
         },
         SavedView {
-            id: "v_oven".into(),
+            id: ViewId::from_raw("v_oven"),
             name: "Oven incidents".into(),
         },
         SavedView {
-            id: "v_menu".into(),
+            id: ViewId::from_raw("v_menu"),
             name: "Menu ideas".into(),
         },
     ];
 
     let pick = |ids: &[&str]| -> Vec<IssueSummary> {
         ids.iter()
-            .filter_map(|id| issues.iter().find(|issue| issue.id == *id).cloned())
+            .filter_map(|id| {
+                issues
+                    .iter()
+                    .find(|issue| issue.id.as_str() == *id)
+                    .cloned()
+            })
             .collect()
     };
     let saved_view_issues = std::collections::HashMap::from([
         (
-            "v_urgent".to_string(),
+            ViewId::from_raw("v_urgent"),
             pick(&["i1", "i2", "i3", "i4", "i5", "i6"]),
         ),
-        ("v_oven".to_string(), pick(&["i1", "i3"])),
-        ("v_menu".to_string(), pick(&["i4", "i5", "i7"])),
+        (ViewId::from_raw("v_oven"), pick(&["i1", "i3"])),
+        (ViewId::from_raw("v_menu"), pick(&["i4", "i5", "i7"])),
     ]);
 
     Fixture {

@@ -1,6 +1,6 @@
 use crate::api::model::{
     Comment, IssueDetail, IssueFilter, IssueSummary, Label, NotificationItem, Priority, Reaction,
-    Rgb, SavedView, StateType, User, WorkflowState,
+    Rgb, SavedView, StateType, User, UserId, WorkflowState,
 };
 use crate::api::queries::my_issues::{
     self, BooleanComparator, NullableUserFilter, StringComparator, WorkflowStateFilter,
@@ -39,7 +39,7 @@ pub(super) fn build_cynic_filter(filter: &IssueFilter) -> my_issues::IssueFilter
 impl From<my_issues::Issue> for IssueSummary {
     fn from(issue: my_issues::Issue) -> Self {
         Self {
-            id: issue.id.into_inner(),
+            id: issue.id.into(),
             identifier: issue.identifier,
             title: issue.title,
             state: WorkflowState {
@@ -59,7 +59,7 @@ impl From<my_issues::Issue> for IssueSummary {
                 .collect(),
             url: issue.url,
             branch_name: issue.branch_name,
-            team_id: issue.team.id.into_inner(),
+            team_id: issue.team.id.into(),
             updated_at: issue.updated_at.0.into(),
         }
     }
@@ -68,7 +68,7 @@ impl From<my_issues::Issue> for IssueSummary {
 impl From<search::IssueSearchResult> for IssueSummary {
     fn from(issue: search::IssueSearchResult) -> Self {
         Self {
-            id: issue.id.into_inner(),
+            id: issue.id.into(),
             identifier: issue.identifier,
             title: Some(issue.title),
             state: WorkflowState {
@@ -88,7 +88,7 @@ impl From<search::IssueSearchResult> for IssueSummary {
                 .collect(),
             url: issue.url,
             branch_name: issue.branch_name,
-            team_id: issue.team.id.into_inner(),
+            team_id: issue.team.id.into(),
             updated_at: issue.updated_at.0.into(),
         }
     }
@@ -97,7 +97,7 @@ impl From<search::IssueSearchResult> for IssueSummary {
 impl From<custom_views::Issue> for IssueSummary {
     fn from(issue: custom_views::Issue) -> Self {
         Self {
-            id: issue.id.into_inner(),
+            id: issue.id.into(),
             identifier: issue.identifier,
             title: issue.title,
             state: WorkflowState {
@@ -117,7 +117,7 @@ impl From<custom_views::Issue> for IssueSummary {
                 .collect(),
             url: issue.url,
             branch_name: issue.branch_name,
-            team_id: issue.team.id.into_inner(),
+            team_id: issue.team.id.into(),
             updated_at: issue.updated_at.0.into(),
         }
     }
@@ -126,7 +126,7 @@ impl From<custom_views::Issue> for IssueSummary {
 impl From<issue::Issue> for IssueDetail {
     fn from(issue: issue::Issue) -> Self {
         Self {
-            id: issue.id.into_inner(),
+            id: issue.id.into(),
             identifier: issue.identifier,
             title: issue.title,
             description: issue.description,
@@ -157,8 +157,8 @@ impl From<issue::Issue> for IssueDetail {
                     };
 
                     Comment {
-                        id: c.id.into_inner(),
-                        parent_id: c.parent.map(|p| p.id.into_inner()),
+                        id: c.id.into(),
+                        parent_id: c.parent.map(|p| p.id.into()),
                         author,
                         is_mine,
                         body: c.body,
@@ -169,7 +169,7 @@ impl From<issue::Issue> for IssueDetail {
                 .collect(),
             reactions: issue.reactions.into_iter().map(Reaction::from).collect(),
             branch_name: issue.branch_name,
-            team_id: issue.team.id.into_inner(),
+            team_id: issue.team.id.into(),
             updated_at: issue.updated_at.0.into(),
         }
     }
@@ -178,7 +178,7 @@ impl From<issue::Issue> for IssueDetail {
 impl From<issue::Reaction> for Reaction {
     fn from(reaction: issue::Reaction) -> Self {
         Self {
-            id: reaction.id.into_inner(),
+            id: reaction.id.into(),
             emoji: reaction.emoji,
             mine: reaction.user.is_some_and(|user| user.is_me),
         }
@@ -189,7 +189,7 @@ impl From<&Notification> for NotificationItem {
     fn from(notification: &Notification) -> Self {
         Self {
             title: notification.title().to_string(),
-            issue_id: notification.issue_id().map(|s| s.to_string()),
+            issue_id: notification.issue_id(),
             is_read: notification.is_read(),
             grouping_key: notification.grouping_key().to_string(),
         }
@@ -199,7 +199,7 @@ impl From<&Notification> for NotificationItem {
 impl From<custom_views::CustomView> for SavedView {
     fn from(view: custom_views::CustomView) -> Self {
         Self {
-            id: view.id.into_inner(),
+            id: view.id.into(),
             name: view.name,
         }
     }
@@ -207,7 +207,7 @@ impl From<custom_views::CustomView> for SavedView {
 
 fn named_user(display_name: String) -> User {
     User {
-        id: String::new(),
+        id: UserId::default(),
         name: String::new(),
         display_name,
         url: String::new(),

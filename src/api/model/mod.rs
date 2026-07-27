@@ -1,5 +1,7 @@
 mod custom_view;
+mod id;
 mod issue;
+mod issue_ref;
 mod notification;
 mod page;
 mod request;
@@ -7,7 +9,9 @@ mod scalar;
 mod user;
 
 pub use custom_view::*;
+pub use id::*;
 pub use issue::*;
+pub use issue_ref::*;
 pub use notification::*;
 pub use page::*;
 pub use request::*;

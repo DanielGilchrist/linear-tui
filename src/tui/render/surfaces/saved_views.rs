@@ -11,7 +11,7 @@ use super::super::widgets::{
     breakdown_line, placeholder, view_items, view_title, PlaceholderText, StyledList,
 };
 use super::{feed_count, feed_placeholder, feed_truncated};
-use crate::api::Timestamp;
+use crate::api::{Timestamp, ViewId};
 use crate::tui::display::{self, GroupBy, SortBy};
 use crate::tui::feed::{Feed, FeedKey, FeedStore};
 use crate::tui::saved_views::SavedViewsPanel;
@@ -56,12 +56,12 @@ pub fn render_preview(
     frame: &mut Frame,
     area: Rect,
     feeds: &FeedStore,
-    id: &str,
+    id: &ViewId,
     name: &str,
     spinner: Spinner,
     now: Timestamp,
 ) {
-    let feed = feeds.get(&FeedKey::View(id.to_string()));
+    let feed = feeds.get(&FeedKey::View(id.clone()));
 
     let block = Block::bordered()
         .title(view_title(name, feed_count(feed), feed_truncated(feed)))

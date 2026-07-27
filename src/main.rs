@@ -4,12 +4,12 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 
-use linear_tui::api::{self, fixture::FixtureClient, Client, LinearApi};
+use linear_tui::api::{self, fixture::FixtureClient, Client, IssueRef, LinearApi};
 use linear_tui::tui::{
     self,
     app::App,
     feed::{Feed, FeedKey},
-    focus::{DetailView, Focus, LeftPanel},
+    focus::{DetailFocus, Focus, LeftPanel},
     view::ViewKind,
 };
 
@@ -95,6 +95,7 @@ async fn headless_render(args: RenderArgs) -> Result<()> {
 
     let index = view_index(&args.view);
     app.view_state.select(Some(index));
+
     match &app.active_view().kind {
         ViewKind::Issues(filter) => {
             let key = FeedKey::Issues(filter.clone());
@@ -108,9 +109,9 @@ async fn headless_render(args: RenderArgs) -> Result<()> {
         }
     }
 
-    if let Some(id) = &args.detail {
-        app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
-        if let Some(detail) = api.issue_detail(id).await? {
+    if let Some(reference) = &args.detail {
+        if let Some(detail) = api.issue_detail(&IssueRef::parse(reference)).await? {
+            app.focus = Focus::Detail(DetailFocus::reading(detail.id.clone(), LeftPanel::MyWork));
             app.workspace.set_detail(detail, app.now);
         }
     }
@@ -144,7 +145,7 @@ async fn record(api_key: &str, args: RecordArgs) -> Result<()> {
 
     let mut details = Vec::new();
     for issue in issues.iter().take(5) {
-        if let Some(detail) = client.issue_detail(&issue.id).await? {
+        if let Some(detail) = client.issue_detail(&issue.id.clone().into()).await? {
             details.push(detail);
         }
     }
@@ -169,7 +170,9 @@ async fn record(api_key: &str, args: RecordArgs) -> Result<()> {
     if let Some(parent) = args.out.parent() {
         std::fs::create_dir_all(parent)?;
     }
+
     std::fs::write(&args.out, serde_json::to_string_pretty(&fixture)?)?;
     eprintln!("Wrote fixture to {}", args.out.display());
+
     Ok(())
 }

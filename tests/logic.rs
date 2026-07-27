@@ -1,12 +1,15 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
-use linear_tui::api::{Cursor, IssueSummary, Page, Reaction, ReactionTarget, Timestamp};
+use linear_tui::api::{
+    CommentId, Cursor, IssueId, IssueRef, IssueSummary, Page, Reaction, ReactionId, ReactionTarget,
+    StateId, TeamId, Timestamp, UserId, ViewId,
+};
 use linear_tui::api::{IssueUpdate, LinearApi};
 use linear_tui::tui::app::App;
 use linear_tui::tui::cache::{CacheStatus, Remote};
 use linear_tui::tui::event::Redraw;
 use linear_tui::tui::feed::{Feed, FeedKey, FeedRequest};
-use linear_tui::tui::focus::{DetailView, Focus, LeftPanel, Reveal};
+use linear_tui::tui::focus::{DetailFocus, DetailView, Focus, LeftPanel, Reveal};
 use linear_tui::tui::message::{Command, FailureTarget, Message};
 use linear_tui::tui::overlay::{Compose, InputPurpose, Overlay, PickerKind, Search};
 use linear_tui::tui::status::Status;
@@ -33,7 +36,11 @@ fn tick_is_idle_when_nothing_loads_or_expires() {
 #[test]
 fn tick_advances_the_spinner_while_loading() {
     let mut app = App::new();
-    app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
+    app.focus = Focus::Detail(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        from: LeftPanel::MyWork,
+        view: DetailView::Reading,
+    });
     app.workspace.begin_detail();
 
     let before = app.spinner.glyph();
@@ -162,7 +169,7 @@ fn views_loaded_prefetches_the_selected_view() {
         Some(Command::LoadFeed {
             key: FeedKey::View(id),
             ..
-        }) if id == "v1" => {}
+        }) if id.as_str() == "v1" => {}
         other => panic!("expected a prefetch for v1, got {other:?}"),
     }
 }
@@ -177,7 +184,7 @@ fn moving_the_selection_prefetches_the_next_view() {
         Some(Command::LoadFeed {
             key: FeedKey::View(id),
             ..
-        }) if id == "v2" => {}
+        }) if id.as_str() == "v2" => {}
         other => panic!("expected a prefetch for v2, got {other:?}"),
     }
 }
@@ -189,7 +196,7 @@ fn entering_a_view_focuses_the_view_surface() {
     handle_key(&mut app, press(KeyCode::Enter));
 
     assert_eq!(app.focus, Focus::View);
-    assert_eq!(app.view().expect("view open").id(), "v1");
+    assert_eq!(app.view().expect("view open").id().as_str(), "v1");
 }
 
 #[test]
@@ -202,15 +209,19 @@ fn entering_an_issue_from_the_view_opens_the_detail() {
 
     // the view stays open underneath so esc can return to it
     assert!(app.view().is_some());
-    assert_eq!(
-        app.focus,
-        Focus::Detail(LeftPanel::SavedViews, DetailView::Reading)
-    );
+    assert!(matches!(
+        &app.focus,
+        Focus::Detail(DetailFocus {
+            from: LeftPanel::SavedViews,
+            view: DetailView::Reading,
+            ..
+        })
+    ));
     match command {
         Some(Command::LoadDetail {
-            id,
+            target,
             reveal: Reveal::Top,
-        }) if id == "i1" => {}
+        }) if target.as_str() == "i1" => {}
         other => panic!("expected LoadDetail for i1, got {other:?}"),
     }
 }
@@ -238,7 +249,7 @@ fn esc_from_a_view_opened_detail_returns_to_the_view() {
     handle_key(&mut app, press(KeyCode::Esc));
 
     assert_eq!(app.focus, Focus::View);
-    assert_eq!(app.view().expect("view still open").id(), "v1");
+    assert_eq!(app.view().expect("view still open").id().as_str(), "v1");
 }
 
 #[test]
@@ -305,7 +316,7 @@ fn status_acts_on_the_highlighted_view_issue() {
 
     assert_eq!(app.picker().map(|p| p.kind), Some(PickerKind::Status));
     match command {
-        Some(Command::LoadStates { team_id }) if team_id == "t_pizza" => {}
+        Some(Command::LoadStates { team_id }) if team_id.as_str() == "t_pizza" => {}
         other => panic!("expected LoadStates for the highlighted issue, got {other:?}"),
     }
 }
@@ -331,7 +342,7 @@ fn views_load_prefetches_even_when_focus_is_elsewhere() {
         Some(Command::LoadFeed {
             key: FeedKey::View(id),
             ..
-        }) if id == "v1" => {}
+        }) if id.as_str() == "v1" => {}
         other => panic!("expected a prefetch for v1 from MyWork, got {other:?}"),
     }
 }
@@ -362,7 +373,7 @@ fn a_failed_view_issues_fetch_is_recorded_and_can_be_retried() {
     apply(
         &mut app,
         Message::Failed {
-            target: FailureTarget::Feed(FeedKey::View("v1".into())),
+            target: FailureTarget::Feed(FeedKey::View(ViewId::from_raw("v1"))),
             error: "boom".into(),
         },
     );
@@ -370,7 +381,7 @@ fn a_failed_view_issues_fetch_is_recorded_and_can_be_retried() {
     assert!(matches!(
         app.workspace
             .feeds
-            .get(&FeedKey::View("v1".into()))
+            .get(&FeedKey::View(ViewId::from_raw("v1")))
             .map(|feed| feed.status()),
         Some(CacheStatus::Failed(_))
     ));
@@ -382,7 +393,7 @@ fn a_failed_view_issues_fetch_is_recorded_and_can_be_retried() {
         Some(Command::LoadFeed {
             key: FeedKey::View(id),
             ..
-        }) if id == "v1" => {}
+        }) if id.as_str() == "v1" => {}
         other => panic!("expected a retry for v1, got {other:?}"),
     }
 }
@@ -394,7 +405,7 @@ fn a_failed_view_is_refetched_on_revisit_from_the_panel() {
     apply(
         &mut app,
         Message::Failed {
-            target: FailureTarget::Feed(FeedKey::View("v1".into())),
+            target: FailureTarget::Feed(FeedKey::View(ViewId::from_raw("v1"))),
             error: "boom".into(),
         },
     );
@@ -408,7 +419,7 @@ fn a_failed_view_is_refetched_on_revisit_from_the_panel() {
         Some(Command::LoadFeed {
             key: FeedKey::View(id),
             ..
-        }) if id == "v1" => {}
+        }) if id.as_str() == "v1" => {}
         other => panic!("expected a refetch for the failed v1, got {other:?}"),
     }
 }
@@ -444,12 +455,12 @@ async fn the_fixture_serves_distinct_issues_per_view() {
     let client = FixtureClient::sample();
 
     let urgent = client
-        .custom_view_issues("v_urgent", None)
+        .custom_view_issues(&ViewId::from_raw("v_urgent"), None)
         .await
         .unwrap()
         .items;
     let oven = client
-        .custom_view_issues("v_oven", None)
+        .custom_view_issues(&ViewId::from_raw("v_oven"), None)
         .await
         .unwrap()
         .items;
@@ -457,7 +468,7 @@ async fn the_fixture_serves_distinct_issues_per_view() {
     assert_ne!(urgent.len(), oven.len());
     assert!(oven
         .iter()
-        .all(|issue| issue.id == "i1" || issue.id == "i3"));
+        .all(|issue| issue.id.as_str() == "i1" || issue.id.as_str() == "i3"));
 }
 
 #[test]
@@ -493,6 +504,10 @@ fn recent_loaded_populates_the_panel() {
 #[test]
 fn clearing_recently_viewed_confirms_first() {
     let mut app = App::new();
+    app.focus = Focus::Detail(DetailFocus::reading(
+        IssueId::from_raw("i1"),
+        LeftPanel::MyWork,
+    ));
     apply(
         &mut app,
         Message::DetailLoaded {
@@ -550,7 +565,7 @@ fn enter_on_issue_opens_detail() {
     assert!(matches!(app.focus, Focus::Detail(..)));
     assert!(app.workspace.detail().in_flight());
     match commands {
-        Some(Command::LoadDetail { id, .. }) if id == "i1" => {}
+        Some(Command::LoadDetail { target, .. }) if target.as_str() == "i1" => {}
         other => panic!("expected LoadDetail(i1), got {other:?}"),
     }
 }
@@ -560,15 +575,87 @@ fn esc_from_a_detail_returns_to_the_panel_it_was_opened_from() {
     let mut app = list_app_with_issue();
 
     handle_key(&mut app, press(KeyCode::Enter));
-    assert!(matches!(app.focus, Focus::Detail(LeftPanel::MyWork, _)));
+    assert!(matches!(
+        &app.focus,
+        Focus::Detail(DetailFocus {
+            from: LeftPanel::MyWork,
+            ..
+        })
+    ));
 
     handle_key(&mut app, press(KeyCode::Esc));
     assert_eq!(app.focus, Focus::MyWork);
 }
 
 #[test]
+fn detail_actions_do_nothing_in_the_detail_pane_when_no_issue_is_open() {
+    let mut app = list_app_with_issue();
+
+    handle_key(&mut app, press(KeyCode::BackTab));
+    assert!(matches!(app.focus, Focus::Detail(..)));
+
+    handle_key(&mut app, press(KeyCode::Char('+')));
+    assert!(matches!(app.overlay, Overlay::None));
+}
+
+#[test]
+fn cycling_into_the_detail_pane_opens_the_selected_issue() {
+    let mut app = detail_app();
+
+    handle_key(&mut app, press(KeyCode::Esc));
+    assert_eq!(app.focus, Focus::MyWork);
+    assert!(
+        app.workspace.detail().value().is_some(),
+        "leaving must not touch the cached detail"
+    );
+
+    handle_key(&mut app, press(KeyCode::BackTab));
+    match &app.focus {
+        Focus::Detail(detail) => assert_eq!(detail.issue.as_str(), "i1"),
+        _ => panic!("expected cycling into the pane to open the selection"),
+    }
+
+    handle_key(&mut app, press(KeyCode::Char('+')));
+    match &app.overlay {
+        Overlay::Reactions(reactions) => {
+            assert_eq!(
+                reactions.target,
+                ReactionTarget::Issue(IssueId::from_raw("i1"))
+            );
+        }
+        _ => panic!("expected reactions to target the reopened issue"),
+    }
+}
+
+#[test]
+fn detail_actions_target_the_open_issue_after_tabbing_away_and_back() {
+    let mut app = detail_app();
+
+    handle_key(&mut app, press(KeyCode::Char('1')));
+    assert_eq!(app.focus, Focus::MyWork);
+
+    handle_key(&mut app, press(KeyCode::BackTab));
+    assert!(matches!(app.focus, Focus::Detail(..)));
+
+    handle_key(&mut app, press(KeyCode::Char('+')));
+    match &app.overlay {
+        Overlay::Reactions(reactions) => {
+            assert_eq!(
+                reactions.target,
+                ReactionTarget::Issue(IssueId::from_raw("i1"))
+            );
+        }
+        _ => panic!("expected the reactions overlay"),
+    }
+}
+
+#[test]
 fn esc_from_a_detail_opened_from_recent_returns_to_recent() {
     let mut app = App::new();
+    app.focus = Focus::Detail(DetailFocus::reading(
+        IssueId::from_raw("i1"),
+        LeftPanel::MyWork,
+    ));
     apply(
         &mut app,
         Message::DetailLoaded {
@@ -581,7 +668,13 @@ fn esc_from_a_detail_opened_from_recent_returns_to_recent() {
     assert_eq!(app.focus, Focus::Recent);
 
     handle_key(&mut app, press(KeyCode::Enter));
-    assert!(matches!(app.focus, Focus::Detail(LeftPanel::Recent, _)));
+    assert!(matches!(
+        &app.focus,
+        Focus::Detail(DetailFocus {
+            from: LeftPanel::Recent,
+            ..
+        })
+    ));
 
     handle_key(&mut app, press(KeyCode::Esc));
     assert_eq!(app.focus, Focus::Recent);
@@ -595,7 +688,10 @@ fn react_in_reading_targets_the_issue() {
 
     match &app.overlay {
         Overlay::Reactions(reactions) => {
-            assert_eq!(reactions.target, ReactionTarget::Issue("i1".into()));
+            assert_eq!(
+                reactions.target,
+                ReactionTarget::Issue(IssueId::from_raw("i1"))
+            );
         }
         _ => panic!("expected the reactions overlay"),
     }
@@ -610,7 +706,10 @@ fn react_in_comments_targets_the_selected_comment() {
 
     match &app.overlay {
         Overlay::Reactions(reactions) => {
-            assert_eq!(reactions.target, ReactionTarget::Comment("c1".into()));
+            assert_eq!(
+                reactions.target,
+                ReactionTarget::Comment(CommentId::from_raw("c1"))
+            );
         }
         _ => panic!("expected the reactions overlay"),
     }
@@ -619,10 +718,14 @@ fn react_in_comments_targets_the_selected_comment() {
 #[test]
 fn toggling_reactions_deletes_your_own_and_creates_a_new_one() {
     let mut app = list_app_with_issue();
-    app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
+    app.focus = Focus::Detail(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        from: LeftPanel::MyWork,
+        view: DetailView::Reading,
+    });
     let mut detail = sample_detail("i1", "DAN2-7");
     detail.reactions = vec![Reaction {
-        id: "rx".into(),
+        id: ReactionId::from_raw("rx"),
         emoji: "+1".into(),
         mine: true,
     }];
@@ -637,8 +740,8 @@ fn toggling_reactions_deletes_your_own_and_creates_a_new_one() {
             reaction_id,
             issue_id,
         }) => {
-            assert_eq!(reaction_id, "rx");
-            assert_eq!(issue_id, "i1");
+            assert_eq!(reaction_id.as_str(), "rx");
+            assert_eq!(issue_id.as_str(), "i1");
         }
         other => panic!("expected DeleteReaction, got {other:?}"),
     }
@@ -652,9 +755,9 @@ fn toggling_reactions_deletes_your_own_and_creates_a_new_one() {
             emoji,
             issue_id,
         }) => {
-            assert_eq!(target, ReactionTarget::Issue("i1".into()));
+            assert_eq!(target, ReactionTarget::Issue(IssueId::from_raw("i1")));
             assert_eq!(emoji, "heart");
-            assert_eq!(issue_id, "i1");
+            assert_eq!(issue_id.as_str(), "i1");
         }
         other => panic!("expected CreateReaction, got {other:?}"),
     }
@@ -663,10 +766,14 @@ fn toggling_reactions_deletes_your_own_and_creates_a_new_one() {
 #[test]
 fn a_custom_reaction_you_made_is_removable_from_the_current_section() {
     let mut app = list_app_with_issue();
-    app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
+    app.focus = Focus::Detail(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        from: LeftPanel::MyWork,
+        view: DetailView::Reading,
+    });
     let mut detail = sample_detail("i1", "DAN2-7");
     detail.reactions = vec![Reaction {
-        id: "re".into(),
+        id: ReactionId::from_raw("re"),
         emoji: "eggplant".into(),
         mine: true,
     }];
@@ -677,7 +784,7 @@ fn a_custom_reaction_you_made_is_removable_from_the_current_section() {
     handle_key(&mut app, press(KeyCode::Char('k')));
     let removed = handle_key(&mut app, press(KeyCode::Enter));
     match removed {
-        Some(Command::DeleteReaction { reaction_id, .. }) => assert_eq!(reaction_id, "re"),
+        Some(Command::DeleteReaction { reaction_id, .. }) => assert_eq!(reaction_id.as_str(), "re"),
         other => panic!("expected DeleteReaction for the custom reaction, got {other:?}"),
     }
 }
@@ -693,7 +800,7 @@ fn custom_reaction_routes_through_the_input_overlay() {
         Overlay::Input(input) => assert_eq!(
             input.purpose,
             InputPurpose::CustomReaction {
-                target: ReactionTarget::Issue("i1".into())
+                target: ReactionTarget::Issue(IssueId::from_raw("i1"))
             }
         ),
         _ => panic!("expected the input overlay"),
@@ -711,10 +818,15 @@ fn custom_reaction_routes_through_the_input_overlay() {
 fn reaction_toggled_reloads_the_detail() {
     let mut app = detail_app();
 
-    let command = apply(&mut app, Message::ReactionToggled { id: "i1".into() });
+    let command = apply(
+        &mut app,
+        Message::ReactionToggled {
+            id: IssueId::from_raw("i1"),
+        },
+    );
     match command {
-        Some(Command::LoadDetail { id, reveal }) => {
-            assert_eq!(id, "i1");
+        Some(Command::LoadDetail { target, reveal }) => {
+            assert_eq!(target.as_str(), "i1");
             assert_eq!(reveal, Reveal::Keep);
         }
         other => panic!("expected LoadDetail, got {other:?}"),
@@ -939,7 +1051,7 @@ fn s_opens_status_picker_once_issue_is_loaded() {
 
     assert_eq!(app.picker().map(|p| p.kind), Some(PickerKind::Status));
     match commands {
-        Some(Command::LoadStates { team_id }) if team_id == "t_pizza" => {}
+        Some(Command::LoadStates { team_id }) if team_id.as_str() == "t_pizza" => {}
         other => panic!("expected LoadStates for t_pizza, got {other:?}"),
     }
 }
@@ -950,10 +1062,14 @@ fn m_enters_comments_mode_and_selects_the_first_comment() {
 
     let command = handle_key(&mut app, press(KeyCode::Char('m')));
 
-    assert_eq!(
-        app.focus,
-        Focus::Detail(LeftPanel::MyWork, DetailView::Comments)
-    );
+    assert!(matches!(
+        &app.focus,
+        Focus::Detail(DetailFocus {
+            from: LeftPanel::MyWork,
+            view: DetailView::Comments,
+            ..
+        })
+    ));
     assert_eq!(app.comment_state.selected(), Some(0));
     assert!(command.is_none());
 }
@@ -964,10 +1080,14 @@ fn m_reports_when_there_are_no_comments() {
 
     handle_key(&mut app, press(KeyCode::Char('m')));
 
-    assert_eq!(
-        app.focus,
-        Focus::Detail(LeftPanel::MyWork, DetailView::Reading)
-    );
+    assert!(matches!(
+        &app.focus,
+        Focus::Detail(DetailFocus {
+            from: LeftPanel::MyWork,
+            view: DetailView::Reading,
+            ..
+        })
+    ));
     assert_eq!(app.status, Some(Status::NoComments));
 }
 
@@ -977,10 +1097,14 @@ fn esc_in_comments_mode_returns_to_reading_then_leaves() {
     handle_key(&mut app, press(KeyCode::Char('m')));
 
     handle_key(&mut app, press(KeyCode::Esc));
-    assert_eq!(
-        app.focus,
-        Focus::Detail(LeftPanel::MyWork, DetailView::Reading)
-    );
+    assert!(matches!(
+        &app.focus,
+        Focus::Detail(DetailFocus {
+            from: LeftPanel::MyWork,
+            view: DetailView::Reading,
+            ..
+        })
+    ));
 
     handle_key(&mut app, press(KeyCode::Esc));
     assert_eq!(app.focus, Focus::MyWork);
@@ -1005,7 +1129,7 @@ fn r_replies_to_a_reply_using_the_thread_root_as_parent() {
     handle_key(&mut app, press(KeyCode::Char('r')));
 
     let editor = app.editor().expect("reply editor open");
-    assert!(matches!(&editor.compose, Compose::Reply { parent_id } if parent_id == "c1"));
+    assert!(matches!(&editor.compose, Compose::Reply { parent_id } if parent_id.as_str() == "c1"));
 }
 
 #[test]
@@ -1016,7 +1140,7 @@ fn r_replies_to_a_root_using_its_own_id_as_parent() {
     handle_key(&mut app, press(KeyCode::Char('r')));
 
     let editor = app.editor().expect("reply editor open");
-    assert!(matches!(&editor.compose, Compose::Reply { parent_id } if parent_id == "c1"));
+    assert!(matches!(&editor.compose, Compose::Reply { parent_id } if parent_id.as_str() == "c1"));
 }
 
 #[test]
@@ -1035,9 +1159,9 @@ fn submitting_a_reply_posts_with_the_thread_parent() {
             body,
             parent_id: Some(parent),
         }) => {
-            assert_eq!(issue_id, "i1");
+            assert_eq!(issue_id.as_str(), "i1");
             assert_eq!(body, "ok");
-            assert_eq!(parent, "c1");
+            assert_eq!(parent.as_str(), "c1");
         }
         other => panic!("expected a threaded CreateComment, got {other:?}"),
     }
@@ -1051,10 +1175,10 @@ fn e_opens_the_edit_editor_prefilled_with_my_comment_body() {
     let command = handle_key(&mut app, press(KeyCode::Char('e')));
 
     let editor = app.editor().expect("edit editor open");
-    assert!(matches!(&editor.compose, Compose::Edit { comment_id } if comment_id == "c1"));
+    assert!(matches!(&editor.compose, Compose::Edit { comment_id } if comment_id.as_str() == "c1"));
     assert_eq!(editor.text(), "root comment");
     match command {
-        Some(Command::LoadMembers { team_id }) if team_id == "t_pizza" => {}
+        Some(Command::LoadMembers { team_id }) if team_id.as_str() == "t_pizza" => {}
         other => panic!("expected LoadMembers for the mention popup, got {other:?}"),
     }
 }
@@ -1089,8 +1213,8 @@ fn submitting_an_edit_updates_the_comment() {
             comment_id,
             body,
         }) => {
-            assert_eq!(issue_id, "i1");
-            assert_eq!(comment_id, "c1");
+            assert_eq!(issue_id.as_str(), "i1");
+            assert_eq!(comment_id.as_str(), "c1");
             assert_eq!(body, "root comment!");
         }
         other => panic!("expected UpdateComment, got {other:?}"),
@@ -1102,14 +1226,19 @@ fn submitting_an_edit_updates_the_comment() {
 fn comment_edited_refetches_the_thread_from_the_top() {
     let mut app = detail_app();
 
-    let command = apply(&mut app, Message::CommentEdited { id: "i1".into() });
+    let command = apply(
+        &mut app,
+        Message::CommentEdited {
+            id: IssueId::from_raw("i1"),
+        },
+    );
 
     assert!(app.workspace.detail().in_flight());
     match command {
         Some(Command::LoadDetail {
-            id,
+            target,
             reveal: Reveal::Top,
-        }) if id == "i1" => {}
+        }) if target.as_str() == "i1" => {}
         other => panic!("expected LoadDetail for i1 revealing the top, got {other:?}"),
     }
 }
@@ -1128,8 +1257,8 @@ fn d_confirms_before_deleting_my_comment() {
             issue_id,
             comment_id,
         } => {
-            assert_eq!(issue_id, "i1");
-            assert_eq!(comment_id, "c1");
+            assert_eq!(issue_id.as_str(), "i1");
+            assert_eq!(comment_id.as_str(), "c1");
         }
         other => panic!("expected DeleteComment, got {other:?}"),
     }
@@ -1140,7 +1269,7 @@ fn d_confirms_before_deleting_my_comment() {
         Some(Command::DeleteComment {
             issue_id,
             comment_id,
-        }) if issue_id == "i1" && comment_id == "c1" => {}
+        }) if issue_id.as_str() == "i1" && comment_id.as_str() == "c1" => {}
         other => panic!("expected DeleteComment on confirm, got {other:?}"),
     }
 }
@@ -1177,18 +1306,27 @@ fn comment_deleted_stays_in_comments_and_refetches() {
     let mut app = detail_app_with_comments();
     handle_key(&mut app, press(KeyCode::Char('m')));
 
-    let command = apply(&mut app, Message::CommentDeleted { id: "i1".into() });
+    let command = apply(
+        &mut app,
+        Message::CommentDeleted {
+            id: IssueId::from_raw("i1"),
+        },
+    );
 
     assert!(app.workspace.detail().in_flight());
-    assert_eq!(
-        app.focus,
-        Focus::Detail(LeftPanel::MyWork, DetailView::Comments)
-    );
+    assert!(matches!(
+        &app.focus,
+        Focus::Detail(DetailFocus {
+            from: LeftPanel::MyWork,
+            view: DetailView::Comments,
+            ..
+        })
+    ));
     match command {
         Some(Command::LoadDetail {
-            id,
+            target,
             reveal: Reveal::Top,
-        }) if id == "i1" => {}
+        }) if target.as_str() == "i1" => {}
         other => panic!("expected LoadDetail for i1 revealing the top, got {other:?}"),
     }
 }
@@ -1210,10 +1348,14 @@ fn a_shrunk_thread_clamps_the_comment_selection() {
     );
 
     assert_eq!(app.comment_state.selected(), Some(1));
-    assert_eq!(
-        app.focus,
-        Focus::Detail(LeftPanel::MyWork, DetailView::Comments)
-    );
+    assert!(matches!(
+        &app.focus,
+        Focus::Detail(DetailFocus {
+            from: LeftPanel::MyWork,
+            view: DetailView::Comments,
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -1231,10 +1373,14 @@ fn deleting_the_last_comment_falls_back_to_reading() {
         },
     );
 
-    assert_eq!(
-        app.focus,
-        Focus::Detail(LeftPanel::MyWork, DetailView::Reading)
-    );
+    assert!(matches!(
+        &app.focus,
+        Focus::Detail(DetailFocus {
+            from: LeftPanel::MyWork,
+            view: DetailView::Reading,
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -1255,7 +1401,7 @@ fn c_opens_the_comment_editor_once_issue_is_loaded() {
 
     assert!(app.editor().is_some());
     match command {
-        Some(Command::LoadMembers { team_id }) if team_id == "t_pizza" => {}
+        Some(Command::LoadMembers { team_id }) if team_id.as_str() == "t_pizza" => {}
         other => panic!("expected LoadMembers for the mention popup, got {other:?}"),
     }
 }
@@ -1289,7 +1435,7 @@ fn ctrl_s_posts_the_multiline_comment_for_the_open_issue() {
             body,
             parent_id,
         }) => {
-            assert_eq!(issue_id, "i1");
+            assert_eq!(issue_id.as_str(), "i1");
             assert_eq!(body, "a\nb");
             assert_eq!(parent_id, None);
         }
@@ -1305,7 +1451,7 @@ fn mention_autocomplete_inserts_the_profile_url() {
     apply(
         &mut app,
         Message::MembersLoaded {
-            team_id: "t_pizza".into(),
+            team_id: TeamId::from_raw("t_pizza"),
             members: vec![member("danniieelg"), member("sam")],
         },
     );
@@ -1338,14 +1484,19 @@ fn an_empty_comment_posts_nothing() {
 fn comment_posted_refetches_the_thread_and_reveals_the_bottom() {
     let mut app = detail_app();
 
-    let command = apply(&mut app, Message::CommentPosted { id: "i1".into() });
+    let command = apply(
+        &mut app,
+        Message::CommentPosted {
+            id: IssueId::from_raw("i1"),
+        },
+    );
 
     assert!(app.workspace.detail().in_flight());
     match command {
         Some(Command::LoadDetail {
-            id,
+            target,
             reveal: Reveal::Bottom,
-        }) if id == "i1" => {}
+        }) if target.as_str() == "i1" => {}
         other => panic!("expected LoadDetail for i1 revealing the bottom, got {other:?}"),
     }
 }
@@ -1355,18 +1506,27 @@ fn posting_from_comments_mode_stays_in_comments_and_reveals_the_new_comment() {
     let mut app = detail_app_with_comments();
     handle_key(&mut app, press(KeyCode::Char('m')));
 
-    let command = apply(&mut app, Message::CommentPosted { id: "i1".into() });
+    let command = apply(
+        &mut app,
+        Message::CommentPosted {
+            id: IssueId::from_raw("i1"),
+        },
+    );
 
     assert!(app.workspace.detail().in_flight());
-    assert_eq!(
-        app.focus,
-        Focus::Detail(LeftPanel::MyWork, DetailView::Comments)
-    );
+    assert!(matches!(
+        &app.focus,
+        Focus::Detail(DetailFocus {
+            from: LeftPanel::MyWork,
+            view: DetailView::Comments,
+            ..
+        })
+    ));
     match command {
         Some(Command::LoadDetail {
-            id,
+            target,
             reveal: Reveal::NewestComment,
-        }) if id == "i1" => {}
+        }) if target.as_str() == "i1" => {}
         other => panic!("expected LoadDetail for i1 revealing the newest comment, got {other:?}"),
     }
 }
@@ -1379,7 +1539,7 @@ fn newest_comment_reveal_selects_the_new_comment() {
 
     let mut detail = app.workspace.detail().value().cloned().expect("detail");
     detail.comments.push(linear_tui::api::Comment {
-        id: "c_new".into(),
+        id: CommentId::from_raw("c_new"),
         parent_id: None,
         author: Some("dan".into()),
         is_mine: true,
@@ -1402,6 +1562,10 @@ fn newest_comment_reveal_selects_the_new_comment() {
 fn a_bottom_reveal_scrolls_to_the_new_comment() {
     let mut app = detail_app();
 
+    app.focus = Focus::Detail(DetailFocus::reading(
+        IssueId::from_raw("i1"),
+        LeftPanel::MyWork,
+    ));
     apply(
         &mut app,
         Message::DetailLoaded {
@@ -1418,6 +1582,10 @@ fn opening_a_detail_starts_at_the_top() {
     let mut app = detail_app();
     app.scroll_position = 42;
 
+    app.focus = Focus::Detail(DetailFocus::reading(
+        IssueId::from_raw("i1"),
+        LeftPanel::MyWork,
+    ));
     apply(
         &mut app,
         Message::DetailLoaded {
@@ -1436,7 +1604,7 @@ fn picker_enter_opens_confirmation_then_applies() {
     apply(
         &mut app,
         Message::StatesLoaded {
-            team_id: "t_pizza".into(),
+            team_id: TeamId::from_raw("t_pizza"),
             states: vec![state_option("s_done", "Done")],
         },
     );
@@ -1452,7 +1620,7 @@ fn picker_enter_opens_confirmation_then_applies() {
         Some(Command::UpdateIssue {
             id,
             update: IssueUpdate::Status(state_id),
-        }) if id == "i1" && state_id == "s_done" => {}
+        }) if id.as_str() == "i1" && state_id.as_str() == "s_done" => {}
         other => panic!("expected UpdateIssue with status, got {other:?}"),
     }
 }
@@ -1464,7 +1632,7 @@ fn confirmation_cancel_does_not_write() {
     apply(
         &mut app,
         Message::StatesLoaded {
-            team_id: "t_pizza".into(),
+            team_id: TeamId::from_raw("t_pizza"),
             states: vec![state_option("s_done", "Done")],
         },
     );
@@ -1483,7 +1651,7 @@ fn assign_picker_can_unassign() {
     apply(
         &mut app,
         Message::MembersLoaded {
-            team_id: "t_pizza".into(),
+            team_id: TeamId::from_raw("t_pizza"),
             members: vec![member("danniieelg")],
         },
     );
@@ -1496,7 +1664,7 @@ fn assign_picker_can_unassign() {
         Some(Command::UpdateIssue {
             id,
             update: IssueUpdate::Assignee(None),
-        }) if id == "i1" => {}
+        }) if id.as_str() == "i1" => {}
         other => panic!("expected an unassign UpdateIssue, got {other:?}"),
     }
 }
@@ -1510,7 +1678,7 @@ fn a_warm_status_picker_opens_from_cache_without_refetching() {
     apply(
         &mut app,
         Message::StatesLoaded {
-            team_id: "t_pizza".into(),
+            team_id: TeamId::from_raw("t_pizza"),
             states: vec![state_option("s_done", "Done")],
         },
     );
@@ -1555,7 +1723,7 @@ fn a_failed_states_fetch_stops_the_spinner_and_retries_next_time() {
         &mut app,
         Message::Failed {
             target: FailureTarget::States {
-                team_id: "t_pizza".into(),
+                team_id: TeamId::from_raw("t_pizza"),
             },
             error: "boom".into(),
         },
@@ -1564,7 +1732,7 @@ fn a_failed_states_fetch_stops_the_spinner_and_retries_next_time() {
     assert!(matches!(
         app.workspace
             .states
-            .get(&"t_pizza".to_string())
+            .get(&TeamId::from_raw("t_pizza"))
             .map(Remote::status),
         Some(CacheStatus::Failed(_))
     ));
@@ -1574,7 +1742,7 @@ fn a_failed_states_fetch_stops_the_spinner_and_retries_next_time() {
     handle_key(&mut app, press(KeyCode::Esc));
     let retry = handle_key(&mut app, press(KeyCode::Char('s')));
     match retry {
-        Some(Command::LoadStates { team_id }) if team_id == "t_pizza" => {}
+        Some(Command::LoadStates { team_id }) if team_id.as_str() == "t_pizza" => {}
         other => panic!("expected a retry LoadStates after failure, got {other:?}"),
     }
 }
@@ -1590,7 +1758,7 @@ fn a_failed_members_fetch_stops_the_spinner_and_retries_next_time() {
         &mut app,
         Message::Failed {
             target: FailureTarget::Members {
-                team_id: "t_pizza".into(),
+                team_id: TeamId::from_raw("t_pizza"),
             },
             error: "boom".into(),
         },
@@ -1599,7 +1767,7 @@ fn a_failed_members_fetch_stops_the_spinner_and_retries_next_time() {
     assert!(matches!(
         app.workspace
             .members
-            .get(&"t_pizza".to_string())
+            .get(&TeamId::from_raw("t_pizza"))
             .map(Remote::status),
         Some(CacheStatus::Failed(_))
     ));
@@ -1609,7 +1777,7 @@ fn a_failed_members_fetch_stops_the_spinner_and_retries_next_time() {
     handle_key(&mut app, press(KeyCode::Esc));
     let retry = handle_key(&mut app, press(KeyCode::Char('a')));
     match retry {
-        Some(Command::LoadMembers { team_id }) if team_id == "t_pizza" => {}
+        Some(Command::LoadMembers { team_id }) if team_id.as_str() == "t_pizza" => {}
         other => panic!("expected a retry LoadMembers after failure, got {other:?}"),
     }
 }
@@ -1722,9 +1890,57 @@ fn gi_opens_a_jump_input_that_loads_the_referenced_issue() {
     assert!(app.workspace.detail().in_flight());
     assert!(app.input().is_none());
     match commands {
-        Some(Command::LoadDetail { id, .. }) if id == "DAN2-7" => {}
+        Some(Command::LoadDetail { target, .. }) if target.as_str() == "DAN2-7" => {}
         other => panic!("expected LoadDetail(DAN2-7), got {other:?}"),
     }
+}
+
+#[test]
+fn a_detail_fetched_by_identifier_is_applied_and_reanchored_to_its_id() {
+    let mut app = App::new();
+
+    handle_key(&mut app, press(KeyCode::Char('g')));
+    handle_key(&mut app, press(KeyCode::Char('i')));
+    for c in "dan2-7".chars() {
+        handle_key(&mut app, press(KeyCode::Char(c)));
+    }
+    handle_key(&mut app, press(KeyCode::Enter));
+
+    apply(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i1", "DAN2-7")),
+            reveal: Reveal::Top,
+        },
+    );
+
+    assert!(
+        app.open_detail().is_some(),
+        "a detail asked for by identifier must still be presented"
+    );
+    match &app.focus {
+        Focus::Detail(detail) => assert_eq!(detail.issue, IssueRef::Id(IssueId::from_raw("i1"))),
+        other => panic!("expected detail focus, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_detail_for_an_issue_no_longer_open_is_dropped() {
+    let mut app = detail_app();
+
+    apply(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(sample_detail("i9", "DAN-9")),
+            reveal: Reveal::Top,
+        },
+    );
+
+    assert_eq!(
+        app.open_detail().map(|detail| detail.id.as_str()),
+        Some("i1"),
+        "a late response for another issue must not replace the open one"
+    );
 }
 
 #[test]
@@ -1899,7 +2115,7 @@ fn gs_searches_then_enter_opens_a_result() {
     assert!(matches!(app.focus, Focus::Detail(..)));
     assert!(app.search().is_none());
     match open {
-        Some(Command::LoadDetail { id, .. }) if id == "i9" => {}
+        Some(Command::LoadDetail { target, .. }) if target.as_str() == "i9" => {}
         other => panic!("expected LoadDetail(i9), got {other:?}"),
     }
 }
@@ -1960,6 +2176,10 @@ fn transient_status_clears_on_the_next_key() {
 #[test]
 fn history_boundary_sets_no_status() {
     let mut app = App::new();
+    app.focus = Focus::Detail(DetailFocus::reading(
+        IssueId::from_raw("i1"),
+        LeftPanel::MyWork,
+    ));
     apply(
         &mut app,
         Message::DetailLoaded {
@@ -1983,15 +2203,23 @@ fn opening_a_detail_keeps_the_source_panel_expanded() {
 
     handle_key(&mut app, press(KeyCode::Enter));
 
-    assert_eq!(
-        app.focus,
-        Focus::Detail(LeftPanel::MyWork, DetailView::Reading)
-    );
+    assert!(matches!(
+        &app.focus,
+        Focus::Detail(DetailFocus {
+            from: LeftPanel::MyWork,
+            view: DetailView::Reading,
+            ..
+        })
+    ));
 }
 
 #[test]
 fn opening_from_recently_viewed_keeps_that_panel_expanded() {
     let mut app = App::new();
+    app.focus = Focus::Detail(DetailFocus::reading(
+        IssueId::from_raw("i1"),
+        LeftPanel::MyWork,
+    ));
     apply(
         &mut app,
         Message::DetailLoaded {
@@ -2005,15 +2233,23 @@ fn opening_from_recently_viewed_keeps_that_panel_expanded() {
 
     handle_key(&mut app, press(KeyCode::Enter));
 
-    assert_eq!(
-        app.focus,
-        Focus::Detail(LeftPanel::Recent, DetailView::Reading)
-    );
+    assert!(matches!(
+        &app.focus,
+        Focus::Detail(DetailFocus {
+            from: LeftPanel::Recent,
+            view: DetailView::Reading,
+            ..
+        })
+    ));
 }
 
 #[test]
 fn tab_and_shift_tab_walk_history_in_the_detail_pane() {
     let mut app = App::new();
+    app.focus = Focus::Detail(DetailFocus::reading(
+        IssueId::from_raw("i1"),
+        LeftPanel::MyWork,
+    ));
     apply(
         &mut app,
         Message::DetailLoaded {
@@ -2021,6 +2257,10 @@ fn tab_and_shift_tab_walk_history_in_the_detail_pane() {
             reveal: Reveal::Top,
         },
     );
+    app.focus = Focus::Detail(DetailFocus::reading(
+        IssueId::from_raw("i2"),
+        LeftPanel::MyWork,
+    ));
     apply(
         &mut app,
         Message::DetailLoaded {
@@ -2028,11 +2268,10 @@ fn tab_and_shift_tab_walk_history_in_the_detail_pane() {
             reveal: Reveal::Top,
         },
     );
-    app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
 
     let back = handle_key(&mut app, press(KeyCode::BackTab));
     match back {
-        Some(Command::LoadDetail { id, .. }) if id == "i1" => {}
+        Some(Command::LoadDetail { target, .. }) if target.as_str() == "i1" => {}
         other => panic!("expected Shift-Tab to load i1, got {other:?}"),
     }
     apply(
@@ -2045,7 +2284,7 @@ fn tab_and_shift_tab_walk_history_in_the_detail_pane() {
 
     let forward = handle_key(&mut app, press(KeyCode::Tab));
     match forward {
-        Some(Command::LoadDetail { id, .. }) if id == "i2" => {}
+        Some(Command::LoadDetail { target, .. }) if target.as_str() == "i2" => {}
         other => panic!("expected Tab to load i2, got {other:?}"),
     }
 }
@@ -2101,6 +2340,10 @@ fn ctrl_d_pages_the_focused_list_without_wrapping() {
 fn opening_issues_records_history_and_ctrl_o_goes_back() {
     let mut app = App::new();
 
+    app.focus = Focus::Detail(DetailFocus::reading(
+        IssueId::from_raw("i1"),
+        LeftPanel::MyWork,
+    ));
     apply(
         &mut app,
         Message::DetailLoaded {
@@ -2108,6 +2351,10 @@ fn opening_issues_records_history_and_ctrl_o_goes_back() {
             reveal: Reveal::Top,
         },
     );
+    app.focus = Focus::Detail(DetailFocus::reading(
+        IssueId::from_raw("i2"),
+        LeftPanel::MyWork,
+    ));
     apply(
         &mut app,
         Message::DetailLoaded {
@@ -2117,18 +2364,22 @@ fn opening_issues_records_history_and_ctrl_o_goes_back() {
     );
 
     assert_eq!(app.workspace.recently_viewed.len(), 2);
-    assert_eq!(app.workspace.recently_viewed[0].id, "i2");
-    assert_eq!(app.workspace.recently_viewed[1].id, "i1");
+    assert_eq!(app.workspace.recently_viewed[0].id.as_str(), "i2");
+    assert_eq!(app.workspace.recently_viewed[1].id.as_str(), "i1");
 
     let back = handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
     );
     match back {
-        Some(Command::LoadDetail { id, .. }) if id == "i1" => {}
+        Some(Command::LoadDetail { target, .. }) if target.as_str() == "i1" => {}
         other => panic!("expected Ctrl-o to load i1, got {other:?}"),
     }
 
+    app.focus = Focus::Detail(DetailFocus::reading(
+        IssueId::from_raw("i1"),
+        LeftPanel::MyWork,
+    ));
     apply(
         &mut app,
         Message::DetailLoaded {
@@ -2147,6 +2398,10 @@ fn opening_issues_records_history_and_ctrl_o_goes_back() {
 #[test]
 fn enter_on_recently_viewed_reopens_the_issue() {
     let mut app = App::new();
+    app.focus = Focus::Detail(DetailFocus::reading(
+        IssueId::from_raw("i1"),
+        LeftPanel::MyWork,
+    ));
     apply(
         &mut app,
         Message::DetailLoaded {
@@ -2162,7 +2417,7 @@ fn enter_on_recently_viewed_reopens_the_issue() {
 
     assert!(matches!(app.focus, Focus::Detail(..)));
     match commands {
-        Some(Command::LoadDetail { id, .. }) if id == "i1" => {}
+        Some(Command::LoadDetail { target, .. }) if target.as_str() == "i1" => {}
         other => panic!("expected LoadDetail(i1), got {other:?}"),
     }
 }
@@ -2188,7 +2443,7 @@ fn load_view_feed(app: &mut App, id: &str, issues: Vec<IssueSummary>) {
     apply(
         app,
         Message::FeedLoaded {
-            key: FeedKey::View(id.to_string()),
+            key: FeedKey::View(ViewId::from_raw(id)),
             request: FeedRequest::Refresh,
             page: Page::single(issues),
         },
@@ -2220,7 +2475,11 @@ fn list_app_with_issues() -> App {
 
 fn detail_app() -> App {
     let mut app = list_app_with_issue();
-    app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
+    app.focus = Focus::Detail(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        from: LeftPanel::MyWork,
+        view: DetailView::Reading,
+    });
     app.workspace
         .set_detail(sample_detail("i1", "DAN2-7"), app.now);
     app
@@ -2228,7 +2487,7 @@ fn detail_app() -> App {
 
 fn saved_view(id: &str, name: &str) -> linear_tui::api::SavedView {
     linear_tui::api::SavedView {
-        id: id.into(),
+        id: ViewId::from_raw(id),
         name: name.into(),
     }
 }
@@ -2248,7 +2507,7 @@ fn saved_views_app() -> App {
 
 fn sample_issue(id: &str, identifier: &str) -> linear_tui::api::IssueSummary {
     linear_tui::api::IssueSummary {
-        id: id.into(),
+        id: IssueId::from_raw(id),
         identifier: identifier.into(),
         title: Some("Title".into()),
         state: linear_tui::api::WorkflowState {
@@ -2260,14 +2519,14 @@ fn sample_issue(id: &str, identifier: &str) -> linear_tui::api::IssueSummary {
         labels: vec![],
         url: format!("https://linear.app/dans-donuts/issue/{identifier}"),
         branch_name: format!("dan/{}", identifier.to_lowercase()),
-        team_id: "t_pizza".into(),
+        team_id: TeamId::from_raw("t_pizza"),
         updated_at: linear_tui::api::Timestamp::default(),
     }
 }
 
 fn sample_detail(id: &str, identifier: &str) -> linear_tui::api::IssueDetail {
     linear_tui::api::IssueDetail {
-        id: id.into(),
+        id: IssueId::from_raw(id),
         identifier: identifier.into(),
         title: Some("Title".into()),
         description: Some("Body".into()),
@@ -2282,15 +2541,15 @@ fn sample_detail(id: &str, identifier: &str) -> linear_tui::api::IssueDetail {
         comments: vec![],
         reactions: vec![],
         branch_name: format!("dan/{}", identifier.to_lowercase()),
-        team_id: "t_pizza".into(),
+        team_id: TeamId::from_raw("t_pizza"),
         updated_at: linear_tui::api::Timestamp::default(),
     }
 }
 
 fn comment(id: &str, parent: Option<&str>, body: &str) -> linear_tui::api::Comment {
     linear_tui::api::Comment {
-        id: id.into(),
-        parent_id: parent.map(|p| p.into()),
+        id: CommentId::from_raw(id),
+        parent_id: parent.map(CommentId::from_raw),
         author: Some("dan".into()),
         is_mine: true,
         body: body.into(),
@@ -2301,7 +2560,7 @@ fn comment(id: &str, parent: Option<&str>, body: &str) -> linear_tui::api::Comme
 
 fn member(name: &str) -> linear_tui::api::User {
     linear_tui::api::User {
-        id: format!("u_{name}"),
+        id: UserId::from_raw(format!("u_{name}")),
         name: name.into(),
         display_name: name.into(),
         url: format!("https://linear.app/dans-donuts/profiles/{name}"),
@@ -2311,7 +2570,7 @@ fn member(name: &str) -> linear_tui::api::User {
 
 fn state_option(id: &str, name: &str) -> linear_tui::api::StateOption {
     linear_tui::api::StateOption {
-        id: id.into(),
+        id: StateId::from_raw(id),
         name: name.into(),
         state_type: linear_tui::api::StateType::Completed,
     }

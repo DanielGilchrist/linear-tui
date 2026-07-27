@@ -1,9 +1,9 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
-use linear_tui::api::{LinearApi, Timestamp};
+use linear_tui::api::{IssueRef, LinearApi, TeamId, Timestamp, ViewId};
 use linear_tui::tui::app::App;
 use linear_tui::tui::feed::{Feed, FeedKey, FeedRequest};
-use linear_tui::tui::focus::{DetailView, Focus, LeftPanel};
+use linear_tui::tui::focus::{DetailFocus, Focus, LeftPanel};
 use linear_tui::tui::message::Message;
 use linear_tui::tui::update::{apply, handle_key};
 use linear_tui::tui::view::ViewKind;
@@ -29,12 +29,12 @@ async fn home_app(client: &FixtureClient, view: usize) -> App {
     app
 }
 
-async fn load_view(app: &mut App, client: &FixtureClient, id: &str) {
+async fn load_view(app: &mut App, client: &FixtureClient, id: &ViewId) {
     let page = client.custom_view_issues(id, None).await.unwrap();
     apply(
         app,
         Message::FeedLoaded {
-            key: FeedKey::View(id.to_string()),
+            key: FeedKey::View(id.clone()),
             request: FeedRequest::Refresh,
             page,
         },
@@ -43,8 +43,12 @@ async fn load_view(app: &mut App, client: &FixtureClient, id: &str) {
 
 async fn opened_detail_app(client: &FixtureClient) -> App {
     let mut app = home_app(client, 0).await;
-    app.focus = Focus::Detail(LeftPanel::MyWork, DetailView::Reading);
-    if let Some(detail) = client.issue_detail("DAN2-7").await.unwrap() {
+    if let Some(detail) = client
+        .issue_detail(&IssueRef::parse("DAN2-7"))
+        .await
+        .unwrap()
+    {
+        app.focus = Focus::Detail(DetailFocus::reading(detail.id.clone(), LeftPanel::MyWork));
         app.workspace.set_detail(detail, app.now);
     }
     app
@@ -267,11 +271,14 @@ async fn status_picker_overlay() {
         &mut app,
         KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
     );
-    let states = client.workflow_states("t_pizza").await.unwrap();
+    let states = client
+        .workflow_states(&TeamId::from_raw("t_pizza"))
+        .await
+        .unwrap();
     apply(
         &mut app,
         Message::StatesLoaded {
-            team_id: "t_pizza".into(),
+            team_id: TeamId::from_raw("t_pizza"),
             states,
         },
     );
@@ -288,11 +295,14 @@ async fn assign_picker_overlay() {
         &mut app,
         KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
     );
-    let members = client.team_members("t_pizza").await.unwrap();
+    let members = client
+        .team_members(&TeamId::from_raw("t_pizza"))
+        .await
+        .unwrap();
     apply(
         &mut app,
         Message::MembersLoaded {
-            team_id: "t_pizza".into(),
+            team_id: TeamId::from_raw("t_pizza"),
             members,
         },
     );
@@ -330,11 +340,14 @@ async fn mention_autocomplete_popup() {
         &mut app,
         KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
     );
-    let members = client.team_members("t_pizza").await.unwrap();
+    let members = client
+        .team_members(&TeamId::from_raw("t_pizza"))
+        .await
+        .unwrap();
     apply(
         &mut app,
         Message::MembersLoaded {
-            team_id: "t_pizza".into(),
+            team_id: TeamId::from_raw("t_pizza"),
             members,
         },
     );
@@ -473,11 +486,14 @@ async fn confirm_dialog() {
         &mut app,
         KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
     );
-    let states = client.workflow_states("t_pizza").await.unwrap();
+    let states = client
+        .workflow_states(&TeamId::from_raw("t_pizza"))
+        .await
+        .unwrap();
     apply(
         &mut app,
         Message::StatesLoaded {
-            team_id: "t_pizza".into(),
+            team_id: TeamId::from_raw("t_pizza"),
             states,
         },
     );
@@ -549,11 +565,14 @@ async fn styled_status_picker_overlay() {
         &mut app,
         KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
     );
-    let states = client.workflow_states("t_pizza").await.unwrap();
+    let states = client
+        .workflow_states(&TeamId::from_raw("t_pizza"))
+        .await
+        .unwrap();
     apply(
         &mut app,
         Message::StatesLoaded {
-            team_id: "t_pizza".into(),
+            team_id: TeamId::from_raw("t_pizza"),
             states,
         },
     );
@@ -595,11 +614,14 @@ async fn styled_comment_editor_overlay() {
         &mut app,
         KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
     );
-    let members = client.team_members("t_pizza").await.unwrap();
+    let members = client
+        .team_members(&TeamId::from_raw("t_pizza"))
+        .await
+        .unwrap();
     apply(
         &mut app,
         Message::MembersLoaded {
-            team_id: "t_pizza".into(),
+            team_id: TeamId::from_raw("t_pizza"),
             members,
         },
     );

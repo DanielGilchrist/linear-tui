@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+use super::id::UserId;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct User {
-    pub id: String,
+    pub id: UserId,
     #[serde(default)]
     pub name: String,
     #[serde(default)]

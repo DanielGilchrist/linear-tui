@@ -4,6 +4,7 @@ use super::feed::{
     access_active, access_feed, load_more, load_more_for_focus, prefetch_selected_view,
 };
 use super::issue::open_issue;
+use crate::api::IssueId;
 use crate::tui::app::{App, Zoom, SCROLL_STEP};
 use crate::tui::feed::FeedKey;
 use crate::tui::focus::{DetailView, Direction, Edge, Focus, LeftPanel, Nav};
@@ -58,19 +59,46 @@ pub(super) fn cycle_panel(app: &mut App, direction: Direction) -> Option<Command
         .position(|&p| p == app.focus.left())
         .unwrap_or(0);
 
-    let next = direction.wrap(current, count + 1);
+    let mut next = direction.wrap(current, count + 1);
 
-    app.focus = if next == count {
-        Focus::Detail(app.focus.left(), DetailView::Reading)
+    let opening = if next == count {
+        let id = selected_issue_id(app);
+
+        if id.is_none() {
+            next = direction.wrap(next, count + 1);
+        }
+        id
     } else {
-        panels[next].focus()
+        None
+    };
+
+    let command = match opening {
+        Some(id) => open_issue(app, id),
+        None => {
+            app.focus = panels[next].focus();
+            None
+        }
     };
 
     if leaving_view {
         app.close_view_surface();
     }
 
-    prefetch_selected_view(app)
+    command.or_else(|| prefetch_selected_view(app))
+}
+
+fn selected_issue_id(app: &App) -> Option<IssueId> {
+    match &app.focus {
+        Focus::MyWork => match app.active_view().kind {
+            ViewKind::Issues(_) => app.selected_issue().map(|issue| issue.id.clone()),
+            ViewKind::Inbox => app
+                .selected_notification()
+                .and_then(|notification| notification.issue_id.clone()),
+        },
+        Focus::Recent => app.selected_recent().map(|issue| issue.id.clone()),
+        Focus::View => app.view_selected_issue().map(|issue| issue.id.clone()),
+        Focus::SavedViews | Focus::Stub(_) | Focus::Detail(..) => None,
+    }
 }
 
 pub(super) fn jump_panel(app: &mut App, index: usize) -> Option<Command> {
@@ -97,17 +125,17 @@ pub(super) fn ascend(app: &mut App) -> Option<Command> {
         return None;
     }
 
-    match app.focus {
-        Focus::Detail(panel, DetailView::Comments) => {
-            app.focus = Focus::Detail(panel, DetailView::Reading);
+    match &app.focus {
+        Focus::Detail(detail) if detail.view == DetailView::Comments => {
+            app.focus = Focus::Detail(detail.with_view(DetailView::Reading));
         }
-        Focus::Detail(LeftPanel::SavedViews, DetailView::Reading) => {
+        Focus::Detail(detail) if detail.from == LeftPanel::SavedViews => {
             match app.workspace.view_open {
                 Some(_) => app.focus = Focus::View,
                 None => leave_detail(app),
             }
         }
-        Focus::Detail(_, DetailView::Reading) => leave_detail(app),
+        Focus::Detail(_) => leave_detail(app),
         Focus::View => {
             app.close_view_surface();
         }
@@ -127,18 +155,14 @@ pub(super) fn leave_detail(app: &mut App) {
 }
 
 pub(super) fn descend(app: &mut App) -> Option<Command> {
-    let id = match app.focus {
-        Focus::MyWork => match app.active_view().kind {
-            ViewKind::Issues(_) => app.selected_issue().map(|i| i.id.clone()),
-            ViewKind::Inbox => app.selected_notification().and_then(|n| n.issue_id.clone()),
-        },
-        Focus::Recent => app.selected_recent().map(|i| i.id.clone()),
-        Focus::SavedViews => return open_view(app),
-        Focus::View => app.view_selected_issue().map(|issue| issue.id.clone()),
+    match app.focus {
+        Focus::SavedViews => open_view(app),
+        Focus::MyWork | Focus::Recent | Focus::View => {
+            let id = selected_issue_id(app)?;
+            open_issue(app, id)
+        }
         Focus::Stub(_) | Focus::Detail(..) => None,
-    }?;
-
-    open_issue(app, id)
+    }
 }
 
 pub(super) fn open_view(app: &mut App) -> Option<Command> {
@@ -166,7 +190,7 @@ pub(super) fn cycle_view_sort(app: &mut App) {
     reselect_view(app, keep);
 }
 
-pub(super) fn reselect_view(app: &mut App, keep: Option<String>) {
+pub(super) fn reselect_view(app: &mut App, keep: Option<IssueId>) {
     let pos = keep
         .and_then(|id| {
             let issues = app.view_issues()?;

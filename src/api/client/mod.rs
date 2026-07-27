@@ -6,8 +6,9 @@ use serde::Deserialize;
 
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::model::{
-    Cursor, IssueDetail, IssueFilter, IssueSummary, IssueUpdate, NotificationItem, Page,
-    ReactionTarget, SavedView, Session, StateOption, StateType, User,
+    CommentId, Cursor, IssueDetail, IssueFilter, IssueId, IssueRef, IssueSummary, IssueUpdate,
+    NotificationItem, Page, ReactionId, ReactionTarget, SavedView, Session, StateOption, StateType,
+    TeamId, User, ViewId,
 };
 use crate::api::queries::actions::{
     AssigneeInput, AssigneeMutation, AssigneeVariables, CommentCreateInput, CommentCreateMutation,
@@ -105,7 +106,7 @@ impl LinearApi for Client {
         let result = self.fetch_json(ViewerQuery::build(())).await?;
 
         let user = User {
-            id: result.viewer.id.into_inner(),
+            id: result.viewer.id.into(),
             name: result.viewer.name,
             display_name: result.viewer.display_name,
             url: String::new(),
@@ -135,7 +136,7 @@ impl LinearApi for Client {
 
     async fn custom_view_issues(
         &self,
-        id: &str,
+        id: &ViewId,
         after: Option<&Cursor>,
     ) -> ApiResult<Page<IssueSummary>> {
         let operation = CustomViewIssuesQuery::build(CustomViewIssuesVariables {
@@ -211,8 +212,10 @@ impl LinearApi for Client {
         })
     }
 
-    async fn issue_detail(&self, id: &str) -> ApiResult<Option<IssueDetail>> {
-        let operation = IssueQuery::build(IssueVariables { id: id.to_string() });
+    async fn issue_detail(&self, target: &IssueRef) -> ApiResult<Option<IssueDetail>> {
+        let operation = IssueQuery::build(IssueVariables {
+            id: target.to_string(),
+        });
         let result = self.fetch_json(operation).await?;
 
         Ok(result.issue.map(IssueDetail::from))
@@ -239,7 +242,7 @@ impl LinearApi for Client {
         })
     }
 
-    async fn workflow_states(&self, team_id: &str) -> ApiResult<Vec<StateOption>> {
+    async fn workflow_states(&self, team_id: &TeamId) -> ApiResult<Vec<StateOption>> {
         let operation = TeamStatesQuery::build(TeamVariables {
             id: team_id.to_string(),
         });
@@ -255,7 +258,7 @@ impl LinearApi for Client {
             .nodes
             .into_iter()
             .map(|s| StateOption {
-                id: s.id.into_inner(),
+                id: s.id.into(),
                 name: s.name,
                 state_type: StateType::from_api(&s.state_type),
             })
@@ -265,7 +268,7 @@ impl LinearApi for Client {
         Ok(states)
     }
 
-    async fn team_members(&self, team_id: &str) -> ApiResult<Vec<User>> {
+    async fn team_members(&self, team_id: &TeamId) -> ApiResult<Vec<User>> {
         let operation = TeamMembersQuery::build(TeamVariables {
             id: team_id.to_string(),
         });
@@ -281,7 +284,7 @@ impl LinearApi for Client {
             .nodes
             .into_iter()
             .map(|u| User {
-                id: u.id.into_inner(),
+                id: u.id.into(),
                 name: u.name,
                 display_name: u.display_name,
                 url: u.url,
@@ -290,14 +293,14 @@ impl LinearApi for Client {
             .collect())
     }
 
-    async fn update_issue(&self, id: &str, update: IssueUpdate) -> ApiResult<()> {
+    async fn update_issue(&self, id: &IssueId, update: IssueUpdate) -> ApiResult<()> {
         let id = id.to_string();
         match update {
             IssueUpdate::Status(state_id) => {
                 self.run_mutation(StatusMutation::build(StatusVariables {
                     id,
                     input: StatusInput {
-                        state_id: Some(state_id),
+                        state_id: Some(state_id.to_string()),
                     },
                 }))
                 .await
@@ -305,7 +308,9 @@ impl LinearApi for Client {
             IssueUpdate::Assignee(assignee_id) => {
                 self.run_mutation(AssigneeMutation::build(AssigneeVariables {
                     id,
-                    input: AssigneeInput { assignee_id },
+                    input: AssigneeInput {
+                        assignee_id: assignee_id.map(|id| id.to_string()),
+                    },
                 }))
                 .await
             }
@@ -314,22 +319,22 @@ impl LinearApi for Client {
 
     async fn create_comment(
         &self,
-        issue_id: &str,
+        issue_id: &IssueId,
         body: &str,
-        parent_id: Option<&str>,
+        parent_id: Option<&CommentId>,
     ) -> ApiResult<()> {
         let operation = CommentCreateMutation::build(CommentCreateVariables {
             input: CommentCreateInput {
                 issue_id: Some(issue_id.to_string()),
                 body: Some(body.to_string()),
-                parent_id: parent_id.map(str::to_string),
+                parent_id: parent_id.map(CommentId::to_string),
             },
         });
 
         self.run_mutation(operation).await
     }
 
-    async fn update_comment(&self, comment_id: &str, body: &str) -> ApiResult<()> {
+    async fn update_comment(&self, comment_id: &CommentId, body: &str) -> ApiResult<()> {
         let operation = CommentUpdateMutation::build(CommentUpdateVariables {
             id: comment_id.to_string(),
             input: CommentUpdateInput {
@@ -340,7 +345,7 @@ impl LinearApi for Client {
         self.run_mutation(operation).await
     }
 
-    async fn delete_comment(&self, comment_id: &str) -> ApiResult<()> {
+    async fn delete_comment(&self, comment_id: &CommentId) -> ApiResult<()> {
         let operation = CommentDeleteMutation::build(CommentDeleteVariables {
             id: comment_id.to_string(),
         });
@@ -350,8 +355,8 @@ impl LinearApi for Client {
 
     async fn create_reaction(&self, target: &ReactionTarget, emoji: &str) -> ApiResult<()> {
         let (comment_id, issue_id) = match target {
-            ReactionTarget::Comment(id) => (Some(id.clone()), None),
-            ReactionTarget::Issue(id) => (None, Some(id.clone())),
+            ReactionTarget::Comment(id) => (Some(id.to_string()), None),
+            ReactionTarget::Issue(id) => (None, Some(id.to_string())),
         };
 
         let operation = ReactionCreateMutation::build(ReactionCreateVariables {
@@ -365,7 +370,7 @@ impl LinearApi for Client {
         self.run_mutation(operation).await
     }
 
-    async fn delete_reaction(&self, reaction_id: &str) -> ApiResult<()> {
+    async fn delete_reaction(&self, reaction_id: &ReactionId) -> ApiResult<()> {
         let operation = ReactionDeleteMutation::build(ReactionDeleteVariables {
             id: reaction_id.to_string(),
         });

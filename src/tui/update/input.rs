@@ -11,6 +11,7 @@ use super::nav::{
     ascend, cycle_panel, cycle_view, cycle_view_group, cycle_view_sort, descend, history_step,
     jump_edge, jump_panel, move_selection, navigate_list, scroll_half, select_edge,
 };
+use crate::api::IssueRef;
 use crate::api::IssueUpdate;
 use crate::tui::action::{
     self, Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput, ReactionInput,
@@ -18,7 +19,6 @@ use crate::tui::action::{
 use crate::tui::app::App;
 use crate::tui::feed::FeedKey;
 use crate::tui::focus::{DetailView, Direction, Edge, Focus};
-use crate::tui::issue_ref::parse_issue_ref;
 use crate::tui::message::Command;
 use crate::tui::overlay::{
     Compose, Confirm, Editor, Find, Input, InputPurpose, MentionMenu, Menu, Overlay, Picker,
@@ -28,7 +28,7 @@ use crate::tui::status::Status;
 
 pub(super) fn resolve_browse(app: &App, key: KeyEvent) -> Option<Action> {
     if is_plain(key) {
-        if let Some(action) = context_keymap(app.focus).and_then(|keymap| keymap.resolve(key)) {
+        if let Some(action) = context_keymap(&app.focus).and_then(|keymap| keymap.resolve(key)) {
             return Some(action);
         }
     }
@@ -36,10 +36,12 @@ pub(super) fn resolve_browse(app: &App, key: KeyEvent) -> Option<Action> {
     Action::from_key(key)
 }
 
-pub(super) fn context_keymap(focus: Focus) -> Option<&'static action::Keymap<Action>> {
+pub(super) fn context_keymap(focus: &Focus) -> Option<&'static action::Keymap<Action>> {
     match focus {
-        Focus::Detail(_, DetailView::Reading) => Some(&action::DETAIL_KEYS),
-        Focus::Detail(_, DetailView::Comments) => Some(&action::COMMENTS_KEYS),
+        Focus::Detail(detail) => match detail.view {
+            DetailView::Reading => Some(&action::DETAIL_KEYS),
+            DetailView::Comments => Some(&action::COMMENTS_KEYS),
+        },
         Focus::View => Some(&action::VIEW_KEYS),
         Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::Stub(_) => None,
     }
@@ -224,7 +226,7 @@ pub(super) fn submit_input(app: &mut App, input: Input) -> Option<Command> {
     }
 
     match input.purpose {
-        InputPurpose::Jump => open_issue(app, parse_issue_ref(&query)),
+        InputPurpose::Jump => open_issue(app, IssueRef::parse(&query)),
         InputPurpose::Search => {
             let key = FeedKey::Search(query.clone());
 
@@ -542,7 +544,7 @@ pub(super) fn apply_menu(app: &mut App, mut menu: Menu, key: KeyEvent) -> Option
 }
 
 pub(super) fn open_menu(app: &mut App) {
-    app.overlay = Overlay::Menu(Menu::for_focus(app.focus));
+    app.overlay = Overlay::Menu(Menu::for_focus(&app.focus));
 }
 
 pub(super) fn apply_reactions(

@@ -166,12 +166,14 @@ fn fresh_enough(now: Timestamp, fetched_at: Timestamp) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::{IssueFilter, IssueSummary, Page, StateType, WorkflowState};
+    use crate::api::{
+        IssueFilter, IssueId, IssueSummary, Page, StateType, TeamId, ViewId, WorkflowState,
+    };
     use crate::tui::feed::Feed;
 
     fn issue(id: &str) -> IssueSummary {
         IssueSummary {
-            id: id.into(),
+            id: IssueId::from_raw(id),
             identifier: id.into(),
             title: None,
             state: WorkflowState {
@@ -183,7 +185,7 @@ mod tests {
             labels: Vec::new(),
             url: String::new(),
             branch_name: String::new(),
-            team_id: String::new(),
+            team_id: TeamId::default(),
             updated_at: Default::default(),
         }
     }
@@ -207,7 +209,7 @@ mod tests {
             ),
         );
         feeds.insert(
-            FeedKey::View("old".into()),
+            FeedKey::View(ViewId::from_raw("old")),
             Feed::ready(Page::single(vec![issue("o1")]), Timestamp::from_epoch(0)),
         );
 

@@ -4,7 +4,9 @@ use super::action::{self, Action};
 use super::emoji::{self, PaletteEmoji};
 use super::focus::{Direction, Edge, Focus};
 use super::message::Command;
-use crate::api::{Reaction, ReactionTarget, StateOption, User};
+use crate::api::{
+    CommentId, IssueId, Reaction, ReactionTarget, StateId, StateOption, User, UserId,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PickerKind {
@@ -14,8 +16,8 @@ pub enum PickerKind {
 
 #[derive(Debug, Clone)]
 pub enum PickerAction {
-    SetStatus(String),
-    SetAssignee(Option<String>),
+    SetStatus(StateId),
+    SetAssignee(Option<UserId>),
 }
 
 #[derive(Debug, Clone)]
@@ -65,7 +67,7 @@ impl From<User> for PickerItem {
 
 pub struct Picker {
     pub kind: PickerKind,
-    pub target_issue: String,
+    pub target_issue: IssueId,
     pub target_label: String,
     pub items: Vec<PickerItem>,
     pub state: ListState,
@@ -116,7 +118,7 @@ impl Menu {
         }
     }
 
-    pub fn for_focus(focus: Focus) -> Self {
+    pub fn for_focus(focus: &Focus) -> Self {
         let local = match focus {
             Focus::MyWork => action::MY_WORK_MENU,
             Focus::Recent => action::RECENT_MENU,
@@ -459,8 +461,8 @@ pub struct MentionMenu {
 #[derive(Debug, Clone)]
 pub enum Compose {
     Comment,
-    Reply { parent_id: String },
-    Edit { comment_id: String },
+    Reply { parent_id: CommentId },
+    Edit { comment_id: CommentId },
 }
 
 impl Compose {

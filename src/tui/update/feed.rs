@@ -1,4 +1,5 @@
 use super::nav::{clamp_selection, reselect_view};
+use crate::api::IssueId;
 use crate::tui::app::App;
 use crate::tui::feed::{
     Feed, FeedKey, FeedRequest, HasId, FEED_REFRESH, INBOX_REFRESH, PREFETCH_MARGIN,
@@ -103,45 +104,49 @@ pub(super) fn force_active(app: &mut App) -> Command {
 }
 
 pub(super) fn revalidate_focus(app: &mut App) -> Option<Command> {
+    let left = app.focus.left();
+
     match app.focus {
-        Focus::MyWork | Focus::Detail(LeftPanel::MyWork, _) => access_active(app),
-        Focus::View | Focus::Detail(LeftPanel::SavedViews, _) => {
-            match app.workspace.view_open.as_ref().map(ViewSurface::key) {
-                Some(key) => access_feed(app, key),
-                None => selected_view_key(app).and_then(|key| access_feed(app, key)),
-            }
-        }
+        Focus::MyWork => access_active(app),
+        Focus::View => access_open_view(app),
         Focus::SavedViews => selected_view_key(app).and_then(|key| access_feed(app, key)),
-        Focus::Recent | Focus::Stub(_) | Focus::Detail(..) => None,
+        Focus::Recent | Focus::Stub(_) => None,
+        Focus::Detail(..) => match left {
+            LeftPanel::MyWork => access_active(app),
+            LeftPanel::SavedViews => access_open_view(app),
+            LeftPanel::Recent | LeftPanel::Stub(_) => None,
+        },
+    }
+}
+
+fn access_open_view(app: &mut App) -> Option<Command> {
+    match app.workspace.view_open.as_ref().map(ViewSurface::key) {
+        Some(key) => access_feed(app, key),
+        None => selected_view_key(app).and_then(|key| access_feed(app, key)),
     }
 }
 
 pub(super) fn reload(app: &mut App) -> Command {
-    match app.focus {
-        Focus::Detail(panel, _) => match app.workspace.detail().value() {
-            Some(detail) => {
-                let id = detail.id.clone();
+    match app.focus.clone() {
+        Focus::Detail(detail) => {
+            app.workspace.begin_detail();
 
-                app.workspace.begin_detail();
+            let detail_reload = Command::LoadDetail {
+                target: detail.issue,
+                reveal: Reveal::Top,
+            };
 
-                let detail_reload = Command::LoadDetail {
-                    id,
-                    reveal: Reveal::Top,
-                };
-
-                match panel {
-                    LeftPanel::SavedViews => {
-                        match app.workspace.view_open.as_ref().map(ViewSurface::key) {
-                            Some(key) => Command::Batch(vec![detail_reload, force_feed(app, key)]),
-                            None => detail_reload,
-                        }
+            match detail.from {
+                LeftPanel::SavedViews => {
+                    match app.workspace.view_open.as_ref().map(ViewSurface::key) {
+                        Some(key) => Command::Batch(vec![detail_reload, force_feed(app, key)]),
+                        None => detail_reload,
                     }
-                    LeftPanel::MyWork => Command::Batch(vec![detail_reload, force_active(app)]),
-                    LeftPanel::Recent | LeftPanel::Stub(_) => detail_reload,
                 }
+                LeftPanel::MyWork => Command::Batch(vec![detail_reload, force_active(app)]),
+                LeftPanel::Recent | LeftPanel::Stub(_) => detail_reload,
             }
-            None => force_active(app),
-        },
+        }
         Focus::SavedViews => {
             app.workspace.saved_views.views.begin();
             Command::LoadCustomViews
@@ -154,7 +159,7 @@ pub(super) fn reload(app: &mut App) -> Command {
     }
 }
 
-pub(super) fn feed_keep_id(app: &App, key: &FeedKey) -> Option<String> {
+pub(super) fn feed_keep_id(app: &App, key: &FeedKey) -> Option<IssueId> {
     if app.active_feed_key().as_ref() == Some(key) {
         return app.selected_issue().map(|issue| issue.id.clone());
     }
@@ -171,11 +176,11 @@ pub(super) fn feed_keep_id(app: &App, key: &FeedKey) -> Option<String> {
     None
 }
 
-pub(super) fn reconcile_feed(app: &mut App, key: &FeedKey, keep: Option<String>) {
+pub(super) fn reconcile_feed(app: &mut App, key: &FeedKey, keep: Option<IssueId>) {
     if app.active_feed_key().as_ref() == Some(key) {
         let idx = resolve(
             app.active_issues(),
-            keep.as_deref(),
+            keep.as_ref(),
             app.list_state.selected(),
         );
         app.list_state.select(idx);
@@ -207,7 +212,7 @@ pub(super) fn reconcile_feed(app: &mut App, key: &FeedKey, keep: Option<String>)
 
 pub(super) fn resolve<T: HasId>(
     items: &[T],
-    keep: Option<&str>,
+    keep: Option<&T::Id>,
     current: Option<usize>,
 ) -> Option<usize> {
     if items.is_empty() {

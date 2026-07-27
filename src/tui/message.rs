@@ -1,8 +1,8 @@
 use super::feed::{FeedKey, FeedRequest};
 use super::focus::Reveal;
 use crate::api::{
-    IssueDetail, IssueSummary, IssueUpdate, NotificationItem, Page, ReactionTarget, SavedView,
-    Session, StateOption, User,
+    CommentId, IssueDetail, IssueId, IssueRef, IssueSummary, IssueUpdate, NotificationItem, Page,
+    ReactionId, ReactionTarget, SavedView, Session, StateOption, TeamId, User,
 };
 use crate::store::PersistedCache;
 
@@ -26,27 +26,27 @@ pub enum Message {
     RecentLoaded(Vec<IssueSummary>),
     RecentCleared,
     StatesLoaded {
-        team_id: String,
+        team_id: TeamId,
         states: Vec<StateOption>,
     },
     MembersLoaded {
-        team_id: String,
+        team_id: TeamId,
         members: Vec<User>,
     },
     IssueUpdated {
-        id: String,
+        id: IssueId,
     },
     CommentPosted {
-        id: String,
+        id: IssueId,
     },
     CommentEdited {
-        id: String,
+        id: IssueId,
     },
     CommentDeleted {
-        id: String,
+        id: IssueId,
     },
     ReactionToggled {
-        id: String,
+        id: IssueId,
     },
     Failed {
         target: FailureTarget,
@@ -60,8 +60,8 @@ pub enum FailureTarget {
     Inbox,
     CustomViews,
     Detail,
-    States { team_id: String },
-    Members { team_id: String },
+    States { team_id: TeamId },
+    Members { team_id: TeamId },
     Ephemeral,
 }
 
@@ -78,41 +78,41 @@ pub enum Command {
     SaveFeeds(PersistedCache),
     LoadCustomViews,
     LoadDetail {
-        id: String,
+        target: IssueRef,
         reveal: Reveal,
     },
     LoadStates {
-        team_id: String,
+        team_id: TeamId,
     },
     LoadMembers {
-        team_id: String,
+        team_id: TeamId,
     },
     UpdateIssue {
-        id: String,
+        id: IssueId,
         update: IssueUpdate,
     },
     CreateComment {
-        issue_id: String,
+        issue_id: IssueId,
         body: String,
-        parent_id: Option<String>,
+        parent_id: Option<CommentId>,
     },
     UpdateComment {
-        issue_id: String,
-        comment_id: String,
+        issue_id: IssueId,
+        comment_id: CommentId,
         body: String,
     },
     DeleteComment {
-        issue_id: String,
-        comment_id: String,
+        issue_id: IssueId,
+        comment_id: CommentId,
     },
     CreateReaction {
-        issue_id: String,
+        issue_id: IssueId,
         target: ReactionTarget,
         emoji: String,
     },
     DeleteReaction {
-        issue_id: String,
-        reaction_id: String,
+        issue_id: IssueId,
+        reaction_id: ReactionId,
     },
     LoadRecent,
     SaveRecent(Vec<IssueSummary>),

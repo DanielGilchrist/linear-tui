@@ -2,14 +2,14 @@ use ratatui::widgets::{ListState, ScrollbarState};
 
 use super::cache::CacheStatus;
 use super::feed::FeedKey;
-use super::focus::{DetailView, Focus, LeftPanel, Nav};
+use super::focus::{DetailFocus, DetailView, Focus, LeftPanel, Nav};
 use super::overlay::{Confirm, Editor, Find, Input, Menu, Overlay, Picker, Prefix, Search};
 use super::saved_views::ViewSurface;
 use super::spinner::Spinner;
 use super::status::Status;
 use super::view::{View, ViewKind};
 use super::workspace::WorkspaceData;
-use crate::api::{IssueDetail, IssueSummary, NotificationItem, Timestamp};
+use crate::api::{IssueDetail, IssueId, IssueSummary, NotificationItem, TeamId, Timestamp};
 
 pub const SCROLL_STEP: usize = 2;
 
@@ -47,9 +47,9 @@ impl StubPanel {
 }
 
 pub struct FocusedIssue {
-    pub id: String,
+    pub id: IssueId,
     pub identifier: String,
-    pub team_id: String,
+    pub team_id: TeamId,
     pub url: String,
     pub branch_name: String,
 }
@@ -297,8 +297,17 @@ impl App {
         }
     }
 
+    pub fn open_detail(&self) -> Option<&IssueDetail> {
+        let detail_focus = self.focus.detail()?;
+
+        self.workspace
+            .detail()
+            .value()
+            .filter(|detail| detail_focus.issue.matches_detail(detail))
+    }
+
     pub fn has_comments(&self) -> bool {
-        match self.workspace.detail().value() {
+        match self.open_detail() {
             Some(detail) => !detail.comments.is_empty(),
             None => false,
         }
@@ -329,19 +338,19 @@ impl App {
         self.panels()[index]
     }
 
-    pub fn panel_len(&self, focus: Focus) -> usize {
+    pub fn panel_len(&self, focus: &Focus) -> usize {
         match focus {
             Focus::MyWork => self.main_len(),
             Focus::Recent => self.workspace.recently_viewed.len(),
             Focus::SavedViews => self.workspace.saved_views.list().len(),
             Focus::View => self.view_len(),
-            Focus::Stub(index) => self.stubs[index].items.len(),
+            Focus::Stub(index) => self.stubs[*index].items.len(),
             Focus::Detail(..) => 0,
         }
     }
 
     pub fn focused_list_len(&self) -> usize {
-        self.panel_len(self.focus)
+        self.panel_len(&self.focus)
     }
 
     pub fn focused_list_mut(&mut self) -> Option<&mut ListState> {
@@ -362,16 +371,18 @@ impl App {
     pub fn nav(&mut self) -> Nav<'_> {
         let viewport = self.viewport;
         match self.focus {
-            Focus::Detail(_, DetailView::Reading) => Nav::Scroll {
+            Focus::Detail(DetailFocus {
+                view: DetailView::Reading,
+                ..
+            }) => Nav::Scroll {
                 position: &mut self.scroll_position,
                 viewport,
             },
-            Focus::Detail(_, DetailView::Comments) => {
-                let len = self
-                    .workspace
-                    .detail()
-                    .value()
-                    .map_or(0, |detail| detail.comments.len());
+            Focus::Detail(DetailFocus {
+                view: DetailView::Comments,
+                ..
+            }) => {
+                let len = self.open_detail().map_or(0, |detail| detail.comments.len());
 
                 Nav::List {
                     state: &mut self.comment_state,
@@ -474,12 +485,12 @@ impl App {
     }
 
     pub fn open_recent_pos(&self) -> Option<usize> {
-        let detail = self.workspace.detail().value()?;
+        let detail_focus = self.focus.detail()?;
 
         self.workspace
             .recently_viewed
             .iter()
-            .position(|i| i.id == detail.id)
+            .position(|issue| detail_focus.issue.matches_summary(issue))
     }
 
     fn focused_row_texts(&self) -> Vec<String> {
@@ -538,9 +549,7 @@ impl App {
             Focus::SavedViews => None,
             Focus::View => self.view_selected_issue().map(FocusedIssue::from_summary),
             Focus::Detail(..) => self
-                .workspace
-                .detail()
-                .value()
+                .open_detail()
                 .map(FocusedIssue::from_detail)
                 .or_else(|| self.selected_issue().map(FocusedIssue::from_summary)),
             Focus::Stub(_) => None,
@@ -549,11 +558,7 @@ impl App {
 
     pub fn action_target(&self) -> Option<FocusedIssue> {
         match self.focus {
-            Focus::Detail(..) => self
-                .workspace
-                .detail()
-                .value()
-                .map(FocusedIssue::from_detail),
+            Focus::Detail(..) => self.open_detail().map(FocusedIssue::from_detail),
             Focus::View => self.view_selected_issue().map(FocusedIssue::from_summary),
             Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::Stub(_) => None,
         }

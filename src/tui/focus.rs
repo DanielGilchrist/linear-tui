@@ -1,13 +1,39 @@
 use ratatui::widgets::ListState;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use crate::api::IssueRef;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Focus {
     MyWork,
     Recent,
     SavedViews,
     View,
     Stub(usize),
-    Detail(LeftPanel, DetailView),
+    Detail(DetailFocus),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailFocus {
+    pub issue: IssueRef,
+    pub from: LeftPanel,
+    pub view: DetailView,
+}
+
+impl DetailFocus {
+    pub fn reading(issue: impl Into<IssueRef>, from: LeftPanel) -> Self {
+        Self {
+            issue: issue.into(),
+            from,
+            view: DetailView::Reading,
+        }
+    }
+
+    pub fn with_view(&self, view: DetailView) -> Self {
+        Self {
+            view,
+            ..self.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,13 +62,20 @@ impl LeftPanel {
 }
 
 impl Focus {
-    pub fn left(self) -> LeftPanel {
+    pub fn left(&self) -> LeftPanel {
         match self {
             Focus::MyWork => LeftPanel::MyWork,
             Focus::Recent => LeftPanel::Recent,
             Focus::SavedViews | Focus::View => LeftPanel::SavedViews,
-            Focus::Stub(index) => LeftPanel::Stub(index),
-            Focus::Detail(under, _) => under,
+            Focus::Stub(index) => LeftPanel::Stub(*index),
+            Focus::Detail(detail) => detail.from,
+        }
+    }
+
+    pub fn detail(&self) -> Option<&DetailFocus> {
+        match self {
+            Focus::Detail(detail) => Some(detail),
+            _ => None,
         }
     }
 }

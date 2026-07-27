@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::id::{CommentId, IssueId, ReactionId, StateId, TeamId};
 use super::scalar::{Priority, Rgb, StateType, Timestamp};
 use super::user::User;
 
@@ -18,7 +19,7 @@ pub struct Label {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StateOption {
-    pub id: String,
+    pub id: StateId,
     pub name: String,
     #[serde(rename = "type")]
     pub state_type: StateType,
@@ -26,7 +27,7 @@ pub struct StateOption {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IssueSummary {
-    pub id: String,
+    pub id: IssueId,
     pub identifier: String,
     #[serde(default)]
     pub title: Option<String>,
@@ -42,7 +43,7 @@ pub struct IssueSummary {
     #[serde(default)]
     pub branch_name: String,
     #[serde(default)]
-    pub team_id: String,
+    pub team_id: TeamId,
     #[serde(default)]
     pub updated_at: Timestamp,
 }
@@ -67,7 +68,7 @@ impl IssueSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Reaction {
-    pub id: String,
+    pub id: ReactionId,
     pub emoji: String,
     #[serde(default)]
     pub mine: bool,
@@ -76,9 +77,9 @@ pub struct Reaction {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Comment {
     #[serde(default)]
-    pub id: String,
+    pub id: CommentId,
     #[serde(default)]
-    pub parent_id: Option<String>,
+    pub parent_id: Option<CommentId>,
     #[serde(default)]
     pub author: Option<String>,
     #[serde(default)]
@@ -91,14 +92,14 @@ pub struct Comment {
 }
 
 impl Comment {
-    pub fn reply_parent(&self) -> String {
+    pub fn reply_parent(&self) -> CommentId {
         self.parent_id.clone().unwrap_or_else(|| self.id.clone())
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IssueDetail {
-    pub id: String,
+    pub id: IssueId,
     pub identifier: String,
     #[serde(default)]
     pub title: Option<String>,
@@ -119,7 +120,7 @@ pub struct IssueDetail {
     #[serde(default)]
     pub branch_name: String,
     #[serde(default)]
-    pub team_id: String,
+    pub team_id: TeamId,
     #[serde(default)]
     pub updated_at: Timestamp,
 }

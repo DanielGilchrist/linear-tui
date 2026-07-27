@@ -10,7 +10,7 @@ use crate::api::IssueSummary;
 use crate::tui::app::{App, RECENT_CAP};
 use crate::tui::cache::Stale;
 use crate::tui::feed::FeedRequest;
-use crate::tui::focus::{DetailView, Focus, LeftPanel, Reveal};
+use crate::tui::focus::{DetailFocus, DetailView, Focus, LeftPanel, Reveal};
 use crate::tui::message::{Command, FailureTarget, Message};
 use crate::tui::overlay::{Overlay, PickerKind};
 use crate::tui::status::Status;
@@ -61,7 +61,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             if inbox_active {
                 let idx = resolve(
                     app.workspace.inbox.items(),
-                    keep.as_deref(),
+                    keep.as_ref(),
                     app.list_state.selected(),
                 );
 
@@ -82,6 +82,22 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             selected_view_key(app).and_then(|key| access_feed(app, key))
         }
         Message::DetailLoaded { detail, reveal } => {
+            let open = app
+                .focus
+                .detail()
+                .is_some_and(|focus| focus.issue.matches_detail(&detail));
+
+            if !open {
+                return None;
+            }
+
+            if let Focus::Detail(detail_focus) = &app.focus {
+                app.focus = Focus::Detail(DetailFocus {
+                    issue: detail.id.clone().into(),
+                    ..detail_focus.clone()
+                });
+            }
+
             app.workspace.set_detail(*detail, app.now);
             app.status = None;
 
@@ -105,9 +121,9 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
                 _ => None,
             };
 
-            if let Focus::Detail(panel, DetailView::Comments) = app.focus {
-                if comment_count == 0 {
-                    app.focus = Focus::Detail(panel, DetailView::Reading);
+            if let Focus::Detail(detail_focus) = &app.focus {
+                if detail_focus.view == DetailView::Comments && comment_count == 0 {
+                    app.focus = Focus::Detail(detail_focus.with_view(DetailView::Reading));
                 } else if let Some(index) = newest_comment {
                     app.comment_state.select(Some(index));
                 } else {
@@ -183,7 +199,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
                     app.workspace.begin_detail();
 
                     let detail = Command::LoadDetail {
-                        id,
+                        target: id.into(),
                         reveal: Reveal::Top,
                     };
 
@@ -199,19 +215,24 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             app.status = Some(Status::CommentPosted);
             app.workspace.begin_detail();
 
-            let reveal = match app.focus {
-                Focus::Detail(_, DetailView::Comments) => Reveal::NewestComment,
+            let reveal = match &app.focus {
+                Focus::Detail(detail) if detail.view == DetailView::Comments => {
+                    Reveal::NewestComment
+                }
                 _ => Reveal::Bottom,
             };
 
-            Some(Command::LoadDetail { id, reveal })
+            Some(Command::LoadDetail {
+                target: id.into(),
+                reveal,
+            })
         }
         Message::CommentEdited { id } => {
             app.status = Some(Status::CommentEdited);
             app.workspace.begin_detail();
 
             Some(Command::LoadDetail {
-                id,
+                target: id.into(),
                 reveal: Reveal::Top,
             })
         }
@@ -220,7 +241,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             app.workspace.begin_detail();
 
             Some(Command::LoadDetail {
-                id,
+                target: id.into(),
                 reveal: Reveal::Top,
             })
         }
@@ -228,7 +249,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             app.workspace.begin_detail();
 
             Some(Command::LoadDetail {
-                id,
+                target: id.into(),
                 reveal: Reveal::Keep,
             })
         }

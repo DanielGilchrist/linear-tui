@@ -6,7 +6,6 @@ pub mod emoji;
 pub mod event;
 pub mod feed;
 pub mod focus;
-pub mod issue_ref;
 pub mod layout;
 pub mod markdown;
 pub mod message;

@@ -3,7 +3,7 @@ use ratatui::widgets::ListState;
 use super::cache::Remote;
 use super::display::Display;
 use super::feed::{FeedKey, FeedStore};
-use crate::api::{IssueSummary, SavedView};
+use crate::api::{IssueSummary, SavedView, ViewId};
 
 pub struct SavedViewsPanel {
     pub views: Remote<Vec<SavedView>>,
@@ -50,7 +50,7 @@ impl ViewSurface {
         }
     }
 
-    pub fn id(&self) -> &str {
+    pub fn id(&self) -> &ViewId {
         &self.saved.id
     }
 

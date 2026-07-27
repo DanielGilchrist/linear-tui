@@ -160,14 +160,14 @@ fn dispatch(
                     error: error.to_string(),
                 },
             }),
-            Command::LoadDetail { id, reveal } => Some(match api.issue_detail(&id).await {
+            Command::LoadDetail { target, reveal } => Some(match api.issue_detail(&target).await {
                 Ok(Some(detail)) => Message::DetailLoaded {
                     detail: Box::new(detail),
                     reveal,
                 },
                 Ok(None) => Message::Failed {
                     target: FailureTarget::Detail,
-                    error: format!("Issue {id} not found"),
+                    error: format!("Issue {target} not found"),
                 },
                 Err(error) => Message::Failed {
                     target: FailureTarget::Detail,
@@ -211,7 +211,7 @@ fn dispatch(
                 parent_id,
             } => Some(
                 match api
-                    .create_comment(&issue_id, &body, parent_id.as_deref())
+                    .create_comment(&issue_id, &body, parent_id.as_ref())
                     .await
                 {
                     Ok(()) => Message::CommentPosted { id: issue_id },

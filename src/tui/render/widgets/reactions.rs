@@ -49,10 +49,11 @@ pub fn reaction_chips(reactions: &[Reaction]) -> Option<Line<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::ReactionId;
 
     fn reaction(emoji: &str, mine: bool) -> Reaction {
         Reaction {
-            id: "r".into(),
+            id: ReactionId::from_raw("r"),
             emoji: emoji.into(),
             mine,
         }

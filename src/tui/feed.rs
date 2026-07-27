@@ -1,9 +1,10 @@
 use std::collections::HashSet;
+use std::hash::Hash;
 
 use serde::{Deserialize, Serialize};
 
 use super::cache::{Access, Cache, CacheStatus, Phase, RefreshPolicy, Remote, Stale};
-use crate::api::{Cursor, IssueFilter, IssueSummary, Page, Timestamp};
+use crate::api::{Cursor, IssueFilter, IssueId, IssueSummary, Page, Timestamp, ViewId};
 
 pub const FEED_REFRESH: RefreshPolicy = RefreshPolicy::new(60, 30 * 60);
 pub const INBOX_REFRESH: RefreshPolicy = RefreshPolicy::new(30, 15 * 60);
@@ -11,7 +12,9 @@ pub const STALE_HORIZON: i64 = 7 * 24 * 60 * 60;
 pub const PREFETCH_MARGIN: usize = 10;
 
 pub trait HasId {
-    fn feed_id(&self) -> &str;
+    type Id: Eq + Hash + Clone;
+
+    fn feed_id(&self) -> &Self::Id;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,10 +155,8 @@ impl<T: HasId> Feed<T> {
                 }
 
                 if let Some(items) = self.page.value_mut() {
-                    let seen: HashSet<String> = items
-                        .iter()
-                        .map(|item| item.feed_id().to_string())
-                        .collect();
+                    let seen: HashSet<T::Id> =
+                        items.iter().map(|item| item.feed_id().clone()).collect();
 
                     items.extend(
                         page.items
@@ -185,13 +186,17 @@ impl<T> Stale for Feed<T> {
 }
 
 impl HasId for IssueSummary {
-    fn feed_id(&self) -> &str {
+    type Id = IssueId;
+
+    fn feed_id(&self) -> &IssueId {
         &self.id
     }
 }
 
 impl HasId for crate::api::NotificationItem {
-    fn feed_id(&self) -> &str {
+    type Id = String;
+
+    fn feed_id(&self) -> &String {
         &self.grouping_key
     }
 }
@@ -199,7 +204,7 @@ impl HasId for crate::api::NotificationItem {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FeedKey {
     Issues(IssueFilter),
-    View(String),
+    View(ViewId),
     Search(String),
 }
 
@@ -222,22 +227,24 @@ mod tests {
         Timestamp::from_epoch(seconds)
     }
 
-    struct Item(&'static str);
+    struct Item(String);
     impl HasId for Item {
-        fn feed_id(&self) -> &str {
-            self.0
+        type Id = String;
+
+        fn feed_id(&self) -> &String {
+            &self.0
         }
     }
 
     fn page(ids: &[&'static str], next: Option<&str>) -> Page<Item> {
         Page {
-            items: ids.iter().map(|id| Item(id)).collect(),
+            items: ids.iter().map(|id| Item(id.to_string())).collect(),
             next: next.map(|cursor| Cursor(cursor.to_string())),
         }
     }
 
     fn ids(feed: &Feed<Item>) -> Vec<&str> {
-        feed.items().iter().map(|item| item.0).collect()
+        feed.items().iter().map(|item| item.0.as_str()).collect()
     }
 
     #[test]
@@ -311,7 +318,7 @@ mod tests {
 
     #[test]
     fn a_restored_feed_renders_but_cannot_append() {
-        let feed = Feed::restored(vec![Item("a")], true, at(10));
+        let feed = Feed::restored(vec![Item("a".to_string())], true, at(10));
         assert!(feed.truncated());
         assert!(feed.next().is_none());
         assert!(!feed.can_load_more());

@@ -250,11 +250,11 @@ fn priority_rank(priority: Priority) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::{User, WorkflowState};
+    use crate::api::{IssueId, TeamId, User, UserId, WorkflowState};
 
     fn issue(identifier: &str, state: &str, ty: StateType, priority: Priority) -> IssueSummary {
         IssueSummary {
-            id: identifier.into(),
+            id: IssueId::from_raw(identifier),
             identifier: identifier.into(),
             title: Some(identifier.into()),
             state: WorkflowState {
@@ -266,7 +266,7 @@ mod tests {
             labels: Vec::new(),
             url: String::new(),
             branch_name: String::new(),
-            team_id: String::new(),
+            team_id: TeamId::default(),
             updated_at: crate::api::Timestamp::default(),
         }
     }
@@ -363,7 +363,7 @@ mod tests {
     fn assignee_groups_put_unassigned_last() {
         let mut with_assignee = issue("A", "Todo", StateType::Unstarted, Priority::None);
         with_assignee.assignee = Some(User {
-            id: "u".into(),
+            id: UserId::from_raw("u"),
             name: "sam".into(),
             display_name: "sam".into(),
             url: String::new(),

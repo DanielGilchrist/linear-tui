@@ -8,7 +8,7 @@ use super::markdown;
 use super::saved_views::{SavedViewsPanel, ViewSurface};
 use super::view::{View, ViewKind};
 use crate::api::{
-    IssueDetail, IssueSummary, NotificationItem, Session, StateOption, Timestamp, User,
+    IssueDetail, IssueSummary, NotificationItem, Session, StateOption, TeamId, Timestamp, User,
 };
 
 #[derive(Default)]
@@ -45,8 +45,8 @@ pub struct WorkspaceData {
     pub inbox: Feed<NotificationItem>,
     detail: Remote<IssueDetail>,
     detail_markdown: RenderedDetail,
-    pub states: Cache<String, Remote<Vec<StateOption>>>,
-    pub members: Cache<String, Remote<Vec<User>>>,
+    pub states: Cache<TeamId, Remote<Vec<StateOption>>>,
+    pub members: Cache<TeamId, Remote<Vec<User>>>,
     pub saved_views: SavedViewsPanel,
     pub view_open: Option<ViewSurface>,
     pub recently_viewed: Vec<IssueSummary>,

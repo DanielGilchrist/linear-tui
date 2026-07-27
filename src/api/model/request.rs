@@ -1,17 +1,18 @@
 use serde::{Deserialize, Serialize};
 
+use super::id::{CommentId, IssueId, StateId, UserId};
 use super::scalar::StateType;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IssueUpdate {
-    Status(String),
-    Assignee(Option<String>),
+    Status(StateId),
+    Assignee(Option<UserId>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReactionTarget {
-    Issue(String),
-    Comment(String),
+    Issue(IssueId),
+    Comment(CommentId),
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]

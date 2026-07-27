@@ -328,8 +328,10 @@ fn render_detail_pane(
     area: Rect,
     emphasis: Emphasis,
 ) -> Viewport {
-    let selected = match app.focus {
-        Focus::Detail(_, DetailView::Comments) => app.comment_state.selected(),
+    let selected = match &app.focus {
+        Focus::Detail(detail) if detail.view == DetailView::Comments => {
+            app.comment_state.selected()
+        }
         _ => None,
     };
 
@@ -386,7 +388,7 @@ fn render_left(app: &mut App, frame: &mut Frame, area: Rect) {
             if panel == expanded {
                 Constraint::Min(5)
             } else {
-                let rows = app.panel_len(panel.focus()).clamp(1, COLLAPSED_PEEK);
+                let rows = app.panel_len(&panel.focus()).clamp(1, COLLAPSED_PEEK);
                 Constraint::Length(rows as u16 + 2)
             }
         })
@@ -530,14 +532,16 @@ fn footer_hint(app: &App) -> String {
         Overlay::Find(_) | Overlay::None => {}
     }
 
-    let specs = match app.focus {
+    let specs = match &app.focus {
         Focus::MyWork => action::MY_WORK_HINTS,
         Focus::Recent => action::RECENT_HINTS,
         Focus::SavedViews => action::SAVED_VIEWS_HINTS,
         Focus::View => action::VIEW_HINTS,
         Focus::Stub(_) => action::STUB_HINTS,
-        Focus::Detail(_, DetailView::Reading) => action::DETAIL_HINTS,
-        Focus::Detail(_, DetailView::Comments) => action::COMMENTS_HINTS,
+        Focus::Detail(detail) => match detail.view {
+            DetailView::Reading => action::DETAIL_HINTS,
+            DetailView::Comments => action::COMMENTS_HINTS,
+        },
     };
     action::BROWSE.hint_bar(specs)
 }
