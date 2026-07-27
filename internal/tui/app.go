@@ -16,6 +16,7 @@ const widthOffset = 4
 type Model struct {
 	teams        []api.Team
 	client       *api.Client
+	issuesList   list.Model
 	teamsList    list.Model
 	selectedTeam *api.Team
 	width        int
@@ -24,20 +25,30 @@ type Model struct {
 }
 
 func NewModel(client *api.Client) Model {
-	delegate := list.NewDefaultDelegate()
+	teamsDelegate := list.NewDefaultDelegate()
+	teamsDelegate.ShortHelpFunc = func() []key.Binding { return nil }
+	teamsDelegate.FullHelpFunc = func() [][]key.Binding { return nil }
 
-	delegate.ShortHelpFunc = func() []key.Binding { return nil }
-	delegate.FullHelpFunc = func() [][]key.Binding { return nil }
-
-	teamsList := list.New(nil, delegate, 0, 0)
+	teamsList := list.New(nil, teamsDelegate, 0, 0)
 	teamsList.Title = "Teams"
 	teamsList.SetShowHelp(false)
 	teamsList.SetShowStatusBar(false)
 	teamsList.SetFilteringEnabled(true)
 
+	issuesDelegate := list.NewDefaultDelegate()
+	issuesDelegate.ShortHelpFunc = func() []key.Binding { return nil }
+	issuesDelegate.FullHelpFunc = func() [][]key.Binding { return nil }
+
+	issuesList := list.New(nil, issuesDelegate, 0, 0)
+	issuesList.Title = "Issues"
+	issuesList.SetShowHelp(false)
+	issuesList.SetShowStatusBar(false)
+	issuesList.SetFilteringEnabled(true)
+
 	return Model{
-		client:    client,
-		teamsList: teamsList,
+		client:     client,
+		issuesList: issuesList,
+		teamsList:  teamsList,
 	}
 }
 
@@ -52,7 +63,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
+		headerHeight := 1
+		footerHeight := 3
+		availableHeight := m.height - headerHeight - footerHeight
+
 		m.teamsList.SetSize(m.sidebarWidth(), m.contentHeight())
+		m.issuesList.SetSize(m.mainWidth(), availableHeight)
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -61,6 +78,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if i := m.teamsList.Index(); i != -1 && i < len(m.teams) {
 				m.selectedTeam = &m.teams[i]
+
+				issueItems := make([]list.Item, len(m.selectedTeam.Issues.Nodes))
+				for i, issue := range m.selectedTeam.Issues.Nodes {
+					issueItems[i] = issueItem{issue: issue}
+				}
+
+				m.issuesList.SetItems(issueItems)
+				m.issuesList.Title = m.selectedTeam.Name
 			}
 		}
 
@@ -76,6 +101,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 	}
 
+	m.issuesList, cmd = m.issuesList.Update(msg)
 	m.teamsList, cmd = m.teamsList.Update(msg)
 	return m, cmd
 }
@@ -105,13 +131,11 @@ func (m Model) sidebarView() string {
 }
 
 func (m Model) mainView() string {
-	content := "No team selected"
-	if m.selectedTeam != nil {
-		content = fmt.Sprintf(
-			"%s\n\nIssues: %d",
-			titleStyle.Render(m.selectedTeam.Name),
-			m.selectedTeam.IssueCount,
-		)
+	var content string
+	if m.selectedTeam == nil {
+		content = "No team selected"
+	} else {
+		content = m.issuesList.View()
 	}
 
 	return mainStyle.
@@ -158,6 +182,22 @@ func (m Model) fetchTeams() tea.Msg {
 		return errMsg{err}
 	}
 	return teamsMsg{teams: resp.Data.Teams.Nodes}
+}
+
+type issueItem struct {
+	issue api.Issue
+}
+
+func (i issueItem) Title() string {
+	return i.issue.Title
+}
+
+func (i issueItem) Description() string {
+	return i.issue.Description
+}
+
+func (i issueItem) FilterValue() string {
+	return i.issue.Title
 }
 
 type teamItem struct {
