@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use KeyCode::Char;
 
-use super::bindings::{BROWSE, CONFIRM, CTRL, EDITOR, INPUT, MENU, PICKER, REACTIONS};
+use super::bindings::{BROWSE, CONFIRM, CTRL, EDITOR, INPUT, MENU, PICKER, REACTIONS, WORKSPACES};
 
 pub fn is_quit(key: &KeyEvent) -> bool {
     matches!(
@@ -50,6 +50,7 @@ pub enum Action {
     HalfPageUp,
     HistoryBack,
     HistoryForward,
+    Workspaces,
     Help,
 }
 
@@ -159,6 +160,20 @@ impl EditorInput {
 impl ReactionInput {
     pub fn from_key(key: KeyEvent) -> Option<ReactionInput> {
         REACTIONS.resolve(key)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspacesInput {
+    Next,
+    Prev,
+    Accept,
+    Cancel,
+}
+
+impl WorkspacesInput {
+    pub fn from_key(key: KeyEvent) -> Option<WorkspacesInput> {
+        WORKSPACES.resolve(key)
     }
 }
 

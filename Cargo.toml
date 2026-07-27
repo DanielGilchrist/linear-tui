@@ -20,6 +20,8 @@ pulldown-cmark = { version = "0", default-features = false }
 chrono = { version = "0", default-features = false, features = ["std"] }
 thiserror = "2"
 emojis = "0.9.0"
+sha2 = "0.11.0"
+getrandom = "0.4.3"
 
 [dev-dependencies]
 insta = "1"

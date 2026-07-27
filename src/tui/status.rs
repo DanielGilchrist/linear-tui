@@ -19,6 +19,8 @@ pub enum Status {
     Applying,
     NeedHighlightedIssue,
     NeedOpenIssue,
+    ConnectingWorkspace,
+    AwaitingBrowser,
     Error(String),
 }
 
@@ -48,6 +50,8 @@ impl fmt::Display for Status {
             Status::Applying => "Applying…",
             Status::NeedHighlightedIssue => "Highlight an issue first",
             Status::NeedOpenIssue => "Open the issue first (enter)",
+            Status::ConnectingWorkspace => "Connecting…",
+            Status::AwaitingBrowser => "Waiting for browser sign-in…",
             Status::Error(message) => return f.write_str(message),
         };
         f.write_str(text)

@@ -10,6 +10,7 @@ use super::status::Status;
 use super::view::{View, ViewKind};
 use super::workspace::WorkspaceData;
 use crate::api::{IssueDetail, IssueId, IssueSummary, NotificationItem, TeamId, Timestamp};
+use crate::store::Account;
 
 pub const SCROLL_STEP: usize = 2;
 
@@ -95,6 +96,8 @@ pub struct App {
     pub search_return: Option<Search>,
     pub now: Timestamp,
     pub time_refresh_due: Option<Timestamp>,
+    pub accounts: Vec<Account>,
+    pub active_workspace: Option<String>,
     pub should_quit: bool,
 }
 
@@ -119,6 +122,8 @@ impl App {
             search_return: None,
             now: Timestamp::now(),
             time_refresh_due: None,
+            accounts: Vec::new(),
+            active_workspace: None,
             should_quit: false,
         }
     }

@@ -4,6 +4,7 @@ use KeyCode::{BackTab, Backspace, Char, Down, Enter, Esc, Left, PageDown, PageUp
 use super::keymap::{Binding, Keymap};
 use super::keys::{
     Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput, ReactionInput,
+    WorkspacesInput,
 };
 
 pub const BROWSE: Keymap<Action> = Keymap {
@@ -122,6 +123,11 @@ pub const BROWSE: Keymap<Action> = Keymap {
             action: Action::FindPrev,
             keys: &[Char('N')],
             label: "prev match",
+        },
+        Binding {
+            action: Action::Workspaces,
+            keys: &[Char('w')],
+            label: "workspaces",
         },
         Binding {
             action: Action::Help,
@@ -275,6 +281,31 @@ pub const REACTIONS: Keymap<ReactionInput> = Keymap {
         },
         Binding {
             action: ReactionInput::Cancel,
+            keys: &[Esc],
+            label: "cancel",
+        },
+    ],
+};
+
+pub const WORKSPACES: Keymap<WorkspacesInput> = Keymap {
+    bindings: &[
+        Binding {
+            action: WorkspacesInput::Next,
+            keys: &[Char('j'), Down],
+            label: "move",
+        },
+        Binding {
+            action: WorkspacesInput::Prev,
+            keys: &[Char('k'), Up],
+            label: "move",
+        },
+        Binding {
+            action: WorkspacesInput::Accept,
+            keys: &[Enter],
+            label: "select",
+        },
+        Binding {
+            action: WorkspacesInput::Cancel,
             keys: &[Esc],
             label: "cancel",
         },

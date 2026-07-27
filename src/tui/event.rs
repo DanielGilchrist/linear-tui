@@ -6,7 +6,10 @@ use crate::api::Timestamp;
 pub enum Event {
     Input(KeyEvent),
     Resize,
-    Message(Message),
+    Message {
+        generation: Generation,
+        message: Message,
+    },
     Tick(Timestamp),
     Ignored,
     Closed,
@@ -16,4 +19,15 @@ pub enum Event {
 pub enum Redraw {
     Needed,
     Skipped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Generation(u64);
+
+impl Generation {
+    pub const START: Generation = Generation(0);
+
+    pub fn next(self) -> Self {
+        Generation(self.0 + 1)
+    }
 }

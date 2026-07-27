@@ -4,7 +4,8 @@ use linear_tui::api::{
     CommentId, Cursor, IssueId, IssueRef, IssueSummary, Page, Reaction, ReactionId, ReactionTarget,
     StateId, TeamId, Timestamp, UserId, ViewId,
 };
-use linear_tui::api::{IssueUpdate, LinearApi};
+use linear_tui::api::{Credential, IssueUpdate, LinearApi};
+use linear_tui::store::Account;
 use linear_tui::tui::app::App;
 use linear_tui::tui::cache::{CacheStatus, Remote};
 use linear_tui::tui::event::Redraw;
@@ -22,6 +23,64 @@ fn press(code: KeyCode) -> KeyEvent {
 
 fn ctrl(c: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+}
+
+#[test]
+fn w_opens_the_workspace_selector() {
+    let mut app = App::new();
+
+    handle_key(&mut app, press(KeyCode::Char('w')));
+
+    assert!(matches!(app.overlay, Overlay::Workspaces(_)));
+}
+
+#[test]
+fn adding_a_key_requests_account_validation() {
+    let mut app = App::new();
+
+    handle_key(&mut app, press(KeyCode::Char('w')));
+    // rows: browser, key, env var. Step past browser to "Add with an API key".
+    handle_key(&mut app, press(KeyCode::Char('j')));
+    handle_key(&mut app, press(KeyCode::Enter));
+    assert_eq!(
+        app.input().map(|input| input.purpose.clone()),
+        Some(InputPurpose::AddWorkspaceKey)
+    );
+
+    handle_key(&mut app, press(KeyCode::Char('k')));
+    let command = handle_key(&mut app, press(KeyCode::Enter));
+    match command {
+        Some(Command::AddAccount { credential }) => {
+            assert_eq!(credential, Credential::PersonalKey("k".into()))
+        }
+        other => panic!("expected AddAccount, got {other:?}"),
+    }
+}
+
+#[test]
+fn account_added_is_stored_and_switched_to() {
+    let mut app = App::new();
+    let account = Account {
+        workspace_key: "acme".into(),
+        org_name: "Acme".into(),
+        credential: Credential::PersonalKey("k".into()),
+    };
+
+    let command = apply(
+        &mut app,
+        Message::AccountAdded {
+            account: Box::new(account),
+        },
+    );
+
+    assert!(app
+        .accounts
+        .iter()
+        .any(|account| account.workspace_key == "acme"));
+    match command {
+        Some(Command::SwitchWorkspace(account)) => assert_eq!(account.workspace_key, "acme"),
+        other => panic!("expected SwitchWorkspace, got {other:?}"),
+    }
 }
 
 #[test]

@@ -4,7 +4,7 @@ use super::action::ConfirmInput;
 use super::app::App;
 use super::event::Redraw;
 use super::message::Command;
-use super::overlay::Overlay;
+use super::overlay::{Overlay, Workspaces};
 use crate::api::Timestamp;
 
 mod feed;
@@ -18,8 +18,15 @@ pub use message::apply;
 
 use input::{
     apply_action, apply_confirm, apply_editor, apply_find, apply_input, apply_menu, apply_picker,
-    apply_prefix, apply_reactions, apply_search, resolve_browse,
+    apply_prefix, apply_reactions, apply_search, apply_workspaces, resolve_browse,
 };
+
+pub fn open_workspaces(app: &mut App) {
+    app.overlay = Overlay::Workspaces(Workspaces::new(
+        &app.accounts,
+        app.active_workspace.as_deref(),
+    ));
+}
 
 pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Command> {
     if super::action::is_quit(&key) {
@@ -39,6 +46,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Command> {
         Overlay::Search(search) => apply_search(app, search, key),
         Overlay::Find(find) => apply_find(app, find, key),
         Overlay::Reactions(reactions) => apply_reactions(app, reactions, key),
+        Overlay::Workspaces(workspaces) => apply_workspaces(app, workspaces, key),
         Overlay::None => resolve_browse(app, key).and_then(|action| apply_action(app, action)),
     }
 }

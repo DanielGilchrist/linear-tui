@@ -7,6 +7,7 @@ use super::message::Command;
 use crate::api::{
     CommentId, IssueId, Reaction, ReactionTarget, StateId, StateOption, User, UserId,
 };
+use crate::store::Account;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PickerKind {
@@ -239,6 +240,57 @@ pub enum InputPurpose {
     Jump,
     Search,
     CustomReaction { target: ReactionTarget },
+    AddWorkspaceKey,
+    AddWorkspaceEnvVar,
+}
+
+pub enum WorkspaceRow {
+    Account {
+        key: String,
+        name: String,
+        detail: String,
+        active: bool,
+    },
+    AddBrowser,
+    AddKey,
+    AddEnvVar,
+}
+
+pub struct Workspaces {
+    pub rows: Vec<WorkspaceRow>,
+    pub state: ListState,
+}
+
+impl Workspaces {
+    pub fn new(accounts: &[Account], active: Option<&str>) -> Self {
+        let mut rows: Vec<WorkspaceRow> = accounts
+            .iter()
+            .map(|account| WorkspaceRow::Account {
+                key: account.workspace_key.clone(),
+                name: account.org_name.clone(),
+                detail: account.credential.describe(),
+                active: active == Some(account.workspace_key.as_str()),
+            })
+            .collect();
+
+        rows.push(WorkspaceRow::AddBrowser);
+        rows.push(WorkspaceRow::AddKey);
+        rows.push(WorkspaceRow::AddEnvVar);
+
+        let selected = accounts
+            .iter()
+            .position(|account| active == Some(account.workspace_key.as_str()))
+            .unwrap_or(0);
+
+        Self {
+            rows,
+            state: ListState::default().with_selected(Some(selected)),
+        }
+    }
+
+    pub fn selected(&self) -> Option<&WorkspaceRow> {
+        self.state.selected().and_then(|index| self.rows.get(index))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -650,4 +702,5 @@ pub enum Overlay {
     Search(Search),
     Find(Find),
     Reactions(Reactions),
+    Workspaces(Workspaces),
 }

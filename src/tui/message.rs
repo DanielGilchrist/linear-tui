@@ -1,10 +1,11 @@
 use super::feed::{FeedKey, FeedRequest};
 use super::focus::Reveal;
 use crate::api::{
-    CommentId, IssueDetail, IssueId, IssueRef, IssueSummary, IssueUpdate, NotificationItem, Page,
-    ReactionId, ReactionTarget, SavedView, Session, StateOption, TeamId, User,
+    CommentId, Credential, IssueDetail, IssueId, IssueRef, IssueSummary, IssueUpdate,
+    NotificationItem, Page, ReactionId, ReactionTarget, SavedView, Session, StateOption, TeamId,
+    User,
 };
-use crate::store::PersistedCache;
+use crate::store::{Account, PersistedCache};
 
 #[derive(Debug)]
 pub enum Message {
@@ -47,6 +48,12 @@ pub enum Message {
     },
     ReactionToggled {
         id: IssueId,
+    },
+    AccountAdded {
+        account: Box<Account>,
+    },
+    LoginSucceeded {
+        credential: Credential,
     },
     Failed {
         target: FailureTarget,
@@ -119,5 +126,10 @@ pub enum Command {
     ClearRecent,
     OpenUrl(String),
     CopyToClipboard(String),
+    SwitchWorkspace(Box<Account>),
+    AddAccount {
+        credential: Credential,
+    },
+    BeginLogin,
     Batch(Vec<Command>),
 }

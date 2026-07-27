@@ -1,6 +1,7 @@
 use super::keymap::Hint;
 use super::keys::{
     Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput, ReactionInput,
+    WorkspacesInput,
 };
 
 pub const MY_WORK_HINTS: &[Hint<Action>] = &[
@@ -114,6 +115,12 @@ pub const PICKER_HINTS: &[Hint<PickerInput>] = &[
     Hint::Bound(PickerInput::Next),
     Hint::Bound(PickerInput::Accept),
     Hint::Bound(PickerInput::Cancel),
+];
+
+pub const WORKSPACES_HINTS: &[Hint<WorkspacesInput>] = &[
+    Hint::Bound(WorkspacesInput::Next),
+    Hint::Bound(WorkspacesInput::Accept),
+    Hint::Bound(WorkspacesInput::Cancel),
 ];
 
 pub const REACTIONS_HINTS: &[Hint<ReactionInput>] = &[

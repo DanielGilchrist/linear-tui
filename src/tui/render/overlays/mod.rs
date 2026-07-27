@@ -6,3 +6,4 @@ pub mod picker;
 pub mod prefix;
 pub mod reactions;
 pub mod search;
+pub mod workspaces;

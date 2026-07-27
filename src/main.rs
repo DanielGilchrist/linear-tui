@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 
-use linear_tui::api::{self, fixture::FixtureClient, Client, IssueRef, LinearApi};
+use linear_tui::api::{self, fixture::FixtureClient, Client, Credential, IssueRef, LinearApi};
 use linear_tui::tui::{
     self,
     app::App,
@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
         Some(Command::Record(record_args)) => {
             record(&resolve_api_key(&args.api_key)?, record_args).await
         }
-        None => run_tui(resolve_api_key(&args.api_key)?).await,
+        None => run_tui(bootstrap_credential(&args.api_key)).await,
     }
 }
 
@@ -72,13 +72,19 @@ fn resolve_api_key(flag: &Option<String>) -> Result<String> {
         .ok_or_else(|| anyhow!("Provide an API key via --api-key or LINEAR_API_KEY"))
 }
 
-async fn run_tui(api_key: String) -> Result<()> {
-    let namespace = linear_tui::store::namespace(&api_key);
-    let api: Arc<dyn LinearApi> = Arc::new(Client::new(api_key));
+fn bootstrap_credential(flag: &Option<String>) -> Option<Credential> {
+    flag.clone()
+        .or_else(|| std::env::var("LINEAR_API_KEY").ok())
+        .map(Credential::PersonalKey)
+}
+
+async fn run_tui(bootstrap: Option<Credential>) -> Result<()> {
+    let make_client: tui::run::ClientFactory =
+        Arc::new(|credential| Arc::new(Client::new(credential)) as Arc<dyn LinearApi>);
 
     let mut terminal = ratatui::init();
     let mut app = App::new();
-    let result = tui::run(&mut terminal, &mut app, api, namespace).await;
+    let result = tui::run(&mut terminal, &mut app, bootstrap, make_client).await;
 
     ratatui::restore();
     result
@@ -133,7 +139,7 @@ async fn record(api_key: &str, args: RecordArgs) -> Result<()> {
     use api::fixture::Fixture;
     use api::IssueFilter;
 
-    let client = Client::new(api_key.to_string());
+    let client = Client::new(Credential::PersonalKey(api_key.to_string()));
     let session = client.session().await?;
     let issues = client
         .issues(&IssueFilter::assigned_to_me(), None)

@@ -253,6 +253,18 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
                 reveal: Reveal::Keep,
             })
         }
+        Message::AccountAdded { account } => {
+            let account = *account;
+            app.accounts
+                .retain(|existing| existing.workspace_key != account.workspace_key);
+            app.accounts.push(account.clone());
+
+            Some(Command::SwitchWorkspace(Box::new(account)))
+        }
+        Message::LoginSucceeded { credential } => {
+            app.status = Some(Status::ConnectingWorkspace);
+            Some(Command::AddAccount { credential })
+        }
         Message::Failed { target, error } => {
             match target {
                 FailureTarget::Feed(key) => {

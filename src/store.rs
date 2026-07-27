@@ -2,11 +2,87 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::api::{IssueSummary, NotificationItem, Timestamp};
+use crate::api::{Credential, IssueSummary, NotificationItem, Timestamp};
 use crate::tui::feed::{Feed, FeedKey, FeedStore, HasId, STALE_HORIZON};
 
 const FEEDS_VERSION: u32 = 2;
 const FEED_ITEM_CAP: usize = 100;
+const ACCOUNTS_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Account {
+    pub workspace_key: String,
+    pub org_name: String,
+    pub credential: Credential,
+}
+
+impl Account {
+    pub fn namespace(&self) -> String {
+        namespace(&self.workspace_key)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedAccounts {
+    version: u32,
+    #[serde(default)]
+    active: Option<String>,
+    accounts: Vec<Account>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Accounts {
+    pub accounts: Vec<Account>,
+    pub active: Option<String>,
+}
+
+fn accounts_path() -> Option<PathBuf> {
+    state_dir().map(|dir| dir.join("accounts.json"))
+}
+
+pub fn load_accounts() -> Accounts {
+    let Some(path) = accounts_path() else {
+        return Accounts::default();
+    };
+
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Accounts::default();
+    };
+
+    match serde_json::from_str::<PersistedAccounts>(&raw) {
+        Ok(store) if store.version == ACCOUNTS_VERSION => Accounts {
+            accounts: store.accounts,
+            active: store.active,
+        },
+        _ => Accounts::default(),
+    }
+}
+
+pub fn save_accounts(accounts: &[Account], active: Option<&str>) {
+    let Some(path) = accounts_path() else {
+        return;
+    };
+
+    let store = PersistedAccounts {
+        version: ACCOUNTS_VERSION,
+        active: active.map(str::to_string),
+        accounts: accounts.to_vec(),
+    };
+
+    if let Ok(json) = serde_json::to_string(&store) {
+        write_atomic(&path, &json);
+        restrict_permissions(&path);
+    }
+}
+
+#[cfg(unix)]
+fn restrict_permissions(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+}
+
+#[cfg(not(unix))]
+fn restrict_permissions(_path: &Path) {}
 
 fn state_dir() -> Option<PathBuf> {
     crate::tui::platform::Platform::host().state_dir()

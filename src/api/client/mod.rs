@@ -6,9 +6,9 @@ use serde::Deserialize;
 
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::model::{
-    CommentId, Cursor, IssueDetail, IssueFilter, IssueId, IssueRef, IssueSummary, IssueUpdate,
-    NotificationItem, Page, ReactionId, ReactionTarget, SavedView, Session, StateOption, StateType,
-    TeamId, User, ViewId,
+    CommentId, Credential, Cursor, IssueDetail, IssueFilter, IssueId, IssueRef, IssueSummary,
+    IssueUpdate, NotificationItem, Page, ReactionId, ReactionTarget, SavedView, Session,
+    StateOption, StateType, TeamId, User, ViewId,
 };
 use crate::api::queries::actions::{
     AssigneeInput, AssigneeMutation, AssigneeVariables, CommentCreateInput, CommentCreateMutation,
@@ -39,14 +39,14 @@ fn next_cursor(has_next_page: bool, end_cursor: Option<String>) -> Option<Cursor
 
 pub struct Client {
     http_client: HttpClient,
-    api_key: String,
+    credential: Credential,
 }
 
 impl Client {
-    pub fn new(api_key: String) -> Self {
+    pub fn new(credential: Credential) -> Self {
         Self {
             http_client: HttpClient::new(),
-            api_key,
+            credential,
         }
     }
 
@@ -59,7 +59,7 @@ impl Client {
             .http_client
             .post(API_ENDPOINT)
             .header("Content-Type", "application/json")
-            .header("Authorization", &self.api_key)
+            .header("Authorization", self.credential.header_value())
             .json(&operation)
             .send()
             .await?;

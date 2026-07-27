@@ -11,10 +11,12 @@ use super::nav::{
     ascend, cycle_panel, cycle_view, cycle_view_group, cycle_view_sort, descend, history_step,
     jump_edge, jump_panel, move_selection, navigate_list, scroll_half, select_edge,
 };
+use crate::api::Credential;
 use crate::api::IssueRef;
 use crate::api::IssueUpdate;
 use crate::tui::action::{
     self, Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput, ReactionInput,
+    WorkspacesInput,
 };
 use crate::tui::app::App;
 use crate::tui::feed::FeedKey;
@@ -22,7 +24,7 @@ use crate::tui::focus::{DetailView, Direction, Edge, Focus};
 use crate::tui::message::Command;
 use crate::tui::overlay::{
     Compose, Confirm, Editor, Find, Input, InputPurpose, MentionMenu, Menu, Overlay, Picker,
-    PickerAction, Prefix, PrefixUnder, Reactions, Search,
+    PickerAction, Prefix, PrefixUnder, Reactions, Search, WorkspaceRow, Workspaces,
 };
 use crate::tui::status::Status;
 
@@ -240,6 +242,18 @@ pub(super) fn submit_input(app: &mut App, input: Input) -> Option<Command> {
             Some(command)
         }
         InputPurpose::CustomReaction { target } => toggle_reaction(app, target, &query),
+        InputPurpose::AddWorkspaceKey => {
+            app.status = Some(Status::ConnectingWorkspace);
+            Some(Command::AddAccount {
+                credential: Credential::PersonalKey(query),
+            })
+        }
+        InputPurpose::AddWorkspaceEnvVar => {
+            app.status = Some(Status::ConnectingWorkspace);
+            Some(Command::AddAccount {
+                credential: Credential::EnvVar(query),
+            })
+        }
     }
 }
 
@@ -595,6 +609,63 @@ pub(super) fn apply_reactions(
     }
 }
 
+pub(super) fn apply_workspaces(
+    app: &mut App,
+    mut workspaces: Workspaces,
+    key: KeyEvent,
+) -> Option<Command> {
+    let Some(input) = WorkspacesInput::from_key(key) else {
+        app.overlay = Overlay::Workspaces(workspaces);
+        return None;
+    };
+
+    let len = workspaces.rows.len();
+
+    match input {
+        WorkspacesInput::Next => {
+            navigate_list(&mut workspaces.state, len, Direction::Next);
+            app.overlay = Overlay::Workspaces(workspaces);
+            None
+        }
+        WorkspacesInput::Prev => {
+            navigate_list(&mut workspaces.state, len, Direction::Prev);
+            app.overlay = Overlay::Workspaces(workspaces);
+            None
+        }
+        WorkspacesInput::Cancel => None,
+        WorkspacesInput::Accept => match workspaces.selected() {
+            Some(WorkspaceRow::Account { key, .. }) => {
+                let key = key.clone();
+                let account = app
+                    .accounts
+                    .iter()
+                    .find(|a| a.workspace_key == key)?
+                    .clone();
+                Some(Command::SwitchWorkspace(Box::new(account)))
+            }
+            Some(WorkspaceRow::AddBrowser) => {
+                app.status = Some(Status::AwaitingBrowser);
+                Some(Command::BeginLogin)
+            }
+            Some(WorkspaceRow::AddKey) => {
+                app.overlay = Overlay::Input(Input::new(
+                    InputPurpose::AddWorkspaceKey,
+                    "Paste a Linear API key",
+                ));
+                None
+            }
+            Some(WorkspaceRow::AddEnvVar) => {
+                app.overlay = Overlay::Input(Input::new(
+                    InputPurpose::AddWorkspaceEnvVar,
+                    "Environment variable name",
+                ));
+                None
+            }
+            None => None,
+        },
+    }
+}
+
 pub(super) fn apply_action(app: &mut App, action: Action) -> Option<Command> {
     match action {
         Action::Quit => {
@@ -671,6 +742,10 @@ pub(super) fn apply_action(app: &mut App, action: Action) -> Option<Command> {
         Action::JumpToBottom => jump_edge(app, Edge::Bottom),
         Action::Help => {
             open_menu(app);
+            None
+        }
+        Action::Workspaces => {
+            super::open_workspaces(app);
             None
         }
     }
