@@ -22,41 +22,59 @@ func NewClient(apiKey string) *Client {
 	}
 }
 
-func (c *Client) GetTeamsWithIssues() (*TeamsResponse, error) {
+func (client *Client) GetTeams() (*TeamsResponse, error) {
 	query := `
 		query TeamsWithIssues {
 			teams {
 				nodes {
 					id
 					name
-					issues {
-						nodes {
-							id
-							title
-							description
-							sortOrder
-						}
-					}
-					issueCount
+          issueCount
 				}
 			}
 		}
 	`
 
-	req := struct {
-		Query string `json:"query"`
-	}{Query: query}
-
-	var resp TeamsResponse
-	if err := c.makeRequest(req, &resp); err != nil {
+	var response TeamsResponse
+	if err := client.makeRequest(query, nil, &response); err != nil {
 		return nil, err
 	}
 
-	return &resp, nil
+	return &response, nil
 }
 
-func (c *Client) makeRequest(req interface{}, resp interface{}) error {
-	jsonBytes, err := json.Marshal(req)
+func (client *Client) GetTeamIssues(teamId string) (*TeamIssuesResponse, error) {
+	query := `
+    query TeamIssues($teamId: String!) {
+      team(id: $teamId) {
+        issues {
+          nodes {
+            title
+          }
+        }
+      }
+    }
+  `
+
+	variables := map[string]interface{}{
+		"teamId": teamId,
+	}
+
+	var response TeamIssuesResponse
+	if err := client.makeRequest(query, variables, &response); err != nil {
+		return nil, err
+	}
+
+	return &response, nil
+}
+
+func (client *Client) makeRequest(query interface{}, variables map[string]interface{}, response interface{}) error {
+	requestBody := map[string]interface{}{
+		"query":     query,
+		"variables": variables,
+	}
+
+	jsonBytes, err := json.Marshal(requestBody)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
@@ -67,9 +85,9 @@ func (c *Client) makeRequest(req interface{}, resp interface{}) error {
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", c.apiKey)
+	httpReq.Header.Set("Authorization", client.apiKey)
 
-	httpResp, err := c.httpClient.Do(httpReq)
+	httpResp, err := client.httpClient.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("do request: %w", err)
 	}
@@ -80,7 +98,7 @@ func (c *Client) makeRequest(req interface{}, resp interface{}) error {
 		return fmt.Errorf("read response: %w", err)
 	}
 
-	if err := json.Unmarshal(body, resp); err != nil {
+	if err := json.Unmarshal(body, response); err != nil {
 		return fmt.Errorf("unmarshal response: %w", err)
 	}
 
