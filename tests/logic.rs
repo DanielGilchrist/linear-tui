@@ -373,7 +373,7 @@ fn status_acts_on_the_highlighted_view_issue() {
 
     let command = handle_key(&mut app, press(KeyCode::Char('s')));
 
-    assert_eq!(app.picker().map(|p| p.kind), Some(PickerKind::Status));
+    assert_eq!(app.picker().map(|p| &p.kind), Some(&PickerKind::Status));
     match command {
         Some(Command::LoadStates { team_id }) if team_id.as_str() == "t_pizza" => {}
         other => panic!("expected LoadStates for the highlighted issue, got {other:?}"),
@@ -1108,7 +1108,7 @@ fn s_opens_status_picker_once_issue_is_loaded() {
 
     let commands = handle_key(&mut app, press(KeyCode::Char('s')));
 
-    assert_eq!(app.picker().map(|p| p.kind), Some(PickerKind::Status));
+    assert_eq!(app.picker().map(|p| &p.kind), Some(&PickerKind::Status));
     match commands {
         Some(Command::LoadStates { team_id }) if team_id.as_str() == "t_pizza" => {}
         other => panic!("expected LoadStates for t_pizza, got {other:?}"),
@@ -1707,13 +1707,6 @@ fn confirmation_cancel_does_not_write() {
 fn assign_picker_can_unassign() {
     let mut app = detail_app();
     handle_key(&mut app, press(KeyCode::Char('a')));
-    apply(
-        &mut app,
-        Message::MembersLoaded {
-            team_id: TeamId::from_raw("t_pizza"),
-            members: vec![member("danniieelg")],
-        },
-    );
 
     handle_key(&mut app, press(KeyCode::Enter));
     assert!(app.confirm().is_some());
@@ -1807,38 +1800,107 @@ fn a_failed_states_fetch_stops_the_spinner_and_retries_next_time() {
 }
 
 #[test]
-fn a_failed_members_fetch_stops_the_spinner_and_retries_next_time() {
+fn the_assign_picker_offers_yourself_without_fetching_everyone() {
     let mut app = detail_app();
+    app.workspace.session = Some(session("dan"));
 
+    let command = handle_key(&mut app, press(KeyCode::Char('a')));
+
+    assert!(
+        command.is_none(),
+        "opening the assign picker must not fetch the whole account"
+    );
+
+    let labels: Vec<&str> = app
+        .picker()
+        .expect("assign picker open")
+        .items
+        .iter()
+        .map(|item| item.label.as_str())
+        .collect();
+
+    assert_eq!(labels, vec!["Unassigned", "dan"]);
+}
+
+#[test]
+fn slash_in_the_assign_picker_searches_for_people() {
+    let mut app = detail_app();
     handle_key(&mut app, press(KeyCode::Char('a')));
-    assert!(app.picker().is_some_and(|p| p.loading));
+
+    handle_key(&mut app, press(KeyCode::Char('/')));
+    for c in "cha".chars() {
+        handle_key(&mut app, press(KeyCode::Char(c)));
+    }
+    let command = handle_key(&mut app, press(KeyCode::Enter));
+
+    match command {
+        Some(Command::SearchUsers { query }) if query == "cha" => {}
+        other => panic!("expected SearchUsers(cha), got {other:?}"),
+    }
+    assert!(app.picker().is_some_and(|picker| picker.loading));
+
+    apply(
+        &mut app,
+        Message::UsersFound {
+            query: "cha".into(),
+            users: vec![member("charlieh")],
+        },
+    );
+
+    let picker = app.picker().expect("assign picker open");
+    assert!(!picker.loading);
+    assert_eq!(
+        picker
+            .items
+            .iter()
+            .map(|item| item.label.as_str())
+            .collect::<Vec<_>>(),
+        vec!["charlieh"]
+    );
+}
+
+#[test]
+fn results_for_a_stale_search_are_ignored() {
+    let mut app = detail_app();
+    handle_key(&mut app, press(KeyCode::Char('a')));
+    handle_key(&mut app, press(KeyCode::Char('/')));
+    for c in "cha".chars() {
+        handle_key(&mut app, press(KeyCode::Char(c)));
+    }
+    handle_key(&mut app, press(KeyCode::Enter));
+
+    apply(
+        &mut app,
+        Message::UsersFound {
+            query: "ch".into(),
+            users: vec![member("someone-else")],
+        },
+    );
+
+    let picker = app.picker().expect("assign picker open");
+    assert!(picker.items.is_empty(), "a superseded search must not fill");
+    assert!(picker.loading, "the current search is still in flight");
+}
+
+#[test]
+fn a_failed_user_search_stops_the_picker_spinner() {
+    let mut app = detail_app();
+    handle_key(&mut app, press(KeyCode::Char('a')));
+    handle_key(&mut app, press(KeyCode::Char('/')));
+    handle_key(&mut app, press(KeyCode::Char('d')));
+    handle_key(&mut app, press(KeyCode::Enter));
+    assert!(app.picker().is_some_and(|picker| picker.loading));
 
     apply(
         &mut app,
         Message::Failed {
-            target: FailureTarget::Members {
-                team_id: TeamId::from_raw("t_pizza"),
-            },
+            target: FailureTarget::UserSearch,
             error: "boom".into(),
         },
     );
 
-    assert!(matches!(
-        app.workspace
-            .members
-            .get(&TeamId::from_raw("t_pizza"))
-            .map(Remote::status),
-        Some(CacheStatus::Failed(_))
-    ));
-    assert!(app.picker().is_some_and(|p| !p.loading));
+    assert!(app.picker().is_some_and(|picker| !picker.loading));
     assert!(matches!(app.status, Some(Status::Error(_))));
-
-    handle_key(&mut app, press(KeyCode::Esc));
-    let retry = handle_key(&mut app, press(KeyCode::Char('a')));
-    match retry {
-        Some(Command::LoadMembers { team_id }) if team_id.as_str() == "t_pizza" => {}
-        other => panic!("expected a retry LoadMembers after failure, got {other:?}"),
-    }
 }
 
 #[test]
@@ -2044,6 +2106,67 @@ fn slash_filters_the_current_list_in_place() {
     handle_key(&mut app, press(KeyCode::Enter));
     assert!(app.find().is_none());
     assert_eq!(app.find_query.as_deref(), Some("dan-2"));
+}
+
+#[test]
+fn slash_finds_comments_in_comments_mode() {
+    let mut app = detail_app_with_comments();
+    handle_key(&mut app, press(KeyCode::Char('m')));
+    assert_eq!(app.comment_state.selected(), Some(0));
+
+    handle_key(&mut app, press(KeyCode::Char('/')));
+    assert!(app.find().is_some(), "/ must open find in comments mode");
+
+    for c in "another".chars() {
+        handle_key(&mut app, press(KeyCode::Char(c)));
+    }
+
+    assert_eq!(app.comment_state.selected(), Some(2));
+}
+
+#[test]
+fn slash_scrolls_the_reading_pane_to_a_match() {
+    let mut app = detail_app_with_comments();
+    assert_eq!(app.scroll_position, 0);
+
+    handle_key(&mut app, press(KeyCode::Char('/')));
+    assert!(app.find().is_some(), "/ must open find in the reading pane");
+
+    for c in "another root".chars() {
+        handle_key(&mut app, press(KeyCode::Char(c)));
+    }
+
+    assert!(
+        app.scroll_position > 0,
+        "the reading pane should scroll to the matching line"
+    );
+
+    let matched = app.scroll_position;
+    handle_key(&mut app, press(KeyCode::Esc));
+    assert_eq!(
+        app.scroll_position, 0,
+        "esc should restore the original scroll position"
+    );
+    assert!(matched > 0);
+}
+
+#[test]
+fn n_steps_between_matches_in_the_reading_pane() {
+    let mut app = detail_app_with_comments();
+    app.find_query = Some("root".into());
+
+    handle_key(&mut app, press(KeyCode::Char('n')));
+    let first = app.scroll_position;
+    assert!(first > 0, "expected to land on the first match");
+
+    handle_key(&mut app, press(KeyCode::Char('n')));
+    assert!(
+        app.scroll_position > first,
+        "n should advance to the next match"
+    );
+
+    handle_key(&mut app, press(KeyCode::Char('N')));
+    assert_eq!(app.scroll_position, first, "N should step back");
 }
 
 #[test]
@@ -2614,6 +2737,17 @@ fn comment(id: &str, parent: Option<&str>, body: &str) -> linear_tui::api::Comme
         body: body.into(),
         created_at: linear_tui::api::Timestamp::from("2026-07-16T09:00:00Z"),
         reactions: vec![],
+    }
+}
+
+fn session(name: &str) -> linear_tui::api::Session {
+    linear_tui::api::Session {
+        user: linear_tui::api::User {
+            is_me: true,
+            ..member(name)
+        },
+        org_name: "Dan's Donuts".into(),
+        org_url_key: "dans-donuts".into(),
     }
 }
 

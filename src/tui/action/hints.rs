@@ -117,6 +117,16 @@ pub const PICKER_HINTS: &[Hint<PickerInput>] = &[
     Hint::Bound(PickerInput::Cancel),
 ];
 
+pub const SEARCHABLE_PICKER_HINTS: &[Hint<PickerInput>] = &[
+    Hint::Bound(PickerInput::Next),
+    Hint::Bound(PickerInput::Accept),
+    Hint::Literal {
+        keys: "/",
+        label: "search",
+    },
+    Hint::Bound(PickerInput::Cancel),
+];
+
 pub const WORKSPACES_HINTS: &[Hint<WorkspacesInput>] = &[
     Hint::Bound(WorkspacesInput::Next),
     Hint::Bound(WorkspacesInput::Accept),

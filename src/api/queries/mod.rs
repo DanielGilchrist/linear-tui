@@ -9,4 +9,5 @@ pub mod my_issues;
 pub mod notifications;
 pub mod scalars;
 pub mod search;
+pub mod users;
 pub mod viewer;

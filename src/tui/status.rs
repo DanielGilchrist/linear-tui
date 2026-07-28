@@ -3,7 +3,6 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
     NoActiveSearch,
-    FindInList,
     NothingToSearch,
     NoComments,
     NotYourComment,
@@ -34,7 +33,6 @@ impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let text = match self {
             Status::NoActiveSearch => "No active search (press /)",
-            Status::FindInList => "Find works in a list",
             Status::NothingToSearch => "Nothing to search",
             Status::NoComments => "No comments to reply to",
             Status::NotYourComment => "You can only edit or delete your own comments",

@@ -5,7 +5,7 @@ use super::feed::{force_feed, load_more, reload};
 use super::issue::{
     clear_recent, enter_comments, open_assign_picker, open_comment_input, open_delete_comment,
     open_edit_editor, open_in_browser, open_issue, open_reactions, open_reply_editor,
-    open_status_picker, toggle_reaction, yank_url,
+    open_status_picker, search_assignees, toggle_reaction, yank_url,
 };
 use super::nav::{
     ascend, cycle_panel, cycle_view, cycle_view_group, cycle_view_sort, descend, history_step,
@@ -23,8 +23,9 @@ use crate::tui::feed::FeedKey;
 use crate::tui::focus::{DetailView, Direction, Edge, Focus};
 use crate::tui::message::Command;
 use crate::tui::overlay::{
-    Compose, Confirm, Editor, Find, Input, InputPurpose, MentionMenu, Menu, Overlay, Picker,
-    PickerAction, Prefix, PrefixUnder, Reactions, Search, WorkspaceRow, Workspaces,
+    AssignOptions, Compose, Confirm, Editor, Find, Input, InputPurpose, MentionMenu, Menu, Overlay,
+    Picker, PickerAction, PickerKind, Prefix, PrefixUnder, Reactions, Search, WorkspaceRow,
+    Workspaces,
 };
 use crate::tui::status::Status;
 
@@ -83,9 +84,7 @@ pub(super) fn apply_prefix(app: &mut App, prefix: Prefix, key: KeyEvent) -> Opti
 pub(super) fn apply_find(app: &mut App, mut find: Find, key: KeyEvent) -> Option<Command> {
     match key.code {
         KeyCode::Esc => {
-            if let Some(state) = app.focused_list_mut() {
-                state.select(find.origin);
-            }
+            app.reveal_focused(find.origin);
             None
         }
         KeyCode::Enter => {
@@ -121,9 +120,7 @@ pub(super) fn refresh_find(app: &mut App, query: &str) {
     }
 
     if let Some(&first) = app.focused_matches(query).first() {
-        if let Some(state) = app.focused_list_mut() {
-            state.select(Some(first));
-        }
+        app.reveal_focused(Some(first));
     }
 }
 
@@ -155,21 +152,11 @@ pub(super) fn find_step(app: &mut App, direction: Direction) {
             .unwrap_or(matches[matches.len() - 1]),
     };
 
-    if let Some(state) = app.focused_list_mut() {
-        state.select(Some(target));
-    }
+    app.reveal_focused(Some(target));
 }
 
 pub(super) fn open_find(app: &mut App) -> Option<Command> {
-    match app.focus {
-        Focus::Detail(..) => {
-            app.status = Some(Status::FindInList);
-            return None;
-        }
-        Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::View | Focus::Stub(_) => {}
-    }
-
-    if app.focused_list_len() == 0 {
+    if app.focused_row_texts().is_empty() {
         app.status = Some(Status::NothingToSearch);
         return None;
     }
@@ -242,6 +229,18 @@ pub(super) fn submit_input(app: &mut App, input: Input) -> Option<Command> {
             Some(command)
         }
         InputPurpose::CustomReaction { target } => toggle_reaction(app, target, &query),
+        InputPurpose::AssignSearch { issue, label } => {
+            app.overlay = Overlay::Picker(Picker {
+                kind: PickerKind::Assign(AssignOptions::Suggested),
+                target_issue: issue,
+                target_label: label,
+                items: Vec::new(),
+                state: ListState::default().with_selected(Some(0)),
+                loading: false,
+            });
+
+            search_assignees(app, query)
+        }
         InputPurpose::AddWorkspaceKey => {
             app.status = Some(Status::ConnectingWorkspace);
             Some(Command::AddAccount {
@@ -774,6 +773,15 @@ pub(super) fn apply_confirm(
 
 pub(super) fn apply_picker(app: &mut App, mut picker: Picker, key: KeyEvent) -> Option<Command> {
     match key.code {
+        KeyCode::Char('/') if picker.searchable() => {
+            let purpose = InputPurpose::AssignSearch {
+                issue: picker.target_issue.clone(),
+                label: picker.target_label.clone(),
+            };
+
+            app.overlay = Overlay::Input(Input::new(purpose, "Search people"));
+            return None;
+        }
         KeyCode::Char('g') => {
             app.overlay = open_prefix(Overlay::Picker(picker));
             return None;

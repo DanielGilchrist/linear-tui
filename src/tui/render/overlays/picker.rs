@@ -19,12 +19,19 @@ pub fn render(picker: &mut Picker, spinner: Spinner, frame: &mut Frame, area: Re
     let rows: Vec<ListItem> = picker.items.iter().map(picker_row).collect();
 
     let placeholder = if picker.loading {
-        format!("{spinner}  Loading…")
+        format!("{spinner}  Searching…")
+    } else if picker.searching().is_some() {
+        "No matches  ·  / search again".to_string()
+    } else if picker.searchable() {
+        "/ to search".to_string()
     } else {
         "Nothing to choose".to_string()
     };
 
-    let title = format!("{}  {}", picker.verb(), picker.target_label);
+    let title = match picker.searching() {
+        Some(query) => format!("{}  {}  ·  {query}", picker.verb(), picker.target_label),
+        None => format!("{}  {}", picker.verb(), picker.target_label),
+    };
     let selected = picker.state.selected();
     let total = picker.items.len();
 

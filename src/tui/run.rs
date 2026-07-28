@@ -341,6 +341,13 @@ fn dispatch(
                     error: error.to_string(),
                 },
             }),
+            Command::SearchUsers { query } => Some(match api.search_users(&query).await {
+                Ok(users) => Message::UsersFound { query, users },
+                Err(error) => Message::Failed {
+                    target: FailureTarget::UserSearch,
+                    error: error.to_string(),
+                },
+            }),
             Command::LoadMembers { team_id } => Some(match api.team_members(&team_id).await {
                 Ok(members) => Message::MembersLoaded { team_id, members },
                 Err(error) => Message::Failed {

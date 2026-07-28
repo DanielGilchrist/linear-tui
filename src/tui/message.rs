@@ -34,6 +34,10 @@ pub enum Message {
         team_id: TeamId,
         members: Vec<User>,
     },
+    UsersFound {
+        query: String,
+        users: Vec<User>,
+    },
     IssueUpdated {
         id: IssueId,
     },
@@ -69,6 +73,7 @@ pub enum FailureTarget {
     Detail,
     States { team_id: TeamId },
     Members { team_id: TeamId },
+    UserSearch,
     Ephemeral,
 }
 
@@ -93,6 +98,9 @@ pub enum Command {
     },
     LoadMembers {
         team_id: TeamId,
+    },
+    SearchUsers {
+        query: String,
     },
     UpdateIssue {
         id: IssueId,

@@ -290,20 +290,38 @@ async fn status_picker_overlay() {
 async fn assign_picker_overlay() {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await;
+    app.workspace.session = client.session().await.ok();
 
     handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
     );
-    let members = client
-        .team_members(&TeamId::from_raw("t_pizza"))
-        .await
-        .unwrap();
+
+    insta::assert_snapshot!(render_to_string(&mut app, 100, 20));
+}
+
+#[tokio::test]
+async fn assign_picker_search_results() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+    app.workspace.session = client.session().await.ok();
+
+    for key in ['a', '/', 'a'] {
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE),
+        );
+    }
+
+    handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    let users = client.search_users("a").await.unwrap();
+
     apply(
         &mut app,
-        Message::MembersLoaded {
-            team_id: TeamId::from_raw("t_pizza"),
-            members,
+        Message::UsersFound {
+            query: "a".into(),
+            users,
         },
     );
 

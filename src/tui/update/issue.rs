@@ -7,7 +7,7 @@ use crate::tui::cache::{RefreshPolicy, Remote};
 use crate::tui::focus::{DetailFocus, DetailView, Focus, Reveal};
 use crate::tui::message::Command;
 use crate::tui::overlay::{
-    Compose, Confirm, Editor, Overlay, Picker, PickerItem, PickerKind, Reactions,
+    AssignOptions, Compose, Confirm, Editor, Overlay, Picker, PickerItem, PickerKind, Reactions,
 };
 use crate::tui::status::Status;
 
@@ -205,7 +205,7 @@ pub(super) fn open_status_picker(app: &mut App) -> Option<Command> {
 
 pub(super) fn open_assign_picker(app: &mut App) -> Option<Command> {
     let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
-    open_picker(app, PickerKind::Assign, target)
+    open_picker(app, PickerKind::Assign(AssignOptions::Suggested), target)
 }
 
 pub(super) fn open_comment_input(app: &mut App) -> Option<Command> {
@@ -217,10 +217,31 @@ pub(super) fn status_items(states: &[StateOption]) -> Vec<PickerItem> {
     states.iter().cloned().map(PickerItem::from).collect()
 }
 
-pub(super) fn assign_items(members: &[User]) -> Vec<PickerItem> {
+pub(super) fn assign_suggestions(app: &App) -> Vec<PickerItem> {
     let mut items = vec![PickerItem::unassign()];
-    items.extend(members.iter().cloned().map(PickerItem::from));
+
+    if let Some(session) = &app.workspace.session {
+        items.push(PickerItem::from(session.user.clone()));
+    }
+
     items
+}
+
+pub(super) fn found_users(users: Vec<User>) -> Vec<PickerItem> {
+    users.into_iter().map(PickerItem::from).collect()
+}
+
+pub(super) fn search_assignees(app: &mut App, query: String) -> Option<Command> {
+    let Overlay::Picker(picker) = &mut app.overlay else {
+        return None;
+    };
+
+    picker.kind = PickerKind::Assign(AssignOptions::Matching(query.clone()));
+    picker.items = Vec::new();
+    picker.loading = true;
+    picker.state.select(Some(0));
+
+    Some(Command::SearchUsers { query })
 }
 
 pub(super) fn fill_picker(picker: &mut Picker, items: Vec<PickerItem>) {
@@ -234,9 +255,17 @@ pub(super) fn fill_picker(picker: &mut Picker, items: Vec<PickerItem>) {
     }
 }
 
-pub(super) fn stop_picker(overlay: &mut Overlay, kind: PickerKind) {
+pub(super) fn stop_status_picker(overlay: &mut Overlay) {
+    stop_picker(overlay, |kind| matches!(kind, PickerKind::Status));
+}
+
+pub(super) fn stop_assign_picker(overlay: &mut Overlay) {
+    stop_picker(overlay, |kind| matches!(kind, PickerKind::Assign(_)));
+}
+
+fn stop_picker(overlay: &mut Overlay, matches_kind: impl Fn(&PickerKind) -> bool) {
     if let Overlay::Picker(picker) = overlay {
-        if picker.kind == kind {
+        if matches_kind(&picker.kind) {
             picker.loading = false;
         }
     }
@@ -279,19 +308,10 @@ pub(super) fn open_picker(
                 .map_or_else(Vec::new, |states| status_items(states));
             (items, command)
         }
-        PickerKind::Assign => {
-            let command = access_members(app, &team_id);
-            let items = app
-                .workspace
-                .members
-                .get(&team_id)
-                .and_then(Remote::value)
-                .map_or_else(Vec::new, |members| assign_items(members));
-            (items, command)
-        }
+        PickerKind::Assign(_) => (assign_suggestions(app), None),
     };
 
-    let loading = items.is_empty();
+    let loading = items.is_empty() && command.is_some();
     app.overlay = Overlay::Picker(Picker {
         kind,
         target_issue: target.id,

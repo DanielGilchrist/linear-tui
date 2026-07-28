@@ -32,6 +32,15 @@ use widgets::text_panel;
 const LEFT_PCT: u16 = 38;
 const COLLAPSED_PEEK: usize = 2;
 
+pub fn detail_line_texts(
+    detail: &IssueDetail,
+    rendered: &super::workspace::RenderedDetail,
+    now: Timestamp,
+    selected: Option<usize>,
+) -> Vec<String> {
+    surfaces::detail::detail_text(detail, rendered, now, selected).line_texts()
+}
+
 pub fn render(app: &mut App, frame: &mut Frame) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -528,6 +537,9 @@ fn footer_hint(app: &App) -> String {
     match &app.overlay {
         Overlay::Menu(_) => return action::MENU.hint_bar(action::MENU_HINTS),
         Overlay::Confirm(_) => return action::CONFIRM.hint_bar(action::CONFIRM_HINTS),
+        Overlay::Picker(picker) if picker.searchable() => {
+            return action::PICKER.hint_bar(action::SEARCHABLE_PICKER_HINTS)
+        }
         Overlay::Picker(_) | Overlay::Search(_) => {
             return action::PICKER.hint_bar(action::PICKER_HINTS)
         }

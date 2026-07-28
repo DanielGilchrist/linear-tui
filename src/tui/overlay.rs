@@ -9,10 +9,18 @@ use crate::api::{
 };
 use crate::store::Account;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PickerKind {
     Status,
-    Assign,
+    Assign(AssignOptions),
+}
+
+/// Assignees are not enumerated: an account can hold thousands, so the picker
+/// offers yourself and searches for anyone else.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AssignOptions {
+    Suggested,
+    Matching(String),
 }
 
 #[derive(Debug, Clone)]
@@ -79,8 +87,19 @@ impl Picker {
     pub fn verb(&self) -> &'static str {
         match self.kind {
             PickerKind::Status => "Set status",
-            PickerKind::Assign => "Assign",
+            PickerKind::Assign(_) => "Assign",
         }
+    }
+
+    pub fn searching(&self) -> Option<&str> {
+        match &self.kind {
+            PickerKind::Assign(AssignOptions::Matching(query)) => Some(query),
+            PickerKind::Status | PickerKind::Assign(AssignOptions::Suggested) => None,
+        }
+    }
+
+    pub fn searchable(&self) -> bool {
+        matches!(self.kind, PickerKind::Assign(_))
     }
 
     pub fn selected(&self) -> Option<&PickerItem> {
@@ -240,6 +259,7 @@ pub enum InputPurpose {
     Jump,
     Search,
     CustomReaction { target: ReactionTarget },
+    AssignSearch { issue: IssueId, label: String },
     AddWorkspaceKey,
     AddWorkspaceEnvVar,
 }

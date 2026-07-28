@@ -181,6 +181,16 @@ impl LinearApi for FixtureClient {
         ])
     }
 
+    async fn search_users(&self, term: &str) -> ApiResult<Vec<User>> {
+        let needle = term.to_lowercase();
+
+        Ok(["dan", "sam", "alex", "danniiee", "charlieh"]
+            .into_iter()
+            .filter(|name| name.contains(&needle))
+            .map(|name| person(name, name == "dan"))
+            .collect())
+    }
+
     async fn update_issue(&self, _id: &IssueId, _update: IssueUpdate) -> ApiResult<()> {
         Ok(())
     }

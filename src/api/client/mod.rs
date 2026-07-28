@@ -24,6 +24,7 @@ use crate::api::queries::issue::{IssueQuery, IssueVariables};
 use crate::api::queries::my_issues::{IssuesQuery, IssuesVariables};
 use crate::api::queries::notifications::{NotificationsQuery, NotificationsVariables};
 use crate::api::queries::search::{SearchIssuesQuery, SearchVariables};
+use crate::api::queries::users::{UserFilter, UserSearchQuery, UserSearchVariables};
 use crate::api::queries::viewer::ViewerQuery;
 use crate::api::LinearApi;
 
@@ -32,6 +33,8 @@ use map::build_cynic_filter;
 const API_ENDPOINT: &str = "https://api.linear.app/graphql";
 
 const PAGE_SIZE: i32 = 100;
+
+const USER_SEARCH_LIMIT: i32 = 25;
 
 fn next_cursor(has_next_page: bool, end_cursor: Option<String>) -> Option<Cursor> {
     has_next_page.then_some(end_cursor).flatten().map(Cursor)
@@ -289,6 +292,27 @@ impl LinearApi for Client {
                 display_name: u.display_name,
                 url: u.url,
                 is_me: u.is_me,
+            })
+            .collect())
+    }
+
+    async fn search_users(&self, term: &str) -> ApiResult<Vec<User>> {
+        let operation = UserSearchQuery::build(UserSearchVariables {
+            filter: Some(UserFilter::matching(term)),
+            first: Some(USER_SEARCH_LIMIT),
+        });
+        let result = self.fetch_json(operation).await?;
+
+        Ok(result
+            .users
+            .nodes
+            .into_iter()
+            .map(|user| User {
+                id: user.id.into(),
+                name: user.name,
+                display_name: user.display_name,
+                url: user.url,
+                is_me: user.is_me,
             })
             .collect())
     }

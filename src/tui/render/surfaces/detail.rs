@@ -98,7 +98,7 @@ pub fn render_work_preview(frame: &mut Frame, area: Rect, preview: Preview, emph
     text_panel(frame, area, &title, text, emphasis);
 }
 
-struct DetailBody {
+pub struct DetailBody {
     text: Text<'static>,
     comment_offsets: Vec<usize>,
 }
@@ -107,9 +107,22 @@ impl DetailBody {
     fn comment_top(&self, index: usize) -> Option<usize> {
         self.comment_offsets.get(index).copied()
     }
+
+    pub fn line_texts(&self) -> Vec<String> {
+        self.text
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect()
+    }
 }
 
-fn detail_text(
+pub fn detail_text(
     detail: &IssueDetail,
     rendered: &RenderedDetail,
     now: Timestamp,

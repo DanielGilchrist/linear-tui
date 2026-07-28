@@ -4,7 +4,10 @@ use super::feed::{
     access_feed, feed_keep_id, reconcile_feed, resolve, revalidate_focus, save_feeds_command,
     selected_view_key,
 };
-use super::issue::{assign_items, fill_picker, newest_comment_index, status_items, stop_picker};
+use super::issue::{
+    fill_picker, found_users, newest_comment_index, status_items, stop_assign_picker,
+    stop_status_picker,
+};
 use super::nav::clamp_selection;
 use crate::api::IssueSummary;
 use crate::tui::app::{App, RECENT_CAP};
@@ -171,19 +174,22 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             None
         }
         Message::MembersLoaded { team_id, members } => {
-            let items = assign_items(&members);
-
             app.workspace
                 .members
                 .get_or_default(&team_id)
                 .set(members.clone(), app.now);
 
-            match &mut app.overlay {
-                Overlay::Picker(picker) if picker.kind == PickerKind::Assign => {
-                    fill_picker(picker, items)
+            if let Overlay::Editor(editor) = &mut app.overlay {
+                editor.members = members;
+            }
+
+            None
+        }
+        Message::UsersFound { query, users } => {
+            if let Overlay::Picker(picker) = &mut app.overlay {
+                if picker.searching() == Some(query.as_str()) {
+                    fill_picker(picker, found_users(users));
                 }
-                Overlay::Editor(editor) => editor.members = members,
-                _ => {}
             }
 
             None
@@ -278,15 +284,15 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
                         .states
                         .get_or_default(&team_id)
                         .fail(error.clone());
-                    stop_picker(&mut app.overlay, PickerKind::Status);
+                    stop_status_picker(&mut app.overlay);
                 }
                 FailureTarget::Members { team_id } => {
                     app.workspace
                         .members
                         .get_or_default(&team_id)
                         .fail(error.clone());
-                    stop_picker(&mut app.overlay, PickerKind::Assign);
                 }
+                FailureTarget::UserSearch => stop_assign_picker(&mut app.overlay),
                 FailureTarget::Ephemeral => {}
             }
 

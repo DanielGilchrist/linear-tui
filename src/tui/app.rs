@@ -13,7 +13,6 @@ use crate::api::{IssueDetail, IssueId, IssueSummary, NotificationItem, TeamId, T
 use crate::store::Account;
 
 pub const SCROLL_STEP: usize = 2;
-
 pub const RECENT_CAP: usize = 50;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -460,7 +459,21 @@ impl App {
                 .as_ref()
                 .and_then(|view| view.state.selected()),
             Focus::Stub(index) => self.stubs[index].state.selected(),
-            Focus::Detail(..) => None,
+            Focus::Detail(DetailFocus {
+                view: DetailView::Comments,
+                ..
+            }) => self.comment_state.selected(),
+            Focus::Detail(DetailFocus {
+                view: DetailView::Reading,
+                ..
+            }) => Some(self.scroll_position),
+        }
+    }
+
+    pub fn reveal_focused(&mut self, index: Option<usize>) {
+        match self.nav() {
+            Nav::List { state, .. } => state.select(index),
+            Nav::Scroll { position, .. } => *position = index.unwrap_or(0),
         }
     }
 
@@ -498,7 +511,7 @@ impl App {
             .position(|issue| detail_focus.issue.matches_summary(issue))
     }
 
-    fn focused_row_texts(&self) -> Vec<String> {
+    pub fn focused_row_texts(&self) -> Vec<String> {
         match self.focus {
             Focus::MyWork => match self.active_view().kind {
                 ViewKind::Issues(_) => self.active_issues().iter().map(issue_search_text).collect(),
@@ -533,7 +546,29 @@ impl App {
                 None => Vec::new(),
             },
             Focus::Stub(index) => self.stubs[index].items.clone(),
-            Focus::Detail(..) => Vec::new(),
+            Focus::Detail(DetailFocus {
+                view: DetailView::Comments,
+                ..
+            }) => match self.open_detail() {
+                Some(detail) => detail
+                    .threaded_comments()
+                    .iter()
+                    .map(|threaded| comment_search_text(threaded.comment))
+                    .collect(),
+                None => Vec::new(),
+            },
+            Focus::Detail(DetailFocus {
+                view: DetailView::Reading,
+                ..
+            }) => match self.open_detail() {
+                Some(detail) => super::render::detail_line_texts(
+                    detail,
+                    self.workspace.detail_markdown(),
+                    self.now,
+                    None,
+                ),
+                None => Vec::new(),
+            },
         }
     }
 
@@ -573,6 +608,13 @@ impl App {
 impl Default for App {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn comment_search_text(comment: &crate::api::Comment) -> String {
+    match &comment.author {
+        Some(author) => format!("{author} {}", comment.body),
+        None => comment.body.clone(),
     }
 }
 

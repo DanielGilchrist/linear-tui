@@ -1,6 +1,6 @@
 ---
 source: tests/render.rs
-assertion_line: 300
+assertion_line: 323
 expression: "render_to_string(&mut app, 100, 20)"
 ---
 ┌Assigned to me · In Progress · Inbox┐┌DAN2-7──────────────────────────────────────────────────────┐
@@ -8,17 +8,17 @@ expression: "render_to_string(&mut app, 100, 20)"
 │!!! DAN-10 In Progress Sprinkle disp││Wood-fired oven runs 40°C too hot on Friday nights          █
 │!!  DAN2-2 In Progress Delivery driv││@dan  oven                                                  █
 │!!! DAN2-3 Todo Add gluten-free base││https://linear.app/dans-donuts/issue/DAN2-7/wood-fired-oven-█
-│!!  DAN-13 Todo Introduce a┌Assign  DAN2-7────────────────────────────┐                           █
-│!!  DAN2-5 Backlog Settle t│Unassigned                                │                           █
-│    DAN-15 Backlog Coffee p│dan  you                                  │                           ║
-└ 1 of 7 ───────────────────│                                          │                           ║
-┌Recently viewed────────────│                                          │oven creeps past 480°C and ║
-│Issues you open land here  │                                          │lts.                       ║
+│!!  DAN-13 Todo Introduce a┌Assign  DAN2-7  ·  a──────────────────────┐                           █
+│!!  DAN2-5 Backlog Settle t│dan  you                                  │                           █
+│    DAN-15 Backlog Coffee p│sam                                       │                           ║
+└ 1 of 7 ───────────────────│alex                                      │                           ║
+┌Recently viewed────────────│danniiee                                  │oven creeps past 480°C and ║
+│Issues you open land here  │charlieh                                  │lts.                       ║
 └───────────────────────────│                                          │                           ║
 ┌Saved Views────────────────│                                          │                           ║
 │⠋  Loading…                │                                          │                           ║
 └───────────────────────────│                                          │king open                  ║
-┌Teams──────────────────────└ 1 of 2 ──────────────────────────────────┘                           ║
+┌Teams──────────────────────└ 1 of 5 ──────────────────────────────────┘                           ║
 │Dan's Pizza                         ││Checklist                                                   ║
 │Dan's Donuts                        ││                                                            ↓
 └ 1 of 2 ────────────────────────────┘└────────────────────────────────────────────────────────────┘
