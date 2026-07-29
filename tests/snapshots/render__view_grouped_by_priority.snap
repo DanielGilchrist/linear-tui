@@ -27,4 +27,4 @@ expression: "render_to_string(&mut app, 110, 26)"
 │Dan's Pizza                             ││                                                                  │
 │Dan's Donuts                            ││                                                                  │
 └ 1 of 2 ────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
- j move   enter open   s status   a assign   v display   z zoom   esc back   q quit       Dan's Donuts · @dan
+ j move   enter open   e edit   v display   z zoom   esc back   q quit                    Dan's Donuts · @dan

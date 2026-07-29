@@ -9,6 +9,11 @@ use linear_tui::tui::update::{apply, handle_key};
 use linear_tui::tui::view::ViewKind;
 use linear_tui::tui::{render_styled_to_string, render_to_string};
 
+fn edit(app: &mut App, field: char) {
+    handle_key(app, KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+    handle_key(app, KeyEvent::new(KeyCode::Char(field), KeyModifiers::NONE));
+}
+
 async fn home_app(client: &FixtureClient, view: usize) -> App {
     let mut app = App::new();
     app.now = Timestamp::from("2026-07-16T21:00:00Z");
@@ -267,10 +272,7 @@ async fn status_picker_overlay() {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await;
 
-    handle_key(
-        &mut app,
-        KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
-    );
+    edit(&mut app, 's');
     let states = client
         .workflow_states(&TeamId::from_raw("t_pizza"))
         .await
@@ -292,10 +294,7 @@ async fn assign_picker_overlay() {
     let mut app = opened_detail_app(&client).await;
     app.workspace.session = client.session().await.ok();
 
-    handle_key(
-        &mut app,
-        KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
-    );
+    edit(&mut app, 'a');
 
     insta::assert_snapshot!(render_to_string(&mut app, 100, 20));
 }
@@ -306,7 +305,8 @@ async fn assign_picker_search_results() {
     let mut app = opened_detail_app(&client).await;
     app.workspace.session = client.session().await.ok();
 
-    for key in ['a', '/', 'a'] {
+    edit(&mut app, 'a');
+    for key in ['/', 'a'] {
         handle_key(
             &mut app,
             KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE),
@@ -500,10 +500,7 @@ async fn confirm_dialog() {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await;
 
-    handle_key(
-        &mut app,
-        KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
-    );
+    edit(&mut app, 's');
     let states = client
         .workflow_states(&TeamId::from_raw("t_pizza"))
         .await
@@ -579,10 +576,7 @@ async fn styled_view_grouped_by_priority() {
 async fn styled_status_picker_overlay() {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await;
-    handle_key(
-        &mut app,
-        KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
-    );
+    edit(&mut app, 's');
     let states = client
         .workflow_states(&TeamId::from_raw("t_pizza"))
         .await

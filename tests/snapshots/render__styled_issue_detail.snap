@@ -189,6 +189,6 @@ expression: "render_styled_to_string(&mut app, 110, 26)"
     [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 2 "
     [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "────────────────────────────────┘"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└──────────────────────────────────────────────────────────────────┘"
- j/k scroll   C-d/C-u page   s status   a assign   c comment   m comments   + react   o … Dan's Donuts · @dan
-    [0] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " j/k scroll   C-d/C-u page   s status   a assign   c comment   m comments   + react   o …"
+ j/k scroll   C-d/C-u page   e edit   c comment   m comments   + react   o browser   y y… Dan's Donuts · @dan
+    [0] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " j/k scroll   C-d/C-u page   e edit   c comment   m comments   + react   o browser   y y…"
     [90] fg=Some(Cyan) bg=Some(Reset) mod=NONE "Dan's Donuts · @dan "

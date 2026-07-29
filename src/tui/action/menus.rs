@@ -12,8 +12,7 @@ pub const MY_WORK_MENU: &[Action] = &[
 ];
 
 pub const DETAIL_MENU: &[Action] = &[
-    Action::SetStatus,
-    Action::Assign,
+    Action::Edit,
     Action::Comment,
     Action::OpenInBrowser,
     Action::YankUrl,

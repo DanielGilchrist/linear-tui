@@ -5,7 +5,7 @@ use super::emoji::{self, PaletteEmoji};
 use super::focus::{Direction, Edge, Focus};
 use super::message::Command;
 use crate::api::{
-    CommentId, IssueId, Reaction, ReactionTarget, StateId, StateOption, User, UserId,
+    CommentId, IssueId, Priority, Reaction, ReactionTarget, StateId, StateOption, User, UserId,
 };
 use crate::store::Account;
 
@@ -13,6 +13,7 @@ use crate::store::Account;
 pub enum PickerKind {
     Status,
     Assign(AssignOptions),
+    Priority,
 }
 
 /// Assignees are not enumerated: an account can hold thousands, so the picker
@@ -27,6 +28,7 @@ pub enum AssignOptions {
 pub enum PickerAction {
     SetStatus(StateId),
     SetAssignee(Option<UserId>),
+    SetPriority(Priority),
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +76,16 @@ impl From<User> for PickerItem {
     }
 }
 
+impl From<Priority> for PickerItem {
+    fn from(priority: Priority) -> Self {
+        Self {
+            label: priority.label().to_string(),
+            hint: String::new(),
+            action: PickerAction::SetPriority(priority),
+        }
+    }
+}
+
 pub struct Picker {
     pub kind: PickerKind,
     pub target_issue: IssueId,
@@ -88,13 +100,16 @@ impl Picker {
         match self.kind {
             PickerKind::Status => "Set status",
             PickerKind::Assign(_) => "Assign",
+            PickerKind::Priority => "Set priority",
         }
     }
 
     pub fn searching(&self) -> Option<&str> {
         match &self.kind {
             PickerKind::Assign(AssignOptions::Matching(query)) => Some(query),
-            PickerKind::Status | PickerKind::Assign(AssignOptions::Suggested) => None,
+            PickerKind::Status
+            | PickerKind::Assign(AssignOptions::Suggested)
+            | PickerKind::Priority => None,
         }
     }
 

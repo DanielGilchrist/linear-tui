@@ -63,8 +63,7 @@ pub const DETAIL_HINTS: &[Hint<Action>] = &[
         keys: "C-d/C-u",
         label: "page",
     },
-    Hint::Bound(Action::SetStatus),
-    Hint::Bound(Action::Assign),
+    Hint::Bound(Action::Edit),
     Hint::Bound(Action::Comment),
     Hint::Literal {
         keys: "m",
@@ -150,8 +149,7 @@ pub const REACTIONS_HINTS: &[Hint<ReactionInput>] = &[
 pub const VIEW_HINTS: &[Hint<Action>] = &[
     Hint::Bound(Action::SelectNext),
     Hint::Bound(Action::Descend),
-    Hint::Bound(Action::SetStatus),
-    Hint::Bound(Action::Assign),
+    Hint::Bound(Action::Edit),
     Hint::Literal {
         keys: "v",
         label: "display",

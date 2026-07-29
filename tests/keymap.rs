@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::tui::action::{
     is_quit, Action, ConfirmInput, PickerInput, ReactionInput, BROWSE, COMMENTS_KEYS, DETAIL_HINTS,
-    DETAIL_KEYS, GO_GROUP, MY_WORK_HINTS,
+    DETAIL_KEYS, EDIT_GROUP, GO_GROUP, MY_WORK_HINTS,
 };
 
 fn key(code: KeyCode) -> KeyEvent {
@@ -27,8 +27,8 @@ fn browse_keys_map_to_intents() {
         Some(Action::SelectPrev)
     );
     assert_eq!(
-        Action::from_key(key(KeyCode::Char('s'))),
-        Some(Action::SetStatus)
+        Action::from_key(key(KeyCode::Char('e'))),
+        Some(Action::Edit)
     );
     assert_eq!(
         Action::from_key(key(KeyCode::Char('o'))),
@@ -188,6 +188,23 @@ fn reactions_overlay_keymap() {
         Some(ReactionInput::Cancel)
     );
     assert_eq!(ReactionInput::from_key(key(KeyCode::Char('z'))), None);
+}
+
+#[test]
+fn edit_group_resolves_field_edits() {
+    assert_eq!(
+        EDIT_GROUP.resolve(key(KeyCode::Char('s'))),
+        Some(Action::SetStatus)
+    );
+    assert_eq!(
+        EDIT_GROUP.resolve(key(KeyCode::Char('a'))),
+        Some(Action::Assign)
+    );
+    assert_eq!(
+        EDIT_GROUP.resolve(key(KeyCode::Char('p'))),
+        Some(Action::SetPriority)
+    );
+    assert_eq!(Action::from_key(key(KeyCode::Char('s'))), None);
 }
 
 #[test]

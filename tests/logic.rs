@@ -4,7 +4,7 @@ use linear_tui::api::{
     CommentId, Cursor, IssueId, IssueRef, IssueSummary, Page, Reaction, ReactionId, ReactionTarget,
     StateId, TeamId, Timestamp, UserId, ViewId,
 };
-use linear_tui::api::{Credential, IssueUpdate, LinearApi};
+use linear_tui::api::{Credential, IssueUpdate, LinearApi, Priority};
 use linear_tui::store::Account;
 use linear_tui::tui::app::App;
 use linear_tui::tui::cache::{CacheStatus, Remote};
@@ -23,6 +23,11 @@ fn press(code: KeyCode) -> KeyEvent {
 
 fn ctrl(c: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+}
+
+fn edit(app: &mut App, field: char) -> Option<Command> {
+    handle_key(app, press(KeyCode::Char('e')));
+    handle_key(app, press(KeyCode::Char(field)))
 }
 
 #[test]
@@ -170,10 +175,11 @@ fn menu_enter_runs_the_selected_action() {
     let commands = handle_key(&mut app, press(KeyCode::Enter));
 
     assert!(app.menu().is_none());
-    match commands {
-        Some(Command::LoadStates { .. }) => {}
-        other => panic!("expected the first Detail action (status) to run, got {other:?}"),
-    }
+    assert!(app.prefix().is_some());
+    assert!(commands.is_none());
+
+    let command = handle_key(&mut app, press(KeyCode::Char('s')));
+    assert!(matches!(command, Some(Command::LoadStates { .. })));
 }
 
 #[test]
@@ -371,7 +377,7 @@ fn status_acts_on_the_highlighted_view_issue() {
     handle_key(&mut app, press(KeyCode::Enter));
     load_view_feed(&mut app, "v1", vec![sample_issue("i1", "DAN2-7")]);
 
-    let command = handle_key(&mut app, press(KeyCode::Char('s')));
+    let command = edit(&mut app, 's');
 
     assert_eq!(app.picker().map(|p| &p.kind), Some(&PickerKind::Status));
     match command {
@@ -1096,7 +1102,7 @@ fn esc_from_detail_focuses_my_work() {
 fn status_action_requires_an_opened_issue() {
     let mut app = list_app_with_issue();
 
-    let commands = handle_key(&mut app, press(KeyCode::Char('s')));
+    let commands = edit(&mut app, 's');
 
     assert!(app.picker().is_none());
     assert!(commands.is_none());
@@ -1106,7 +1112,7 @@ fn status_action_requires_an_opened_issue() {
 fn s_opens_status_picker_once_issue_is_loaded() {
     let mut app = detail_app();
 
-    let commands = handle_key(&mut app, press(KeyCode::Char('s')));
+    let commands = edit(&mut app, 's');
 
     assert_eq!(app.picker().map(|p| &p.kind), Some(&PickerKind::Status));
     match commands {
@@ -1659,7 +1665,7 @@ fn opening_a_detail_starts_at_the_top() {
 #[test]
 fn picker_enter_opens_confirmation_then_applies() {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('s')));
+    edit(&mut app, 's');
     apply(
         &mut app,
         Message::StatesLoaded {
@@ -1687,7 +1693,7 @@ fn picker_enter_opens_confirmation_then_applies() {
 #[test]
 fn confirmation_cancel_does_not_write() {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('s')));
+    edit(&mut app, 's');
     apply(
         &mut app,
         Message::StatesLoaded {
@@ -1704,9 +1710,28 @@ fn confirmation_cancel_does_not_write() {
 }
 
 #[test]
+fn priority_picker_sets_the_priority() {
+    let mut app = detail_app();
+    edit(&mut app, 'p');
+    assert_eq!(app.picker().map(|p| &p.kind), Some(&PickerKind::Priority));
+
+    handle_key(&mut app, press(KeyCode::Enter));
+    assert!(app.confirm().is_some());
+
+    let command = handle_key(&mut app, press(KeyCode::Char('y')));
+    match command {
+        Some(Command::UpdateIssue {
+            update: IssueUpdate::Priority(priority),
+            ..
+        }) => assert_eq!(priority, Priority::Urgent),
+        other => panic!("expected UpdateIssue priority, got {other:?}"),
+    }
+}
+
+#[test]
 fn assign_picker_can_unassign() {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('a')));
+    edit(&mut app, 'a');
 
     handle_key(&mut app, press(KeyCode::Enter));
     assert!(app.confirm().is_some());
@@ -1725,7 +1750,7 @@ fn assign_picker_can_unassign() {
 fn a_warm_status_picker_opens_from_cache_without_refetching() {
     let mut app = detail_app();
 
-    let first = handle_key(&mut app, press(KeyCode::Char('s')));
+    let first = edit(&mut app, 's');
     assert!(matches!(first, Some(Command::LoadStates { .. })));
     apply(
         &mut app,
@@ -1736,7 +1761,7 @@ fn a_warm_status_picker_opens_from_cache_without_refetching() {
     );
     handle_key(&mut app, press(KeyCode::Esc));
 
-    let second = handle_key(&mut app, press(KeyCode::Char('s')));
+    let second = edit(&mut app, 's');
     assert!(second.is_none(), "a fresh states cache must not refetch");
     let picker = app.picker().expect("picker open");
     assert!(!picker.loading);
@@ -1768,7 +1793,7 @@ fn a_failed_detail_fetch_marks_the_cell_and_shows_an_error() {
 fn a_failed_states_fetch_stops_the_spinner_and_retries_next_time() {
     let mut app = detail_app();
 
-    handle_key(&mut app, press(KeyCode::Char('s')));
+    edit(&mut app, 's');
     assert!(app.picker().is_some_and(|p| p.loading));
 
     apply(
@@ -1792,7 +1817,7 @@ fn a_failed_states_fetch_stops_the_spinner_and_retries_next_time() {
     assert!(matches!(app.status, Some(Status::Error(_))));
 
     handle_key(&mut app, press(KeyCode::Esc));
-    let retry = handle_key(&mut app, press(KeyCode::Char('s')));
+    let retry = edit(&mut app, 's');
     match retry {
         Some(Command::LoadStates { team_id }) if team_id.as_str() == "t_pizza" => {}
         other => panic!("expected a retry LoadStates after failure, got {other:?}"),
@@ -1804,7 +1829,7 @@ fn the_assign_picker_offers_yourself_without_fetching_everyone() {
     let mut app = detail_app();
     app.workspace.session = Some(session("dan"));
 
-    let command = handle_key(&mut app, press(KeyCode::Char('a')));
+    let command = edit(&mut app, 'a');
 
     assert!(
         command.is_none(),
@@ -1825,7 +1850,7 @@ fn the_assign_picker_offers_yourself_without_fetching_everyone() {
 #[test]
 fn slash_in_the_assign_picker_searches_for_people() {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('a')));
+    edit(&mut app, 'a');
 
     handle_key(&mut app, press(KeyCode::Char('/')));
     for c in "cha".chars() {
@@ -1862,7 +1887,7 @@ fn slash_in_the_assign_picker_searches_for_people() {
 #[test]
 fn results_for_a_stale_search_are_ignored() {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('a')));
+    edit(&mut app, 'a');
     handle_key(&mut app, press(KeyCode::Char('/')));
     for c in "cha".chars() {
         handle_key(&mut app, press(KeyCode::Char(c)));
@@ -1885,7 +1910,7 @@ fn results_for_a_stale_search_are_ignored() {
 #[test]
 fn a_failed_user_search_stops_the_picker_spinner() {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('a')));
+    edit(&mut app, 'a');
     handle_key(&mut app, press(KeyCode::Char('/')));
     handle_key(&mut app, press(KeyCode::Char('d')));
     handle_key(&mut app, press(KeyCode::Enter));
@@ -1929,7 +1954,7 @@ fn y_copies_url_from_highlighted_issue() {
 #[test]
 fn esc_closes_picker_without_updating() {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('a')));
+    edit(&mut app, 'a');
     assert!(app.picker().is_some());
 
     let commands = handle_key(&mut app, press(KeyCode::Esc));

@@ -1,7 +1,7 @@
 use ratatui::widgets::{ListState, ScrollbarState};
 
 use super::nav::clamp_selection;
-use crate::api::{IssueRef, Reaction, ReactionTarget, StateOption, TeamId, User};
+use crate::api::{IssueRef, Priority, Reaction, ReactionTarget, StateOption, TeamId, User};
 use crate::tui::app::{App, FocusedIssue};
 use crate::tui::cache::{RefreshPolicy, Remote};
 use crate::tui::focus::{DetailFocus, DetailView, Focus, Reveal};
@@ -208,6 +208,24 @@ pub(super) fn open_assign_picker(app: &mut App) -> Option<Command> {
     open_picker(app, PickerKind::Assign(AssignOptions::Suggested), target)
 }
 
+pub(super) fn open_priority_picker(app: &mut App) -> Option<Command> {
+    let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
+    open_picker(app, PickerKind::Priority, target)
+}
+
+pub(super) fn priority_items() -> Vec<PickerItem> {
+    [
+        Priority::Urgent,
+        Priority::High,
+        Priority::Medium,
+        Priority::Low,
+        Priority::None,
+    ]
+    .into_iter()
+    .map(PickerItem::from)
+    .collect()
+}
+
 pub(super) fn open_comment_input(app: &mut App) -> Option<Command> {
     let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
     open_editor(app, Compose::Comment, target.team_id, None)
@@ -309,6 +327,7 @@ pub(super) fn open_picker(
             (items, command)
         }
         PickerKind::Assign(_) => (assign_suggestions(app), None),
+        PickerKind::Priority => (priority_items(), None),
     };
 
     let loading = items.is_empty() && command.is_some();

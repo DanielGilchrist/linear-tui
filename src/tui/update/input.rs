@@ -4,8 +4,8 @@ use ratatui::widgets::ListState;
 use super::feed::{force_feed, load_more, reload};
 use super::issue::{
     clear_recent, enter_comments, open_assign_picker, open_comment_input, open_delete_comment,
-    open_edit_editor, open_in_browser, open_issue, open_reactions, open_reply_editor,
-    open_status_picker, search_assignees, toggle_reaction, yank_url,
+    open_edit_editor, open_in_browser, open_issue, open_priority_picker, open_reactions,
+    open_reply_editor, open_status_picker, search_assignees, toggle_reaction, yank_url,
 };
 use super::nav::{
     ascend, cycle_panel, cycle_view, cycle_view_group, cycle_view_sort, descend, history_step,
@@ -67,6 +67,14 @@ pub(super) fn open_display_prefix() -> Overlay {
     Overlay::Prefix(Prefix {
         title: "Display",
         keymap: &action::VIEW_GROUP,
+        under: PrefixUnder::Browse,
+    })
+}
+
+pub(super) fn open_edit_prefix() -> Overlay {
+    Overlay::Prefix(Prefix {
+        title: "Edit",
+        keymap: &action::EDIT_GROUP,
         under: PrefixUnder::Browse,
     })
 }
@@ -683,8 +691,13 @@ pub(super) fn apply_action(app: &mut App, action: Action) -> Option<Command> {
         Action::Reload => Some(reload(app)),
         Action::OpenInBrowser => open_in_browser(app),
         Action::YankUrl => yank_url(app),
+        Action::Edit => {
+            app.overlay = open_edit_prefix();
+            None
+        }
         Action::SetStatus => open_status_picker(app),
         Action::Assign => open_assign_picker(app),
+        Action::SetPriority => open_priority_picker(app),
         Action::Comment => open_comment_input(app),
         Action::EnterComments => enter_comments(app),
         Action::Reply => open_reply_editor(app),
@@ -834,6 +847,13 @@ pub(super) fn confirm_picker(app: &mut App, picker: Picker) -> Option<Command> {
         PickerAction::SetAssignee(None) => (
             IssueUpdate::Assignee(None),
             format!("Unassign {}?", picker.target_label),
+        ),
+        PickerAction::SetPriority(priority) => (
+            IssueUpdate::Priority(*priority),
+            format!(
+                "Set {} priority to \"{}\"?",
+                picker.target_label, item.label
+            ),
         ),
     };
 

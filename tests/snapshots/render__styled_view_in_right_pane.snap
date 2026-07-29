@@ -179,6 +179,6 @@ expression: "render_styled_to_string(&mut app, 110, 26)"
     [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 2 "
     [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "────────────────────────────────┘"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└──────────────────────────────────────────────────────────────────┘"
- j move   enter open   s status   a assign   v display   z zoom   esc back   q quit       Dan's Donuts · @dan
-    [0] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " j move   enter open   s status   a assign   v display   z zoom   esc back   q quit"
+ j move   enter open   e edit   v display   z zoom   esc back   q quit                    Dan's Donuts · @dan
+    [0] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " j move   enter open   e edit   v display   z zoom   esc back   q quit"
     [90] fg=Some(Cyan) bg=Some(Reset) mod=NONE "Dan's Donuts · @dan "

@@ -80,6 +80,12 @@ pub struct StatusInput {
     pub state_id: Option<String>,
 }
 
+#[derive(Debug, Clone, InputObject)]
+#[cynic(schema_path = "schema.graphql", graphql_type = "IssueUpdateInput")]
+pub struct PriorityInput {
+    pub priority: i32,
+}
+
 // No `skip_serializing_if`: `None` serialises as explicit `null`, which unassigns.
 // TODO: fold back into one input via MaybeUndefined once https://codeberg.org/obmarg/cynic/issues/125 lands.
 #[derive(Debug, Clone, InputObject)]
@@ -100,6 +106,12 @@ pub struct AssigneeVariables {
     pub input: AssigneeInput,
 }
 
+#[derive(Debug, QueryVariables)]
+pub struct PriorityVariables {
+    pub id: String,
+    pub input: PriorityInput,
+}
+
 #[derive(Debug, QueryFragment)]
 #[cynic(schema_path = "schema.graphql")]
 pub struct IssuePayload {
@@ -113,6 +125,17 @@ pub struct IssuePayload {
     variables = "StatusVariables"
 )]
 pub struct StatusMutation {
+    #[arguments(id: $id, input: $input)]
+    pub issue_update: IssuePayload,
+}
+
+#[derive(Debug, QueryFragment)]
+#[cynic(
+    schema_path = "schema.graphql",
+    graphql_type = "Mutation",
+    variables = "PriorityVariables"
+)]
+pub struct PriorityMutation {
     #[arguments(id: $id, input: $input)]
     pub issue_update: IssuePayload,
 }

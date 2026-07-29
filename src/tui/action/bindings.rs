@@ -50,14 +50,9 @@ pub const BROWSE: Keymap<Action> = Keymap {
             label: "back",
         },
         Binding {
-            action: Action::SetStatus,
-            keys: &[Char('s')],
-            label: "status",
-        },
-        Binding {
-            action: Action::Assign,
-            keys: &[Char('a')],
-            label: "assign",
+            action: Action::Edit,
+            keys: &[Char('e')],
+            label: "edit",
         },
         Binding {
             action: Action::Comment,
@@ -163,6 +158,26 @@ pub const GO_GROUP: Keymap<Action> = Keymap {
             action: Action::Search,
             keys: &[Char('s')],
             label: "search",
+        },
+    ],
+};
+
+pub const EDIT_GROUP: Keymap<Action> = Keymap {
+    bindings: &[
+        Binding {
+            action: Action::SetStatus,
+            keys: &[Char('s')],
+            label: "status",
+        },
+        Binding {
+            action: Action::Assign,
+            keys: &[Char('a')],
+            label: "assign",
+        },
+        Binding {
+            action: Action::SetPriority,
+            keys: &[Char('p')],
+            label: "priority",
         },
     ],
 };

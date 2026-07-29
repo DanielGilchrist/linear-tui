@@ -47,4 +47,4 @@ expression: "render_to_string(&mut app, 90, 46)"
 │Dan's Pizza                     ││  └ danniiee · 10h ago                                ║
 │Dan's Donuts                    ││    Agreed, the sensor looks fine. Next suspect is the↓
 └ 1 of 2 ────────────────────────┘└──────────────────────────────────────────────────────┘
- j/k scroll   C-d/C-u page   s status   a assign   c comment   m com… Dan's Donuts · @dan
+ j/k scroll   C-d/C-u page   e edit   c comment   m comments   + rea… Dan's Donuts · @dan

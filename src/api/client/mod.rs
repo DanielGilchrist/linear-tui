@@ -13,9 +13,10 @@ use crate::api::model::{
 use crate::api::queries::actions::{
     AssigneeInput, AssigneeMutation, AssigneeVariables, CommentCreateInput, CommentCreateMutation,
     CommentCreateVariables, CommentDeleteMutation, CommentDeleteVariables, CommentUpdateInput,
-    CommentUpdateMutation, CommentUpdateVariables, ReactionCreateInput, ReactionCreateMutation,
-    ReactionCreateVariables, ReactionDeleteMutation, ReactionDeleteVariables, StatusInput,
-    StatusMutation, StatusVariables, TeamMembersQuery, TeamStatesQuery, TeamVariables,
+    CommentUpdateMutation, CommentUpdateVariables, PriorityInput, PriorityMutation,
+    PriorityVariables, ReactionCreateInput, ReactionCreateMutation, ReactionCreateVariables,
+    ReactionDeleteMutation, ReactionDeleteVariables, StatusInput, StatusMutation, StatusVariables,
+    TeamMembersQuery, TeamStatesQuery, TeamVariables,
 };
 use crate::api::queries::custom_views::{
     CustomViewIssuesQuery, CustomViewIssuesVariables, CustomViewsQuery, CustomViewsVariables,
@@ -334,6 +335,15 @@ impl LinearApi for Client {
                     id,
                     input: AssigneeInput {
                         assignee_id: assignee_id.map(|id| id.to_string()),
+                    },
+                }))
+                .await
+            }
+            IssueUpdate::Priority(priority) => {
+                self.run_mutation(PriorityMutation::build(PriorityVariables {
+                    id,
+                    input: PriorityInput {
+                        priority: i32::from(u8::from(priority)),
                     },
                 }))
                 .await
