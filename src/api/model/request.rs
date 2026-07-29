@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::id::{CommentId, IssueId, StateId, UserId};
+use super::id::{CommentId, IssueId, LabelId, StateId, UserId};
 use super::scalar::{Priority, StateType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -8,6 +8,7 @@ pub enum IssueUpdate {
     Status(StateId),
     Assignee(Option<UserId>),
     Priority(Priority),
+    Labels(Vec<LabelId>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

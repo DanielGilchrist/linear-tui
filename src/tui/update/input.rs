@@ -4,8 +4,9 @@ use ratatui::widgets::ListState;
 use super::feed::{force_feed, load_more, reload};
 use super::issue::{
     clear_recent, enter_comments, open_assign_picker, open_comment_input, open_delete_comment,
-    open_edit_editor, open_in_browser, open_issue, open_priority_picker, open_reactions,
-    open_reply_editor, open_status_picker, search_assignees, toggle_reaction, yank_url,
+    open_edit_editor, open_in_browser, open_issue, open_labels, open_priority_picker,
+    open_reactions, open_reply_editor, open_status_picker, search_assignees, toggle_reaction,
+    yank_url,
 };
 use super::nav::{
     ascend, cycle_panel, cycle_view, cycle_view_group, cycle_view_sort, descend, history_step,
@@ -15,17 +16,17 @@ use crate::api::Credential;
 use crate::api::IssueRef;
 use crate::api::IssueUpdate;
 use crate::tui::action::{
-    self, Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput, ReactionInput,
-    WorkspacesInput,
+    self, Action, ConfirmInput, EditorInput, InputInput, LabelsInput, MenuInput, PickerInput,
+    ReactionInput, WorkspacesInput,
 };
 use crate::tui::app::App;
 use crate::tui::feed::FeedKey;
 use crate::tui::focus::{DetailView, Direction, Edge, Focus};
 use crate::tui::message::Command;
 use crate::tui::overlay::{
-    AssignOptions, Compose, Confirm, Editor, Find, Input, InputPurpose, MentionMenu, Menu, Overlay,
-    Picker, PickerAction, PickerKind, Prefix, PrefixUnder, Reactions, Search, WorkspaceRow,
-    Workspaces,
+    AssignOptions, Compose, Confirm, Editor, Find, Input, InputPurpose, Labels, MentionMenu, Menu,
+    Overlay, Picker, PickerAction, PickerKind, Prefix, PrefixUnder, Reactions, Search,
+    WorkspaceRow, Workspaces,
 };
 use crate::tui::status::Status;
 
@@ -616,6 +617,56 @@ pub(super) fn apply_reactions(
     }
 }
 
+pub(super) fn apply_labels(app: &mut App, mut labels: Labels, key: KeyEvent) -> Option<Command> {
+    match LabelsInput::from_key(key) {
+        Some(LabelsInput::Cancel) => {
+            app.status = Some(Status::Cancelled);
+            None
+        }
+        Some(LabelsInput::Submit) => Some(Command::UpdateIssue {
+            id: labels.target_issue.clone(),
+            update: IssueUpdate::Labels(labels.selected_ids()),
+        }),
+        Some(LabelsInput::Toggle) => {
+            labels.toggle_highlighted();
+            restore_labels(app, labels)
+        }
+        Some(LabelsInput::Next) => {
+            navigate_list(&mut labels.state, labels.results.len(), Direction::Next);
+            restore_labels(app, labels)
+        }
+        Some(LabelsInput::Prev) => {
+            navigate_list(&mut labels.state, labels.results.len(), Direction::Prev);
+            restore_labels(app, labels)
+        }
+        Some(LabelsInput::Erase) => {
+            labels.query.pop();
+            search_labels(app, labels)
+        }
+        None => match key.code {
+            KeyCode::Char(c) if is_plain(key) => {
+                labels.query.push(c);
+                search_labels(app, labels)
+            }
+            _ => restore_labels(app, labels),
+        },
+    }
+}
+
+fn restore_labels(app: &mut App, labels: Labels) -> Option<Command> {
+    app.overlay = Overlay::Labels(labels);
+    None
+}
+
+fn search_labels(app: &mut App, mut labels: Labels) -> Option<Command> {
+    let query = labels.query.clone();
+    labels.loading = true;
+    labels.results = Vec::new();
+    labels.state.select(Some(0));
+    app.overlay = Overlay::Labels(labels);
+    Some(Command::SearchLabels { query })
+}
+
 pub(super) fn apply_workspaces(
     app: &mut App,
     mut workspaces: Workspaces,
@@ -698,6 +749,7 @@ pub(super) fn apply_action(app: &mut App, action: Action) -> Option<Command> {
         Action::SetStatus => open_status_picker(app),
         Action::Assign => open_assign_picker(app),
         Action::SetPriority => open_priority_picker(app),
+        Action::SetLabels => open_labels(app),
         Action::Comment => open_comment_input(app),
         Action::EnterComments => enter_comments(app),
         Action::Reply => open_reply_editor(app),

@@ -1,0 +1,24 @@
+---
+source: tests/render.rs
+expression: "render_to_string(&mut app, 100, 20)"
+---
+┌Assigned to me · In Progress · Inbox┐┌DAN2-7──────────────────────────────────────────────────────┐
+│!!! DAN2-7 In Progress Wood-fired ov││DAN2-7  In Progress                                         ↑
+│!!! DAN-10 In Progress ┌Labels────────────────────────────────────────────┐Friday nights          █
+│!!  DAN2-2 In Progress │search: type to search                            │                       █
+│!!! DAN2-3 Todo Add glu│✓ ● oven                                          │DAN2-7/wood-fired-oven-█
+│!!  DAN-13 Todo Introdu│  ● bug                                           │                       █
+│!!  DAN2-5 Backlog Sett│                                                  │                       █
+│    DAN-15 Backlog Coff│                                                  │                       ║
+└ 1 of 7 ───────────────│                                                  │                       ║
+┌Recently viewed────────│                                                  │ creeps past 480°C and ║
+│Issues you open land he│                                                  │                       ║
+└───────────────────────│                                                  │                       ║
+┌Saved Views────────────│                                                  │                       ║
+│⠋  Loading…            │                                                  │                       ║
+└───────────────────────│                                                  │ open                  ║
+┌Teams──────────────────│                                                  │                       ║
+│Dan's Pizza            │                                                  │                       ║
+│Dan's Donuts           └──────────────────────────────────────────────────┘                       ↓
+└ 1 of 2 ────────────────────────────┘└────────────────────────────────────────────────────────────┘
+ type search   space toggle   enter submit   esc cancel                         Dan's Donuts · @dan

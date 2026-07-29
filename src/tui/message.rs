@@ -1,7 +1,7 @@
 use super::feed::{FeedKey, FeedRequest};
 use super::focus::Reveal;
 use crate::api::{
-    CommentId, Credential, IssueDetail, IssueId, IssueRef, IssueSummary, IssueUpdate,
+    CommentId, Credential, IssueDetail, IssueId, IssueRef, IssueSummary, IssueUpdate, Label,
     NotificationItem, Page, ReactionId, ReactionTarget, SavedView, Session, StateOption, TeamId,
     User,
 };
@@ -37,6 +37,10 @@ pub enum Message {
     UsersFound {
         query: String,
         users: Vec<User>,
+    },
+    LabelsFound {
+        query: String,
+        labels: Vec<Label>,
     },
     IssueUpdated {
         id: IssueId,
@@ -74,6 +78,7 @@ pub enum FailureTarget {
     States { team_id: TeamId },
     Members { team_id: TeamId },
     UserSearch,
+    LabelSearch,
     Ephemeral,
 }
 
@@ -100,6 +105,9 @@ pub enum Command {
         team_id: TeamId,
     },
     SearchUsers {
+        query: String,
+    },
+    SearchLabels {
         query: String,
     },
     UpdateIssue {

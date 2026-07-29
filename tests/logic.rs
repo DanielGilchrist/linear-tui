@@ -1,8 +1,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
 use linear_tui::api::{
-    CommentId, Cursor, IssueId, IssueRef, IssueSummary, Page, Reaction, ReactionId, ReactionTarget,
-    StateId, TeamId, Timestamp, UserId, ViewId,
+    CommentId, Cursor, IssueId, IssueRef, IssueSummary, Label, LabelId, Page, Reaction, ReactionId,
+    ReactionTarget, Rgb, StateId, TeamId, Timestamp, UserId, ViewId,
 };
 use linear_tui::api::{Credential, IssueUpdate, LinearApi, Priority};
 use linear_tui::store::Account;
@@ -1726,6 +1726,86 @@ fn priority_picker_sets_the_priority() {
         }) => assert_eq!(priority, Priority::Urgent),
         other => panic!("expected UpdateIssue priority, got {other:?}"),
     }
+}
+
+fn label(id: &str, name: &str) -> Label {
+    Label {
+        id: LabelId::from_raw(id),
+        name: name.into(),
+        colour: Rgb::parse_hex("#ffffff"),
+    }
+}
+
+#[test]
+fn labels_overlay_toggles_a_batch_then_submits_once() {
+    let mut app = detail_app();
+    let command = edit(&mut app, 'l');
+
+    assert!(matches!(
+        command,
+        Some(Command::SearchLabels { query }) if query.is_empty()
+    ));
+    assert!(app.labels().is_some_and(|l| l.loading));
+
+    apply(
+        &mut app,
+        Message::LabelsFound {
+            query: String::new(),
+            labels: vec![label("lbl_oven", "oven"), label("lbl_bug", "bug")],
+        },
+    );
+
+    let overlay = app.labels().expect("labels overlay");
+    assert!(!overlay.loading);
+    assert_eq!(overlay.results.len(), 2);
+
+    assert!(handle_key(&mut app, press(KeyCode::Char(' '))).is_none());
+    handle_key(&mut app, press(KeyCode::Down));
+    assert!(handle_key(&mut app, press(KeyCode::Char(' '))).is_none());
+
+    assert!(
+        app.labels()
+            .is_some_and(|l| l.is_selected(&LabelId::from_raw("lbl_oven"))
+                && l.is_selected(&LabelId::from_raw("lbl_bug"))),
+        "both toggles held while the overlay stays open"
+    );
+
+    let command = handle_key(&mut app, press(KeyCode::Enter));
+    match command {
+        Some(Command::UpdateIssue {
+            update: IssueUpdate::Labels(ids),
+            ..
+        }) => assert_eq!(
+            ids,
+            vec![LabelId::from_raw("lbl_oven"), LabelId::from_raw("lbl_bug")]
+        ),
+        other => panic!("expected UpdateIssue labels, got {other:?}"),
+    }
+
+    assert!(app.labels().is_none(), "submit closes the overlay");
+}
+
+#[test]
+fn labels_typing_reissues_the_search() {
+    let mut app = detail_app();
+    edit(&mut app, 'l');
+    apply(
+        &mut app,
+        Message::LabelsFound {
+            query: String::new(),
+            labels: vec![label("lbl_oven", "oven")],
+        },
+    );
+
+    let command = handle_key(&mut app, press(KeyCode::Char('b')));
+
+    assert!(matches!(
+        command,
+        Some(Command::SearchLabels { query }) if query == "b"
+    ));
+    assert!(app
+        .labels()
+        .is_some_and(|l| l.loading && l.results.is_empty()));
 }
 
 #[test]

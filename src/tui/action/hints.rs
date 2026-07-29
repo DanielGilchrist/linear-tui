@@ -1,7 +1,7 @@
 use super::keymap::Hint;
 use super::keys::{
-    Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput, ReactionInput,
-    WorkspacesInput,
+    Action, ConfirmInput, EditorInput, InputInput, LabelsInput, MenuInput, PickerInput,
+    ReactionInput, WorkspacesInput,
 };
 
 pub const MY_WORK_HINTS: &[Hint<Action>] = &[
@@ -144,6 +144,16 @@ pub const REACTIONS_HINTS: &[Hint<ReactionInput>] = &[
     Hint::Bound(ReactionInput::Toggle),
     Hint::Bound(ReactionInput::Custom),
     Hint::Bound(ReactionInput::Cancel),
+];
+
+pub const LABELS_HINTS: &[Hint<LabelsInput>] = &[
+    Hint::Literal {
+        keys: "type",
+        label: "search",
+    },
+    Hint::Bound(LabelsInput::Toggle),
+    Hint::Bound(LabelsInput::Submit),
+    Hint::Bound(LabelsInput::Cancel),
 ];
 
 pub const VIEW_HINTS: &[Hint<Action>] = &[

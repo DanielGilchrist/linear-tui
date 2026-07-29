@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
 use linear_tui::api::{IssueRef, LinearApi, TeamId, Timestamp, ViewId};
+use linear_tui::api::{Label, LabelId, Rgb};
 use linear_tui::tui::app::App;
 use linear_tui::tui::feed::{Feed, FeedKey, FeedRequest};
 use linear_tui::tui::focus::{DetailFocus, Focus, LeftPanel};
@@ -282,6 +283,34 @@ async fn status_picker_overlay() {
         Message::StatesLoaded {
             team_id: TeamId::from_raw("t_pizza"),
             states,
+        },
+    );
+
+    insta::assert_snapshot!(render_to_string(&mut app, 100, 20));
+}
+
+#[tokio::test]
+async fn labels_overlay_lists_and_marks_selected() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+
+    edit(&mut app, 'l');
+    apply(
+        &mut app,
+        Message::LabelsFound {
+            query: String::new(),
+            labels: vec![
+                Label {
+                    id: LabelId::from_raw("lbl_oven"),
+                    name: "oven".into(),
+                    colour: Rgb::parse_hex("#eb5757"),
+                },
+                Label {
+                    id: LabelId::from_raw("lbl_bug"),
+                    name: "bug".into(),
+                    colour: Rgb::parse_hex("#5e6ad2"),
+                },
+            ],
         },
     );
 

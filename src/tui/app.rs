@@ -3,7 +3,7 @@ use ratatui::widgets::{ListState, ScrollbarState};
 use super::cache::CacheStatus;
 use super::feed::FeedKey;
 use super::focus::{DetailFocus, DetailView, Focus, LeftPanel, Nav};
-use super::overlay::{Confirm, Editor, Find, Input, Menu, Overlay, Picker, Prefix, Search};
+use super::overlay::{Confirm, Editor, Find, Input, Labels, Menu, Overlay, Picker, Prefix, Search};
 use super::saved_views::ViewSurface;
 use super::spinner::Spinner;
 use super::status::Status;
@@ -221,6 +221,13 @@ impl App {
         }
     }
 
+    pub fn labels(&self) -> Option<&Labels> {
+        match &self.overlay {
+            Overlay::Labels(labels) => Some(labels),
+            _ => None,
+        }
+    }
+
     pub fn find(&self) -> Option<&Find> {
         match &self.overlay {
             Overlay::Find(find) => Some(find),
@@ -289,6 +296,10 @@ impl App {
     }
 
     pub fn is_loading(&self) -> bool {
+        if let Overlay::Labels(labels) = &self.overlay {
+            return labels.loading;
+        }
+
         match self.focus {
             Focus::MyWork => self.active_in_flight(),
             Focus::Recent | Focus::Stub(_) => false,

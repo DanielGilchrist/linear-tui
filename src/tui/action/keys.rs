@@ -1,7 +1,9 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use KeyCode::Char;
 
-use super::bindings::{BROWSE, CONFIRM, CTRL, EDITOR, INPUT, MENU, PICKER, REACTIONS, WORKSPACES};
+use super::bindings::{
+    BROWSE, CONFIRM, CTRL, EDITOR, INPUT, LABELS, MENU, PICKER, REACTIONS, WORKSPACES,
+};
 
 pub fn is_quit(key: &KeyEvent) -> bool {
     matches!(
@@ -29,6 +31,7 @@ pub enum Action {
     SetStatus,
     Assign,
     SetPriority,
+    SetLabels,
     Comment,
     EnterComments,
     Reply,
@@ -98,6 +101,22 @@ pub enum ReactionInput {
     Toggle,
     Custom,
     Cancel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelsInput {
+    Next,
+    Prev,
+    Toggle,
+    Submit,
+    Cancel,
+    Erase,
+}
+
+impl LabelsInput {
+    pub fn from_key(key: KeyEvent) -> Option<LabelsInput> {
+        LABELS.resolve(key)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -53,6 +53,7 @@ impl From<my_issues::Issue> for IssueSummary {
                 .nodes
                 .into_iter()
                 .map(|l| Label {
+                    id: l.id.into(),
                     name: l.name,
                     colour: Rgb::parse_hex(&l.colour),
                 })
@@ -82,6 +83,7 @@ impl From<search::IssueSearchResult> for IssueSummary {
                 .nodes
                 .into_iter()
                 .map(|l| Label {
+                    id: l.id.into(),
                     name: l.name,
                     colour: Rgb::parse_hex(&l.colour),
                 })
@@ -111,6 +113,7 @@ impl From<custom_views::Issue> for IssueSummary {
                 .nodes
                 .into_iter()
                 .map(|l| Label {
+                    id: l.id.into(),
                     name: l.name,
                     colour: Rgb::parse_hex(&l.colour),
                 })
@@ -142,6 +145,7 @@ impl From<issue::Issue> for IssueDetail {
                 .nodes
                 .into_iter()
                 .map(|l| Label {
+                    id: l.id.into(),
                     name: l.name,
                     colour: Rgb::parse_hex(&l.colour),
                 })
@@ -171,6 +175,16 @@ impl From<issue::Issue> for IssueDetail {
             branch_name: issue.branch_name,
             team_id: issue.team.id.into(),
             updated_at: issue.updated_at.0.into(),
+        }
+    }
+}
+
+impl From<crate::api::queries::labels::IssueLabel> for Label {
+    fn from(label: crate::api::queries::labels::IssueLabel) -> Self {
+        Self {
+            id: label.id.into(),
+            name: label.name,
+            colour: Rgb::parse_hex(&label.colour),
         }
     }
 }

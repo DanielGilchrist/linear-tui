@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::tui::action::{
-    is_quit, Action, ConfirmInput, PickerInput, ReactionInput, BROWSE, COMMENTS_KEYS, DETAIL_HINTS,
-    DETAIL_KEYS, EDIT_GROUP, GO_GROUP, MY_WORK_HINTS,
+    is_quit, Action, ConfirmInput, LabelsInput, PickerInput, ReactionInput, BROWSE, COMMENTS_KEYS,
+    DETAIL_HINTS, DETAIL_KEYS, EDIT_GROUP, GO_GROUP, LABELS, MY_WORK_HINTS,
 };
 
 fn key(code: KeyCode) -> KeyEvent {
@@ -204,7 +204,27 @@ fn edit_group_resolves_field_edits() {
         EDIT_GROUP.resolve(key(KeyCode::Char('p'))),
         Some(Action::SetPriority)
     );
+    assert_eq!(
+        EDIT_GROUP.resolve(key(KeyCode::Char('l'))),
+        Some(Action::SetLabels)
+    );
     assert_eq!(Action::from_key(key(KeyCode::Char('s'))), None);
+}
+
+#[test]
+fn labels_keymap_resolves_navigation_and_commit() {
+    assert_eq!(LABELS.resolve(key(KeyCode::Tab)), Some(LabelsInput::Toggle));
+    assert_eq!(
+        LABELS.resolve(key(KeyCode::Char(' '))),
+        Some(LabelsInput::Toggle)
+    );
+    assert_eq!(
+        LABELS.resolve(key(KeyCode::Enter)),
+        Some(LabelsInput::Submit)
+    );
+    assert_eq!(LABELS.resolve(key(KeyCode::Down)), Some(LabelsInput::Next));
+    assert_eq!(LABELS.resolve(key(KeyCode::Esc)), Some(LabelsInput::Cancel));
+    assert_eq!(LABELS.resolve(key(KeyCode::Char('x'))), None);
 }
 
 #[test]

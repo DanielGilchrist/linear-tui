@@ -3,8 +3,8 @@ use KeyCode::{BackTab, Backspace, Char, Down, Enter, Esc, Left, PageDown, PageUp
 
 use super::keymap::{Binding, Keymap};
 use super::keys::{
-    Action, ConfirmInput, EditorInput, InputInput, MenuInput, PickerInput, ReactionInput,
-    WorkspacesInput,
+    Action, ConfirmInput, EditorInput, InputInput, LabelsInput, MenuInput, PickerInput,
+    ReactionInput, WorkspacesInput,
 };
 
 pub const BROWSE: Keymap<Action> = Keymap {
@@ -179,6 +179,11 @@ pub const EDIT_GROUP: Keymap<Action> = Keymap {
             keys: &[Char('p')],
             label: "priority",
         },
+        Binding {
+            action: Action::SetLabels,
+            keys: &[Char('l')],
+            label: "labels",
+        },
     ],
 };
 
@@ -323,6 +328,41 @@ pub const WORKSPACES: Keymap<WorkspacesInput> = Keymap {
             action: WorkspacesInput::Cancel,
             keys: &[Esc],
             label: "cancel",
+        },
+    ],
+};
+
+pub const LABELS: Keymap<LabelsInput> = Keymap {
+    bindings: &[
+        Binding {
+            action: LabelsInput::Next,
+            keys: &[Down],
+            label: "move",
+        },
+        Binding {
+            action: LabelsInput::Prev,
+            keys: &[Up],
+            label: "move",
+        },
+        Binding {
+            action: LabelsInput::Toggle,
+            keys: &[Char(' '), Tab],
+            label: "toggle",
+        },
+        Binding {
+            action: LabelsInput::Submit,
+            keys: &[Enter],
+            label: "submit",
+        },
+        Binding {
+            action: LabelsInput::Cancel,
+            keys: &[Esc],
+            label: "cancel",
+        },
+        Binding {
+            action: LabelsInput::Erase,
+            keys: &[Backspace],
+            label: "erase",
         },
     ],
 };

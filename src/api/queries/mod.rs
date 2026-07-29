@@ -5,6 +5,7 @@ pub(crate) mod schema {
 pub mod actions;
 pub mod custom_views;
 pub mod issue;
+pub mod labels;
 pub mod my_issues;
 pub mod notifications;
 pub mod scalars;

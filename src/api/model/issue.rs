@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::id::{CommentId, IssueId, ReactionId, StateId, TeamId};
+use super::id::{CommentId, IssueId, LabelId, ReactionId, StateId, TeamId};
 use super::scalar::{Priority, Rgb, StateType, Timestamp};
 use super::user::User;
 
@@ -13,6 +13,8 @@ pub struct WorkflowState {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Label {
+    #[serde(default)]
+    pub id: LabelId,
     pub name: String,
     pub colour: Rgb,
 }

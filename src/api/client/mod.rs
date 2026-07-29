@@ -7,21 +7,25 @@ use serde::Deserialize;
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::model::{
     CommentId, Credential, Cursor, IssueDetail, IssueFilter, IssueId, IssueRef, IssueSummary,
-    IssueUpdate, NotificationItem, Page, ReactionId, ReactionTarget, SavedView, Session,
+    IssueUpdate, Label, NotificationItem, Page, ReactionId, ReactionTarget, SavedView, Session,
     StateOption, StateType, TeamId, User, ViewId,
 };
 use crate::api::queries::actions::{
     AssigneeInput, AssigneeMutation, AssigneeVariables, CommentCreateInput, CommentCreateMutation,
     CommentCreateVariables, CommentDeleteMutation, CommentDeleteVariables, CommentUpdateInput,
-    CommentUpdateMutation, CommentUpdateVariables, PriorityInput, PriorityMutation,
-    PriorityVariables, ReactionCreateInput, ReactionCreateMutation, ReactionCreateVariables,
-    ReactionDeleteMutation, ReactionDeleteVariables, StatusInput, StatusMutation, StatusVariables,
-    TeamMembersQuery, TeamStatesQuery, TeamVariables,
+    CommentUpdateMutation, CommentUpdateVariables, LabelsInput, LabelsMutation, LabelsVariables,
+    PriorityInput, PriorityMutation, PriorityVariables, ReactionCreateInput,
+    ReactionCreateMutation, ReactionCreateVariables, ReactionDeleteMutation,
+    ReactionDeleteVariables, StatusInput, StatusMutation, StatusVariables, TeamMembersQuery,
+    TeamStatesQuery, TeamVariables,
 };
 use crate::api::queries::custom_views::{
     CustomViewIssuesQuery, CustomViewIssuesVariables, CustomViewsQuery, CustomViewsVariables,
 };
 use crate::api::queries::issue::{IssueQuery, IssueVariables};
+use crate::api::queries::labels::{
+    IssueLabelFilter, LabelSearchQuery, LabelSearchVariables, StringComparator,
+};
 use crate::api::queries::my_issues::{IssuesQuery, IssuesVariables};
 use crate::api::queries::notifications::{NotificationsQuery, NotificationsVariables};
 use crate::api::queries::search::{SearchIssuesQuery, SearchVariables};
@@ -318,6 +322,27 @@ impl LinearApi for Client {
             .collect())
     }
 
+    async fn search_labels(&self, term: &str) -> ApiResult<Vec<Label>> {
+        let filter = (!term.is_empty()).then(|| IssueLabelFilter {
+            name: Some(StringComparator {
+                contains_ignore_case: Some(term.to_string()),
+            }),
+        });
+
+        let operation = LabelSearchQuery::build(LabelSearchVariables {
+            filter,
+            first: PAGE_SIZE,
+        });
+
+        let result = self.fetch_json(operation).await?;
+        Ok(result
+            .issue_labels
+            .nodes
+            .into_iter()
+            .map(Label::from)
+            .collect())
+    }
+
     async fn update_issue(&self, id: &IssueId, update: IssueUpdate) -> ApiResult<()> {
         let id = id.to_string();
         match update {
@@ -344,6 +369,15 @@ impl LinearApi for Client {
                     id,
                     input: PriorityInput {
                         priority: i32::from(u8::from(priority)),
+                    },
+                }))
+                .await
+            }
+            IssueUpdate::Labels(label_ids) => {
+                self.run_mutation(LabelsMutation::build(LabelsVariables {
+                    id,
+                    input: LabelsInput {
+                        label_ids: label_ids.iter().map(|id| id.to_string()).collect(),
                     },
                 }))
                 .await

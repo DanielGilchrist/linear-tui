@@ -171,6 +171,12 @@ fn render_overlay(overlay: &mut Overlay, feeds: &FeedStore, spinner: Spinner, fr
             frame.render_widget(Clear, area);
             overlays::reactions::render(reactions, frame, area);
         }
+        Overlay::Labels(labels) => {
+            let area = overlays::labels::area(frame_area);
+
+            frame.render_widget(Clear, area);
+            overlays::labels::render(labels, spinner, frame, area);
+        }
         Overlay::Workspaces(workspaces) => {
             let area = overlays::workspaces::area(frame_area);
 
@@ -547,6 +553,7 @@ fn footer_hint(app: &App) -> String {
         Overlay::Input(_) => return action::INPUT.hint_bar(action::INPUT_HINTS),
         Overlay::Editor(_) => return action::EDITOR.hint_bar(action::EDITOR_HINTS),
         Overlay::Reactions(_) => return action::REACTIONS.hint_bar(action::REACTIONS_HINTS),
+        Overlay::Labels(_) => return action::LABELS.hint_bar(action::LABELS_HINTS),
         Overlay::Workspaces(_) => return action::WORKSPACES.hint_bar(action::WORKSPACES_HINTS),
         Overlay::Find(_) | Overlay::None => {}
     }

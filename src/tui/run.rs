@@ -348,6 +348,13 @@ fn dispatch(
                     error: error.to_string(),
                 },
             }),
+            Command::SearchLabels { query } => Some(match api.search_labels(&query).await {
+                Ok(labels) => Message::LabelsFound { query, labels },
+                Err(error) => Message::Failed {
+                    target: FailureTarget::LabelSearch,
+                    error: error.to_string(),
+                },
+            }),
             Command::LoadMembers { team_id } => Some(match api.team_members(&team_id).await {
                 Ok(members) => Message::MembersLoaded { team_id, members },
                 Err(error) => Message::Failed {

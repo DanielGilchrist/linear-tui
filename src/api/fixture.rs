@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::model::{
     Comment, CommentId, Cursor, IssueDetail, IssueFilter, IssueId, IssueRef, IssueSummary,
-    IssueUpdate, Label, NotificationItem, Page, Priority, Reaction, ReactionId, ReactionTarget,
-    Rgb, SavedView, Session, StateId, StateOption, StateType, TeamId, User, UserId, ViewId,
-    WorkflowState,
+    IssueUpdate, Label, LabelId, NotificationItem, Page, Priority, Reaction, ReactionId,
+    ReactionTarget, Rgb, SavedView, Session, StateId, StateOption, StateType, TeamId, User, UserId,
+    ViewId, WorkflowState,
 };
 use crate::api::{ApiResult, LinearApi};
 
@@ -191,6 +191,25 @@ impl LinearApi for FixtureClient {
             .collect())
     }
 
+    async fn search_labels(&self, term: &str) -> ApiResult<Vec<Label>> {
+        let needle = term.to_lowercase();
+
+        Ok([
+            ("lbl_oven", "oven", "#eb5757"),
+            ("lbl_upsell", "upsell", "#f2c94c"),
+            ("lbl_bug", "bug", "#9b51e0"),
+            ("lbl_chore", "chore", "#4f4f4f"),
+        ]
+        .into_iter()
+        .filter(|(_, name, _)| name.contains(&needle))
+        .map(|(id, name, colour)| Label {
+            id: LabelId::from_raw(id),
+            name: name.into(),
+            colour: Rgb::parse_hex(colour),
+        })
+        .collect())
+    }
+
     async fn update_issue(&self, _id: &IssueId, _update: IssueUpdate) -> ApiResult<()> {
         Ok(())
     }
@@ -265,6 +284,7 @@ fn summary(
         labels: labels
             .iter()
             .map(|(name, colour)| Label {
+                id: LabelId::from_raw(format!("lbl_{name}")),
                 name: (*name).into(),
                 colour: Rgb::parse_hex(colour),
             })
@@ -386,6 +406,7 @@ oven-ctl --set-target 430
         priority: Priority::Urgent,
         assignee: Some(person("dan", true)),
         labels: vec![Label {
+            id: LabelId::from_raw("lbl_oven"),
             name: "oven".into(),
             colour: Rgb::parse_hex("#eb5757"),
         }],

@@ -41,3 +41,4 @@ id!(UserId);
 id!(ViewId);
 id!(StateId);
 id!(ReactionId);
+id!(LabelId);

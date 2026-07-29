@@ -86,6 +86,7 @@ pub enum Hint<A: 'static> {
 
 fn key_symbol(code: KeyCode) -> String {
     match code {
+        KeyCode::Char(' ') => "space".into(),
         KeyCode::Char(c) => c.to_string(),
         KeyCode::Enter => "enter".into(),
         KeyCode::Esc => "esc".into(),

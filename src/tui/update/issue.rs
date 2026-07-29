@@ -1,13 +1,14 @@
 use ratatui::widgets::{ListState, ScrollbarState};
 
 use super::nav::clamp_selection;
-use crate::api::{IssueRef, Priority, Reaction, ReactionTarget, StateOption, TeamId, User};
+use crate::api::{IssueRef, Label, Priority, Reaction, ReactionTarget, StateOption, TeamId, User};
 use crate::tui::app::{App, FocusedIssue};
 use crate::tui::cache::{RefreshPolicy, Remote};
 use crate::tui::focus::{DetailFocus, DetailView, Focus, Reveal};
 use crate::tui::message::Command;
 use crate::tui::overlay::{
-    AssignOptions, Compose, Confirm, Editor, Overlay, Picker, PickerItem, PickerKind, Reactions,
+    AssignOptions, Compose, Confirm, Editor, Labels, Overlay, Picker, PickerItem, PickerKind,
+    Reactions,
 };
 use crate::tui::status::Status;
 
@@ -211,6 +212,27 @@ pub(super) fn open_assign_picker(app: &mut App) -> Option<Command> {
 pub(super) fn open_priority_picker(app: &mut App) -> Option<Command> {
     let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
     open_picker(app, PickerKind::Priority, target)
+}
+
+pub(super) fn open_labels(app: &mut App) -> Option<Command> {
+    let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
+    let current = current_labels(app);
+
+    app.overlay = Overlay::Labels(Labels::new(target.id, target.identifier, current));
+
+    Some(Command::SearchLabels {
+        query: String::new(),
+    })
+}
+
+fn current_labels(app: &App) -> Vec<Label> {
+    if let Some(detail) = app.open_detail() {
+        return detail.labels.clone();
+    }
+
+    app.view_selected_issue()
+        .map(|issue| issue.labels.clone())
+        .unwrap_or_default()
 }
 
 pub(super) fn priority_items() -> Vec<PickerItem> {

@@ -5,7 +5,8 @@ use super::emoji::{self, PaletteEmoji};
 use super::focus::{Direction, Edge, Focus};
 use super::message::Command;
 use crate::api::{
-    CommentId, IssueId, Priority, Reaction, ReactionTarget, StateId, StateOption, User, UserId,
+    CommentId, IssueId, Label, LabelId, Priority, Reaction, ReactionTarget, StateId, StateOption,
+    User, UserId,
 };
 use crate::store::Account;
 
@@ -119,6 +120,56 @@ impl Picker {
 
     pub fn selected(&self) -> Option<&PickerItem> {
         self.state.selected().and_then(|i| self.items.get(i))
+    }
+}
+
+pub struct Labels {
+    pub target_issue: IssueId,
+    pub target_label: String,
+    pub query: String,
+    pub results: Vec<Label>,
+    pub selected: Vec<Label>,
+    pub state: ListState,
+    pub loading: bool,
+}
+
+impl Labels {
+    pub fn new(target_issue: IssueId, target_label: String, current: Vec<Label>) -> Self {
+        Self {
+            target_issue,
+            target_label,
+            query: String::new(),
+            results: Vec::new(),
+            selected: current,
+            state: ListState::default().with_selected(Some(0)),
+            loading: true,
+        }
+    }
+
+    pub fn is_selected(&self, id: &LabelId) -> bool {
+        self.selected.iter().any(|label| &label.id == id)
+    }
+
+    pub fn toggle_highlighted(&mut self) {
+        let Some(label) = self
+            .state
+            .selected()
+            .and_then(|i| self.results.get(i))
+            .cloned()
+        else {
+            return;
+        };
+
+        match self.selected.iter().position(|l| l.id == label.id) {
+            Some(pos) => {
+                self.selected.remove(pos);
+            }
+            None => self.selected.push(label),
+        }
+    }
+
+    pub fn selected_ids(&self) -> Vec<LabelId> {
+        self.selected.iter().map(|label| label.id.clone()).collect()
     }
 }
 
@@ -738,4 +789,5 @@ pub enum Overlay {
     Find(Find),
     Reactions(Reactions),
     Workspaces(Workspaces),
+    Labels(Labels),
 }

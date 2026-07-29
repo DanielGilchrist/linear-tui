@@ -194,6 +194,17 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
 
             None
         }
+        Message::LabelsFound { query, labels } => {
+            if let Overlay::Labels(overlay) = &mut app.overlay {
+                if overlay.query == query {
+                    overlay.results = labels;
+                    overlay.loading = false;
+                    clamp_selection(&mut overlay.state, overlay.results.len());
+                }
+            }
+
+            None
+        }
         Message::IssueUpdated { id } => {
             app.status = Some(Status::IssueUpdated);
             app.workspace.feeds.invalidate_all();
@@ -293,6 +304,11 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
                         .fail(error.clone());
                 }
                 FailureTarget::UserSearch => stop_assign_picker(&mut app.overlay),
+                FailureTarget::LabelSearch => {
+                    if let Overlay::Labels(overlay) = &mut app.overlay {
+                        overlay.loading = false;
+                    }
+                }
                 FailureTarget::Ephemeral => {}
             }
 

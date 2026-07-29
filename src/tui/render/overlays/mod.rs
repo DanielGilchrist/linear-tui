@@ -1,6 +1,7 @@
 pub mod confirm;
 pub mod editor;
 pub mod input;
+pub mod labels;
 pub mod menu;
 pub mod picker;
 pub mod prefix;
