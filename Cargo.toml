@@ -25,3 +25,4 @@ getrandom = "0.4.3"
 
 [dev-dependencies]
 insta = "1"
+tempfile = "3"

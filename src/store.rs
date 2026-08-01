@@ -36,16 +36,29 @@ pub struct Accounts {
     pub active: Option<String>,
 }
 
-fn accounts_path() -> Option<PathBuf> {
-    state_dir().map(|dir| dir.join("accounts.json"))
+#[derive(Debug, Clone)]
+pub struct StateDir(PathBuf);
+
+impl StateDir {
+    pub fn at(path: PathBuf) -> Self {
+        StateDir(path)
+    }
+
+    fn accounts(&self) -> PathBuf {
+        self.0.join("accounts.json")
+    }
+
+    fn feeds(&self, namespace: &str) -> PathBuf {
+        self.0.join(format!("feeds-{namespace}.json"))
+    }
+
+    fn recent(&self, namespace: &str) -> PathBuf {
+        self.0.join(format!("recently-viewed-{namespace}.json"))
+    }
 }
 
-pub fn load_accounts() -> Accounts {
-    let Some(path) = accounts_path() else {
-        return Accounts::default();
-    };
-
-    let Ok(raw) = std::fs::read_to_string(path) else {
+pub fn load_accounts(dir: &StateDir) -> Accounts {
+    let Ok(raw) = std::fs::read_to_string(dir.accounts()) else {
         return Accounts::default();
     };
 
@@ -58,11 +71,8 @@ pub fn load_accounts() -> Accounts {
     }
 }
 
-pub fn save_accounts(accounts: &[Account], active: Option<&str>) {
-    let Some(path) = accounts_path() else {
-        return;
-    };
-
+pub fn save_accounts(dir: &StateDir, accounts: &[Account], active: Option<&str>) {
+    let path = dir.accounts();
     let store = PersistedAccounts {
         version: ACCOUNTS_VERSION,
         active: active.map(str::to_string),
@@ -84,27 +94,15 @@ fn restrict_permissions(path: &Path) {
 #[cfg(not(unix))]
 fn restrict_permissions(_path: &Path) {}
 
-fn state_dir() -> Option<PathBuf> {
-    crate::tui::platform::Platform::host().state_dir()
-}
-
-pub fn namespace(api_key: &str) -> String {
+fn namespace(workspace_key: &str) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
 
-    for byte in api_key.bytes() {
+    for byte in workspace_key.bytes() {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
 
     format!("{hash:016x}")
-}
-
-fn recent_path(namespace: &str) -> Option<PathBuf> {
-    state_dir().map(|dir| dir.join(format!("recently-viewed-{namespace}.json")))
-}
-
-fn feeds_path(namespace: &str) -> Option<PathBuf> {
-    state_dir().map(|dir| dir.join(format!("feeds-{namespace}.json")))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,8 +151,8 @@ pub fn build_cache(
     }
 }
 
-pub fn load_feeds(namespace: &str) -> Option<PersistedCache> {
-    let raw = std::fs::read_to_string(feeds_path(namespace)?).ok()?;
+pub fn load_feeds(dir: &StateDir, namespace: &str) -> Option<PersistedCache> {
+    let raw = std::fs::read_to_string(dir.feeds(namespace)).ok()?;
     let cache: PersistedCache = serde_json::from_str(&raw).ok()?;
 
     (cache.version == FEEDS_VERSION).then_some(cache)
@@ -171,24 +169,16 @@ fn write_atomic(path: &Path, contents: &str) {
     }
 }
 
-pub fn save_feeds(namespace: &str, cache: &PersistedCache) {
-    let Some(path) = feeds_path(namespace) else {
-        return;
-    };
-
+pub fn save_feeds(dir: &StateDir, namespace: &str, cache: &PersistedCache) {
     if let Ok(json) = serde_json::to_string(cache) {
-        write_atomic(&path, &json);
+        write_atomic(&dir.feeds(namespace), &json);
     }
 
-    prune_orphan_namespaces(namespace);
+    prune_orphan_namespaces(dir, namespace);
 }
 
-fn prune_orphan_namespaces(current: &str) {
-    let Some(dir) = state_dir() else {
-        return;
-    };
-
-    let Ok(entries) = std::fs::read_dir(&dir) else {
+fn prune_orphan_namespaces(dir: &StateDir, current: &str) {
+    let Ok(entries) = std::fs::read_dir(&dir.0) else {
         return;
     };
 
@@ -218,20 +208,16 @@ fn prune_orphan_namespaces(current: &str) {
     }
 }
 
-pub fn load_recent(namespace: &str) -> Vec<IssueSummary> {
-    recent_path(namespace)
-        .and_then(|path| std::fs::read_to_string(path).ok())
+pub fn load_recent(dir: &StateDir, namespace: &str) -> Vec<IssueSummary> {
+    std::fs::read_to_string(dir.recent(namespace))
+        .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_default()
 }
 
-pub fn save_recent(namespace: &str, issues: &[IssueSummary]) {
-    let Some(path) = recent_path(namespace) else {
-        return;
-    };
-
+pub fn save_recent(dir: &StateDir, namespace: &str, issues: &[IssueSummary]) {
     if let Ok(json) = serde_json::to_string(issues) {
-        write_atomic(&path, &json);
+        write_atomic(&dir.recent(namespace), &json);
     }
 }
 
@@ -301,15 +287,14 @@ mod tests {
 
     #[test]
     fn write_atomic_writes_contents_and_leaves_no_temp_file() {
-        let dir = std::env::temp_dir().join(format!("linear-tui-store-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let path = dir.join("feeds.json");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("feeds.json");
 
         write_atomic(&path, "{\"ok\":true}");
 
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"ok\":true}");
 
-        let stragglers = std::fs::read_dir(&dir)
+        let stragglers = std::fs::read_dir(dir.path())
             .unwrap()
             .filter_map(Result::ok)
             .any(|entry| entry.file_name().to_string_lossy().contains("tmp"));
@@ -318,8 +303,26 @@ mod tests {
             !stragglers,
             "temp file should be renamed away, not left behind"
         );
+    }
 
-        let _ = std::fs::remove_dir_all(&dir);
+    #[test]
+    fn accounts_round_trip_through_a_state_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::at(dir.path().into());
+
+        assert!(load_accounts(&state).accounts.is_empty());
+
+        let stored = vec![Account {
+            workspace_key: "acme".into(),
+            org_name: "Acme".into(),
+            credential: Credential::PersonalKey("k".into()),
+        }];
+        save_accounts(&state, &stored, Some("acme"));
+
+        let loaded = load_accounts(&state);
+
+        assert_eq!(loaded.accounts, stored);
+        assert_eq!(loaded.active.as_deref(), Some("acme"));
     }
 
     #[test]

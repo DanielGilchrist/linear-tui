@@ -12,9 +12,9 @@ expression: "render_to_string(&mut app, 110, 16)"
 │Urgent & unassigned                     ││Todo  2                                                           │
 │Oven incidents                          ││!!! DAN2-3 Add gluten-free base option to the onl…   menu  dan  1d│
 │Menu ideas                              ││!!  DAN-13 Introduce a maple-bacon donut for the …   menu  dan  1d│
-└ 1 of 3 ────────────────────────────────┘│Backlog  1                                                        │
-┌Teams───────────────────────────────────┐│!!  DAN2-5 Settle the pineapple-on-pizza…   customer-poll  dan  1d│
-│Dan's Pizza                             ││                                                                  │
-│Dan's Donuts                            ││                                                                  │
-└ 1 of 2 ────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
+│                                        ││Backlog  1                                                        │
+└ 1 of 3 ────────────────────────────────┘│!!  DAN2-5 Settle the pineapple-on-pizza…   customer-poll  dan  1d│
+┌Teams───────────────────────────────────┐│                                                                  │
+│                                        ││                                                                  │
+└────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
  j move   tab panel   enter open   o browser   y yank   / find   esc back   q quit        Dan's Donuts · @dan

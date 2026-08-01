@@ -11,7 +11,7 @@ pub struct PlaceholderText {
 }
 
 pub fn placeholder(
-    status: Option<&CacheStatus>,
+    status: Option<CacheStatus>,
     text: PlaceholderText,
     spinner: Spinner,
 ) -> Line<'static> {
@@ -51,7 +51,7 @@ mod tests {
     #[test]
     fn failed_shows_the_failed_text_in_error_style() {
         let line = placeholder(
-            Some(&CacheStatus::Failed("boom".into())),
+            Some(CacheStatus::Failed("boom".into())),
             texts(),
             Spinner::default(),
         );
@@ -61,7 +61,7 @@ mod tests {
 
     #[test]
     fn ready_but_empty_shows_the_empty_text() {
-        let line = placeholder(Some(&CacheStatus::Ready), texts(), Spinner::default());
+        let line = placeholder(Some(CacheStatus::Ready), texts(), Spinner::default());
         assert_eq!(content(&line), "nothing here");
         assert_eq!(line.spans[0].style, theme::DIM);
     }
@@ -73,7 +73,7 @@ mod tests {
             Some(CacheStatus::Loading),
             Some(CacheStatus::Revalidating),
         ] {
-            let line = placeholder(status.as_ref(), texts(), Spinner::default());
+            let line = placeholder(status, texts(), Spinner::default());
             assert!(
                 content(&line).ends_with("Loading…"),
                 "expected loading text, got {}",

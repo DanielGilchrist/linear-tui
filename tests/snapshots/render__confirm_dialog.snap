@@ -10,15 +10,15 @@ expression: "render_to_string(&mut app, 100, 20)"
 │!!  DAN-13 Todo Introduce a maple-ba││runs-too-hot                                                █
 │!!  DAN2-5 Backlog Settle the pineap││                                                            █
 │    DAN-15 Backlog Coffe┌Confirm─────────────────────────────────────────┐                        ║
-└ 1 of 7 ────────────────│Set DAN2-7 to "Todo"?                           │                        ║
-┌Recently viewed─────────│                                                │n creeps past 480°C and ║
-│Issues you open land her│[y] yes    [n] no                               │.                       ║
-└────────────────────────│                                                │                        ║
-┌Saved Views─────────────└────────────────────────────────────────────────┘                        ║
-│⠋  Loading…                         ││• Actual: 470-480°C                                         ║
-└────────────────────────────────────┘│• Suspect the flue damper is sticking open                  ║
-┌Teams───────────────────────────────┐│                                                            ║
-│Dan's Pizza                         ││Checklist                                                   ║
-│Dan's Donuts                        ││                                                            ↓
-└ 1 of 2 ────────────────────────────┘└────────────────────────────────────────────────────────────┘
+│                        │Set DAN2-7 to "Todo"?                           │                        ║
+└ 1 of 7 ────────────────│                                                │n creeps past 480°C and ║
+┌Recently viewed─────────│[y] yes    [n] no                               │.                       ║
+│Issues you open land her│                                                │                        ║
+└────────────────────────└────────────────────────────────────────────────┘                        ║
+┌Saved Views─────────────────────────┐│• Actual: 470-480°C                                         ║
+│⠋  Loading…                         ││• Suspect the flue damper is sticking open                  ║
+└────────────────────────────────────┘│                                                            ║
+┌Teams───────────────────────────────┐│Checklist                                                   ║
+│                                    ││                                                            ↓
+└────────────────────────────────────┘└────────────────────────────────────────────────────────────┘
  enter confirm   esc cancel                                                     Dan's Donuts · @dan

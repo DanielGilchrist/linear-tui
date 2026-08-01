@@ -5,12 +5,11 @@ use super::feed::{force_feed, load_more, reload};
 use super::issue::{
     clear_recent, enter_comments, open_assign_picker, open_comment_input, open_delete_comment,
     open_edit_editor, open_in_browser, open_issue, open_labels, open_priority_picker,
-    open_reactions, open_reply_editor, open_status_picker, search_assignees, toggle_reaction,
-    yank_url,
+    open_reactions, open_reply_editor, open_status_picker, toggle_reaction, yank_url,
 };
 use super::nav::{
     ascend, cycle_panel, cycle_view, cycle_view_group, cycle_view_sort, descend, history_step,
-    jump_edge, jump_panel, move_selection, navigate_list, scroll_half, select_edge,
+    jump_edge, jump_panel, move_selection, scroll_half,
 };
 use crate::api::Credential;
 use crate::api::IssueRef;
@@ -21,18 +20,146 @@ use crate::tui::action::{
 };
 use crate::tui::app::App;
 use crate::tui::feed::FeedKey;
-use crate::tui::focus::{DetailView, Direction, Edge, Focus};
-use crate::tui::message::Command;
+use crate::tui::focus::{navigate_list, select_edge, DetailView, Direction, Edge, Focus, Origin};
+use crate::tui::message::{ApiCommand, Commands, Effect, Effects, RuntimeCommand};
 use crate::tui::overlay::{
-    AssignOptions, Compose, Confirm, Editor, Find, Input, InputPurpose, Labels, MentionMenu, Menu,
-    Overlay, Picker, PickerAction, PickerKind, Prefix, PrefixUnder, Reactions, Search,
-    WorkspaceRow, Workspaces,
+    AssignOptions, Compose, Confirm, Editor, Find, Input, InputPurpose, LabelResults, Labels, Menu,
+    ModalOverlay, Overlay, Picker, PickerAction, PickerKind, Prefix, PrefixUnder, Reactions,
+    Search, SearchPhase, WorkspaceRow, Workspaces,
 };
 use crate::tui::status::Status;
 
+pub(super) enum StatusEdit {
+    Keep,
+    Set(Status),
+}
+
+pub(super) enum Outcome {
+    Set {
+        overlay: Overlay,
+        commands: Commands,
+        status: StatusEdit,
+    },
+    Act {
+        under: Overlay,
+        action: Action,
+    },
+}
+
+impl Outcome {
+    fn set(overlay: Overlay) -> Self {
+        Outcome::Set {
+            overlay,
+            commands: Commands::default(),
+            status: StatusEdit::Keep,
+        }
+    }
+
+    fn close() -> Self {
+        Self::set(Overlay::None)
+    }
+
+    fn with(overlay: Overlay, commands: impl Into<Commands>) -> Self {
+        Outcome::Set {
+            overlay,
+            commands: commands.into(),
+            status: StatusEdit::Keep,
+        }
+    }
+
+    fn dismiss(commands: impl Into<Commands>) -> Self {
+        Self::with(Overlay::None, commands)
+    }
+
+    fn act(under: Overlay, action: Action) -> Self {
+        Outcome::Act { under, action }
+    }
+
+    fn set_reporting(overlay: Overlay, status: Status) -> Self {
+        Outcome::Set {
+            overlay,
+            commands: Commands::default(),
+            status: StatusEdit::Set(status),
+        }
+    }
+
+    fn dismiss_reporting(commands: impl Into<Commands>, status: Status) -> Self {
+        Outcome::Set {
+            overlay: Overlay::None,
+            commands: commands.into(),
+            status: StatusEdit::Set(status),
+        }
+    }
+}
+
+pub(super) fn apply_outcome(app: &mut App, outcome: Outcome) -> Commands {
+    match outcome {
+        Outcome::Set {
+            overlay,
+            commands,
+            status,
+        } => {
+            app.set_overlay(overlay);
+
+            if let StatusEdit::Set(status) = status {
+                app.ui.status = Some(status);
+            }
+
+            commands
+        }
+        Outcome::Act { under, action } => {
+            app.set_overlay(under);
+            apply_action(app, action).into()
+        }
+    }
+}
+
+pub(super) struct Report {
+    effects: Effects,
+    status: Option<Status>,
+}
+
+impl Report {
+    pub(super) fn status(status: Status) -> Self {
+        Self {
+            effects: Effects::default(),
+            status: Some(status),
+        }
+    }
+
+    pub(super) fn with_status(effects: Effects, status: Status) -> Self {
+        Self {
+            effects,
+            status: Some(status),
+        }
+    }
+
+    fn into_dismiss(self) -> Outcome {
+        match self.status {
+            Some(status) => Outcome::dismiss_reporting(self.effects, status),
+            None => Outcome::dismiss(self.effects),
+        }
+    }
+
+    fn write(self, app: &mut App) -> Effects {
+        app.ui.status = self.status;
+
+        self.effects
+    }
+}
+
+impl From<Effects> for Report {
+    fn from(effects: Effects) -> Self {
+        Self {
+            effects,
+            status: None,
+        }
+    }
+}
+
 pub(super) fn resolve_browse(app: &App, key: KeyEvent) -> Option<Action> {
     if is_plain(key) {
-        if let Some(action) = context_keymap(&app.focus).and_then(|keymap| keymap.resolve(key)) {
+        if let Some(action) = context_keymap(app.focus()).and_then(|keymap| keymap.resolve(key)) {
             return Some(action);
         }
     }
@@ -43,18 +170,18 @@ pub(super) fn resolve_browse(app: &App, key: KeyEvent) -> Option<Action> {
 pub(super) fn context_keymap(focus: &Focus) -> Option<&'static action::Keymap<Action>> {
     match focus {
         Focus::Detail(detail) => match detail.view {
-            DetailView::Reading => Some(&action::DETAIL_KEYS),
-            DetailView::Comments => Some(&action::COMMENTS_KEYS),
+            DetailView::Reading { .. } => Some(&action::DETAIL_KEYS),
+            DetailView::Comments { .. } => Some(&action::COMMENTS_KEYS),
         },
-        Focus::View => Some(&action::VIEW_KEYS),
-        Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::Stub(_) => None,
+        Focus::View(_) => Some(&action::VIEW_KEYS),
+        Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::Teams => None,
     }
 }
 
 pub(super) fn open_prefix(under: Overlay) -> Overlay {
-    let (keymap, under) = match under {
-        Overlay::None => (&action::GO_GROUP, PrefixUnder::Browse),
-        modal => (&action::GO_MODAL, PrefixUnder::Modal(Box::new(modal))),
+    let (keymap, under) = match ModalOverlay::try_from_overlay(under) {
+        Ok(modal) => (&action::GO_MODAL, PrefixUnder::Modal(modal)),
+        Err(_) => (&action::GO_GROUP, PrefixUnder::Browse),
     };
 
     Overlay::Prefix(Prefix {
@@ -80,31 +207,34 @@ pub(super) fn open_edit_prefix() -> Overlay {
     })
 }
 
-pub(super) fn apply_prefix(app: &mut App, prefix: Prefix, key: KeyEvent) -> Option<Command> {
+pub(super) fn apply_prefix(prefix: Prefix, key: KeyEvent) -> Outcome {
     let action = prefix.keymap.resolve(key);
 
-    app.overlay = match prefix.under {
+    let under = match prefix.under {
         PrefixUnder::Browse => Overlay::None,
-        PrefixUnder::Modal(modal) => *modal,
+        PrefixUnder::Modal(modal) => modal.into_overlay(),
     };
-    action.and_then(|action| apply_action(app, action))
+
+    match action {
+        Some(action) => Outcome::act(under, action),
+        None => Outcome::set(under),
+    }
 }
 
-pub(super) fn apply_find(app: &mut App, mut find: Find, key: KeyEvent) -> Option<Command> {
+pub(super) fn apply_find(app: &mut App, mut find: Find, key: KeyEvent) -> Outcome {
     match key.code {
         KeyCode::Esc => {
             app.reveal_focused(find.origin);
-            None
+            Outcome::close()
         }
         KeyCode::Enter => {
-            app.find_query = (!find.query.is_empty()).then(|| find.query.clone());
-            None
+            app.ui.find_query = (!find.query.is_empty()).then(|| find.query.clone());
+            Outcome::close()
         }
         KeyCode::Backspace => {
             find.query.pop();
             refresh_find(app, &find.query);
-            app.overlay = Overlay::Find(find);
-            None
+            Outcome::set(Overlay::Find(find))
         }
         KeyCode::Char(c)
             if !key
@@ -113,13 +243,9 @@ pub(super) fn apply_find(app: &mut App, mut find: Find, key: KeyEvent) -> Option
         {
             find.query.push(c);
             refresh_find(app, &find.query);
-            app.overlay = Overlay::Find(find);
-            None
+            Outcome::set(Overlay::Find(find))
         }
-        _ => {
-            app.overlay = Overlay::Find(find);
-            None
-        }
+        _ => Outcome::set(Overlay::Find(find)),
     }
 }
 
@@ -133,16 +259,15 @@ pub(super) fn refresh_find(app: &mut App, query: &str) {
     }
 }
 
-pub(super) fn find_step(app: &mut App, direction: Direction) {
-    let Some(query) = app.find_query.clone() else {
-        app.status = Some(Status::NoActiveSearch);
-        return;
+pub(super) fn find_step(app: &mut App, direction: Direction) -> Report {
+    let Some(query) = app.ui.find_query.clone() else {
+        return Report::status(Status::NoActiveSearch);
     };
 
     let matches = app.focused_matches(&query);
 
     if matches.is_empty() {
-        return;
+        return Effects::default().into();
     }
 
     let current = app.focused_selection().unwrap_or(0);
@@ -162,40 +287,38 @@ pub(super) fn find_step(app: &mut App, direction: Direction) {
     };
 
     app.reveal_focused(Some(target));
+
+    Effects::default().into()
 }
 
-pub(super) fn open_find(app: &mut App) -> Option<Command> {
+pub(super) fn open_find(app: &mut App) -> Report {
     if app.focused_row_texts().is_empty() {
-        app.status = Some(Status::NothingToSearch);
-        return None;
+        return Report::status(Status::NothingToSearch);
     }
 
-    app.overlay = Overlay::Find(Find {
+    app.set_overlay(Overlay::Find(Find {
         query: String::new(),
         origin: app.focused_selection(),
-    });
+    }));
 
-    None
+    Effects::default().into()
 }
 
-pub(super) fn apply_input(app: &mut App, mut input: Input, key: KeyEvent) -> Option<Command> {
+pub(super) fn apply_input(app: &mut App, mut input: Input, key: KeyEvent) -> Outcome {
     match InputInput::from_key(key) {
-        Some(InputInput::Cancel) => {
-            app.status = Some(Status::Cancelled);
-            None
-        }
+        Some(InputInput::Cancel) => Outcome::set_reporting(Overlay::None, Status::Cancelled),
         Some(InputInput::Submit) => submit_input(app, input),
         Some(InputInput::Erase) => {
             input.backspace();
-            restore_input(app, input)
+            Outcome::set(Overlay::Input(input))
         }
         Some(InputInput::MoveLeft) => {
             input.move_left();
-            restore_input(app, input)
+            Outcome::set(Overlay::Input(input))
         }
         Some(InputInput::MoveRight) => {
             input.move_right();
-            restore_input(app, input)
+            Outcome::set(Overlay::Input(input))
         }
         None => match key.code {
             KeyCode::Char(c)
@@ -204,27 +327,25 @@ pub(super) fn apply_input(app: &mut App, mut input: Input, key: KeyEvent) -> Opt
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 input.insert(c);
-                restore_input(app, input)
+                Outcome::set(Overlay::Input(input))
             }
-            _ => restore_input(app, input),
+            _ => Outcome::set(Overlay::Input(input)),
         },
     }
 }
 
-pub(super) fn restore_input(app: &mut App, input: Input) -> Option<Command> {
-    app.overlay = Overlay::Input(input);
-    None
-}
-
-pub(super) fn submit_input(app: &mut App, input: Input) -> Option<Command> {
+fn submit_input(app: &mut App, input: Input) -> Outcome {
     let query = input.buffer.trim().to_string();
 
     if query.is_empty() {
-        return None;
+        return Outcome::close();
     }
 
     match input.purpose {
-        InputPurpose::Jump => open_issue(app, IssueRef::parse(&query)),
+        InputPurpose::Jump => {
+            let origin = app.take_origin();
+            Outcome::dismiss(open_issue(app, IssueRef::parse(&query), None, origin))
+        }
         InputPurpose::Search => {
             let key = FeedKey::Search(query.clone());
 
@@ -234,94 +355,93 @@ pub(super) fn submit_input(app: &mut App, input: Input) -> Option<Command> {
 
             let command = force_feed(app, key);
 
-            app.overlay = Overlay::Search(Search::new(query));
-            Some(command)
+            Outcome::with(Overlay::Search(Search::new(query)), command)
         }
-        InputPurpose::CustomReaction { target } => toggle_reaction(app, target, &query),
-        InputPurpose::AssignSearch { issue, label } => {
-            app.overlay = Overlay::Picker(Picker {
-                kind: PickerKind::Assign(AssignOptions::Suggested),
+        InputPurpose::CustomReaction { issue_id, target } => {
+            toggle_reaction(app, &issue_id, target, &query).into_dismiss()
+        }
+        InputPurpose::AssignSearch { issue, label, team } => {
+            let picker = Picker {
+                kind: PickerKind::Assign(AssignOptions::Matching {
+                    query: query.clone(),
+                    phase: SearchPhase::InFlight,
+                }),
                 target_issue: issue,
                 target_label: label,
+                target_team: team,
                 items: Vec::new(),
                 state: ListState::default().with_selected(Some(0)),
-                loading: false,
-            });
+            };
 
-            search_assignees(app, query)
+            Outcome::with(
+                Overlay::Picker(picker),
+                Effect::Api(ApiCommand::SearchUsers { query }),
+            )
         }
-        InputPurpose::AddWorkspaceKey => {
-            app.status = Some(Status::ConnectingWorkspace);
-            Some(Command::AddAccount {
+        InputPurpose::AddWorkspaceKey => Outcome::dismiss_reporting(
+            Commands::runtime(RuntimeCommand::AddAccount {
                 credential: Credential::PersonalKey(query),
-            })
-        }
-        InputPurpose::AddWorkspaceEnvVar => {
-            app.status = Some(Status::ConnectingWorkspace);
-            Some(Command::AddAccount {
+            }),
+            Status::ConnectingWorkspace,
+        ),
+        InputPurpose::AddWorkspaceEnvVar => Outcome::dismiss_reporting(
+            Commands::runtime(RuntimeCommand::AddAccount {
                 credential: Credential::EnvVar(query),
-            })
-        }
+            }),
+            Status::ConnectingWorkspace,
+        ),
     }
 }
 
-pub(super) fn apply_editor(app: &mut App, mut editor: Editor, key: KeyEvent) -> Option<Command> {
+pub(super) fn apply_editor(editor: Editor, key: KeyEvent) -> Outcome {
     if action::is_editor_submit(key) {
-        return submit_editor(app, editor);
+        return submit_editor(editor);
     }
 
-    match editor.mention.take() {
-        Some(mention) => apply_mention(app, editor, mention, key),
-        None => edit(app, editor, key),
+    if editor.mention().is_some() {
+        apply_mention(editor, key)
+    } else {
+        edit(editor, key)
     }
 }
 
-pub(super) fn edit(app: &mut App, mut editor: Editor, key: KeyEvent) -> Option<Command> {
+fn edit(mut editor: Editor, key: KeyEvent) -> Outcome {
     match EditorInput::from_key(key) {
-        Some(EditorInput::Cancel) => {
-            app.status = Some(Status::Cancelled);
-            None
-        }
+        Some(EditorInput::Cancel) => Outcome::set_reporting(Overlay::None, Status::Cancelled),
         Some(EditorInput::Newline) => {
             editor.newline();
-            restore_editor(app, editor)
+            Outcome::set(Overlay::Editor(editor))
         }
         Some(EditorInput::Erase) => {
             editor.backspace();
-            restore_editor(app, editor)
+            Outcome::set(Overlay::Editor(editor))
         }
         Some(EditorInput::MoveLeft) => {
             editor.move_left();
-            restore_editor(app, editor)
+            Outcome::set(Overlay::Editor(editor))
         }
         Some(EditorInput::MoveRight) => {
             editor.move_right();
-            restore_editor(app, editor)
+            Outcome::set(Overlay::Editor(editor))
         }
         Some(EditorInput::MoveUp) => {
             editor.move_up();
-            restore_editor(app, editor)
+            Outcome::set(Overlay::Editor(editor))
         }
         Some(EditorInput::MoveDown) => {
             editor.move_down();
-            restore_editor(app, editor)
+            Outcome::set(Overlay::Editor(editor))
         }
         None => match key.code {
             KeyCode::Char('@') if is_plain(key) && editor.at_word_boundary() => {
-                editor.insert_char('@');
-                editor.mention = Some(MentionMenu {
-                    at: editor.col - 1,
-                    query: String::new(),
-                    state: ListState::default().with_selected(Some(0)),
-                });
-
-                restore_editor(app, editor)
+                editor.open_mention();
+                Outcome::set(Overlay::Editor(editor))
             }
             KeyCode::Char(c) if is_plain(key) => {
                 editor.insert_char(c);
-                restore_editor(app, editor)
+                Outcome::set(Overlay::Editor(editor))
             }
-            _ => restore_editor(app, editor),
+            _ => Outcome::set(Overlay::Editor(editor)),
         },
     }
 }
@@ -331,144 +451,76 @@ pub(super) fn is_plain(key: KeyEvent) -> bool {
         .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
 }
 
-pub(super) fn apply_mention(
-    app: &mut App,
-    mut editor: Editor,
-    mut mention: MentionMenu,
-    key: KeyEvent,
-) -> Option<Command> {
+fn apply_mention(mut editor: Editor, key: KeyEvent) -> Outcome {
     match key.code {
-        KeyCode::Up => {
-            mention_move(&editor, &mut mention, Direction::Prev);
-            editor.mention = Some(mention);
-            restore_editor(app, editor)
-        }
-        KeyCode::Down => {
-            mention_move(&editor, &mut mention, Direction::Next);
-            editor.mention = Some(mention);
-            restore_editor(app, editor)
-        }
-        KeyCode::Enter => {
-            accept_mention(&mut editor, mention);
-            restore_editor(app, editor)
-        }
-        KeyCode::Esc | KeyCode::Left | KeyCode::Right => restore_editor(app, editor),
-        KeyCode::Backspace => {
-            editor.backspace();
-            if !mention.query.is_empty() {
-                mention.query.pop();
-                mention.state.select(Some(0));
-                editor.mention = Some(mention);
-            }
-            restore_editor(app, editor)
-        }
-        KeyCode::Char(c) if is_plain(key) => {
-            editor.insert_char(c);
-            mention.query.push(c);
-            mention.state.select(Some(0));
-            editor.mention = Some(mention);
-            restore_editor(app, editor)
-        }
-        _ => {
-            editor.mention = Some(mention);
-            restore_editor(app, editor)
-        }
+        KeyCode::Up => editor.mention_move(Direction::Prev),
+        KeyCode::Down => editor.mention_move(Direction::Next),
+        KeyCode::Enter => editor.accept_mention(),
+        KeyCode::Esc | KeyCode::Left | KeyCode::Right => editor.close_mention(),
+        KeyCode::Backspace => editor.mention_backspace(),
+        KeyCode::Char(c) if is_plain(key) => editor.mention_type(c),
+        _ => {}
     }
+
+    Outcome::set(Overlay::Editor(editor))
 }
 
-pub(super) fn mention_move(editor: &Editor, mention: &mut MentionMenu, direction: Direction) {
-    let len = editor.candidates(&mention.query).len();
-    if len == 0 {
-        return;
-    }
-    let current = mention.state.selected().unwrap_or(0);
-    mention.state.select(Some(direction.wrap(current, len)));
-}
-
-pub(super) fn accept_mention(editor: &mut Editor, mention: MentionMenu) {
-    let Some(selected) = mention.state.selected() else {
-        return;
-    };
-
-    let query = mention.query.to_lowercase();
-    let picked = editor
-        .members
-        .iter()
-        .filter(|user| user.display_name.to_lowercase().contains(&query))
-        .nth(selected)
-        .map(|user| (user.display_name.clone(), user.url.clone()));
-
-    let Some((display, url)) = picked else {
-        return;
-    };
-
-    editor.lines[editor.row].drain(mention.at..editor.col);
-    editor.col = mention.at;
-    editor.insert_mention(display, url);
-}
-
-pub(super) fn restore_editor(app: &mut App, editor: Editor) -> Option<Command> {
-    app.overlay = Overlay::Editor(editor);
-    None
-}
-
-pub(super) fn submit_editor(app: &mut App, editor: Editor) -> Option<Command> {
+fn submit_editor(editor: Editor) -> Outcome {
     if editor.is_empty() {
-        return None;
+        return Outcome::close();
     }
-
-    let issue_id = app
-        .workspace
-        .detail()
-        .value()
-        .map(|detail| detail.id.clone())?;
 
     let body = editor.text();
+    let issue_id = editor.issue_id;
+    let team_id = editor.target_team;
 
-    match editor.compose {
-        Compose::Comment => {
-            app.status = Some(Status::PostingComment);
-            Some(Command::CreateComment {
+    let (command, status) = match editor.compose {
+        Compose::Comment => (
+            Effect::Api(ApiCommand::CreateComment {
                 issue_id,
+                team_id,
                 body,
                 parent_id: None,
-            })
-        }
-        Compose::Reply { parent_id } => {
-            app.status = Some(Status::PostingComment);
-            Some(Command::CreateComment {
+            }),
+            Status::PostingComment,
+        ),
+        Compose::Reply { parent_id } => (
+            Effect::Api(ApiCommand::CreateComment {
                 issue_id,
+                team_id,
                 body,
                 parent_id: Some(parent_id),
-            })
-        }
-        Compose::Edit { comment_id } => {
-            app.status = Some(Status::SavingComment);
-            Some(Command::UpdateComment {
+            }),
+            Status::PostingComment,
+        ),
+        Compose::Edit { comment_id } => (
+            Effect::Api(ApiCommand::UpdateComment {
                 issue_id,
+                team_id,
                 comment_id,
                 body,
-            })
-        }
-    }
+            }),
+            Status::SavingComment,
+        ),
+    };
+
+    Outcome::dismiss_reporting(command, status)
 }
 
-pub(super) fn apply_search(app: &mut App, mut search: Search, key: KeyEvent) -> Option<Command> {
+pub(super) fn apply_search(app: &mut App, mut search: Search, key: KeyEvent) -> Outcome {
     let feed_key = FeedKey::Search(search.query.clone());
     let len = app.search_results(&search.query).len();
 
     let input = PickerInput::from_key(key);
 
     if key.code == KeyCode::Char('g') {
-        app.overlay = open_prefix(Overlay::Search(search));
-        return None;
+        return Outcome::set(open_prefix(Overlay::Search(search)));
     }
 
     match input {
         Some(PickerInput::Accept) => return accept_search(app, search),
         Some(PickerInput::Cancel) => {
-            app.search_return = None;
-            return None;
+            return Outcome::close();
         }
         _ => {}
     }
@@ -485,46 +537,44 @@ pub(super) fn apply_search(app: &mut App, mut search: Search, key: KeyEvent) -> 
             }
             Some(PickerInput::Prev) => {
                 navigate_list(&mut search.state, len, Direction::Prev);
-                None
+                Effects::default()
             }
-            _ => None,
+            _ => Effects::default(),
         },
     };
 
-    app.overlay = Overlay::Search(search);
-    command
+    Outcome::with(Overlay::Search(search), command)
 }
 
-pub(super) fn accept_search(app: &mut App, search: Search) -> Option<Command> {
+fn accept_search(app: &mut App, search: Search) -> Outcome {
     let selected = search
         .state
         .selected()
         .and_then(|i| app.search_results(&search.query).get(i))
-        .map(|issue| issue.id.clone());
+        .cloned();
 
     match selected {
-        Some(id) => {
-            let command = open_issue(app, id);
-            app.search_return = Some(search);
-            command
+        Some(issue) => {
+            let command = open_issue(
+                app,
+                issue.id.clone().into(),
+                Some(issue),
+                Origin::Search(Box::new(search)),
+            );
+            Outcome::dismiss(command)
         }
-        None => {
-            app.overlay = Overlay::Search(search);
-            None
-        }
+        None => Outcome::set(Overlay::Search(search)),
     }
 }
 
-pub(super) fn apply_menu(app: &mut App, mut menu: Menu, key: KeyEvent) -> Option<Command> {
+pub(super) fn apply_menu(mut menu: Menu, key: KeyEvent) -> Outcome {
     match key.code {
         KeyCode::Char('g') => {
-            app.overlay = open_prefix(Overlay::Menu(menu));
-            return None;
+            return Outcome::set(open_prefix(Overlay::Menu(menu)));
         }
         KeyCode::Char('G') => {
             menu.jump_edge(Edge::Bottom);
-            app.overlay = Overlay::Menu(menu);
-            return None;
+            return Outcome::set(Overlay::Menu(menu));
         }
         _ => {}
     }
@@ -532,149 +582,124 @@ pub(super) fn apply_menu(app: &mut App, mut menu: Menu, key: KeyEvent) -> Option
     match MenuInput::from_key(key) {
         Some(MenuInput::Next) => {
             menu.move_selection(Direction::Next);
-            app.overlay = Overlay::Menu(menu);
-            None
+            Outcome::set(Overlay::Menu(menu))
         }
         Some(MenuInput::Prev) => {
             menu.move_selection(Direction::Prev);
-            app.overlay = Overlay::Menu(menu);
-            None
+            Outcome::set(Overlay::Menu(menu))
         }
         Some(MenuInput::SectionNext) => {
             menu.jump_section(Direction::Next);
-            app.overlay = Overlay::Menu(menu);
-            None
+            Outcome::set(Overlay::Menu(menu))
         }
         Some(MenuInput::SectionPrev) => {
             menu.jump_section(Direction::Prev);
-            app.overlay = Overlay::Menu(menu);
-            None
+            Outcome::set(Overlay::Menu(menu))
         }
         Some(MenuInput::Run) => match menu.selected_action() {
-            Some(action) => apply_action(app, action),
-            None => {
-                app.overlay = Overlay::Menu(menu);
-                None
-            }
+            Some(action) => Outcome::act(Overlay::None, action),
+            None => Outcome::set(Overlay::Menu(menu)),
         },
-        Some(MenuInput::Close) => None,
-        None => {
-            app.overlay = Overlay::Menu(menu);
-            None
-        }
+        Some(MenuInput::Close) => Outcome::close(),
+        None => Outcome::set(Overlay::Menu(menu)),
     }
 }
 
 pub(super) fn open_menu(app: &mut App) {
-    app.overlay = Overlay::Menu(Menu::for_focus(&app.focus));
+    app.set_overlay(Overlay::Menu(Menu::for_focus(app.focus())));
 }
 
-pub(super) fn apply_reactions(
-    app: &mut App,
-    mut reactions: Reactions,
-    key: KeyEvent,
-) -> Option<Command> {
+pub(super) fn apply_reactions(app: &mut App, mut reactions: Reactions, key: KeyEvent) -> Outcome {
     let Some(input) = ReactionInput::from_key(key) else {
-        app.overlay = Overlay::Reactions(reactions);
-        return None;
+        return Outcome::set(Overlay::Reactions(reactions));
     };
 
     match input {
         ReactionInput::Left => {
             reactions.move_horizontal(Direction::Prev);
-            app.overlay = Overlay::Reactions(reactions);
-            None
+            Outcome::set(Overlay::Reactions(reactions))
         }
         ReactionInput::Right => {
             reactions.move_horizontal(Direction::Next);
-            app.overlay = Overlay::Reactions(reactions);
-            None
+            Outcome::set(Overlay::Reactions(reactions))
         }
         ReactionInput::Up => {
             reactions.move_vertical(Direction::Prev);
-            app.overlay = Overlay::Reactions(reactions);
-            None
+            Outcome::set(Overlay::Reactions(reactions))
         }
         ReactionInput::Down => {
             reactions.move_vertical(Direction::Next);
-            app.overlay = Overlay::Reactions(reactions);
-            None
+            Outcome::set(Overlay::Reactions(reactions))
         }
         ReactionInput::Toggle => match reactions.selected_name().map(str::to_string) {
-            Some(name) => toggle_reaction(app, reactions.target, &name),
-            None => None,
+            Some(name) => {
+                toggle_reaction(app, &reactions.issue_id, reactions.target, &name).into_dismiss()
+            }
+            None => Outcome::close(),
         },
-        ReactionInput::Custom => {
-            app.overlay = Overlay::Input(Input::new(
-                InputPurpose::CustomReaction {
-                    target: reactions.target,
-                },
-                "React with an emoji",
-            ));
-            None
-        }
-        ReactionInput::Cancel => None,
+        ReactionInput::Custom => Outcome::set(Overlay::Input(Input::new(
+            InputPurpose::CustomReaction {
+                issue_id: reactions.issue_id,
+                target: reactions.target,
+            },
+            "React with an emoji",
+        ))),
+        ReactionInput::Cancel => Outcome::set_reporting(Overlay::None, Status::Cancelled),
     }
 }
 
-pub(super) fn apply_labels(app: &mut App, mut labels: Labels, key: KeyEvent) -> Option<Command> {
+pub(super) fn apply_labels(mut labels: Labels, key: KeyEvent) -> Outcome {
     match LabelsInput::from_key(key) {
-        Some(LabelsInput::Cancel) => {
-            app.status = Some(Status::Cancelled);
-            None
-        }
-        Some(LabelsInput::Submit) => Some(Command::UpdateIssue {
+        Some(LabelsInput::Cancel) => Outcome::set_reporting(Overlay::None, Status::Cancelled),
+        Some(LabelsInput::Submit) => Outcome::dismiss(Effect::Api(ApiCommand::UpdateIssue {
             id: labels.target_issue.clone(),
             update: IssueUpdate::Labels(labels.selected_ids()),
-        }),
+        })),
         Some(LabelsInput::Toggle) => {
             labels.toggle_highlighted();
-            restore_labels(app, labels)
+            Outcome::set(Overlay::Labels(labels))
         }
         Some(LabelsInput::Next) => {
-            navigate_list(&mut labels.state, labels.results.len(), Direction::Next);
-            restore_labels(app, labels)
+            let len = labels.results().len();
+            navigate_list(&mut labels.state, len, Direction::Next);
+            Outcome::set(Overlay::Labels(labels))
         }
         Some(LabelsInput::Prev) => {
-            navigate_list(&mut labels.state, labels.results.len(), Direction::Prev);
-            restore_labels(app, labels)
+            let len = labels.results().len();
+            navigate_list(&mut labels.state, len, Direction::Prev);
+            Outcome::set(Overlay::Labels(labels))
         }
         Some(LabelsInput::Erase) => {
             labels.query.pop();
-            search_labels(app, labels)
+            search_labels(labels)
         }
         None => match key.code {
             KeyCode::Char(c) if is_plain(key) => {
                 labels.query.push(c);
-                search_labels(app, labels)
+                search_labels(labels)
             }
-            _ => restore_labels(app, labels),
+            _ => Outcome::set(Overlay::Labels(labels)),
         },
     }
 }
 
-fn restore_labels(app: &mut App, labels: Labels) -> Option<Command> {
-    app.overlay = Overlay::Labels(labels);
-    None
-}
-
-fn search_labels(app: &mut App, mut labels: Labels) -> Option<Command> {
+fn search_labels(mut labels: Labels) -> Outcome {
     let query = labels.query.clone();
-    labels.loading = true;
-    labels.results = Vec::new();
+    labels.results = LabelResults::Loading;
     labels.state.select(Some(0));
-    app.overlay = Overlay::Labels(labels);
-    Some(Command::SearchLabels { query })
+    Outcome::with(
+        Overlay::Labels(labels),
+        Effect::Api(ApiCommand::SearchLabels { query }),
+    )
 }
 
 pub(super) fn apply_workspaces(
     app: &mut App,
     mut workspaces: Workspaces,
     key: KeyEvent,
-) -> Option<Command> {
+) -> Outcome {
     let Some(input) = WorkspacesInput::from_key(key) else {
-        app.overlay = Overlay::Workspaces(workspaces);
-        return None;
+        return Outcome::set(Overlay::Workspaces(workspaces));
     };
 
     let len = workspaces.rows.len();
@@ -682,53 +707,54 @@ pub(super) fn apply_workspaces(
     match input {
         WorkspacesInput::Next => {
             navigate_list(&mut workspaces.state, len, Direction::Next);
-            app.overlay = Overlay::Workspaces(workspaces);
-            None
+            Outcome::set(Overlay::Workspaces(workspaces))
         }
         WorkspacesInput::Prev => {
             navigate_list(&mut workspaces.state, len, Direction::Prev);
-            app.overlay = Overlay::Workspaces(workspaces);
-            None
+            Outcome::set(Overlay::Workspaces(workspaces))
         }
-        WorkspacesInput::Cancel => None,
+        WorkspacesInput::Cancel => Outcome::set_reporting(Overlay::None, Status::Cancelled),
         WorkspacesInput::Accept => match workspaces.selected() {
             Some(WorkspaceRow::Account { key, .. }) => {
                 let key = key.clone();
                 let account = app
-                    .accounts
+                    .session
+                    .accounts()
                     .iter()
-                    .find(|a| a.workspace_key == key)?
-                    .clone();
-                Some(Command::SwitchWorkspace(Box::new(account)))
+                    .find(|a| a.workspace_key == key)
+                    .cloned();
+
+                match account {
+                    Some(account) => Outcome::dismiss(Commands::runtime(
+                        RuntimeCommand::SwitchWorkspace(Box::new(account)),
+                    )),
+                    None => Outcome::close(),
+                }
             }
-            Some(WorkspaceRow::AddBrowser) => {
-                app.status = Some(Status::AwaitingBrowser);
-                Some(Command::BeginLogin)
-            }
-            Some(WorkspaceRow::AddKey) => {
-                app.overlay = Overlay::Input(Input::new(
-                    InputPurpose::AddWorkspaceKey,
-                    "Paste a Linear API key",
-                ));
-                None
-            }
-            Some(WorkspaceRow::AddEnvVar) => {
-                app.overlay = Overlay::Input(Input::new(
-                    InputPurpose::AddWorkspaceEnvVar,
-                    "Environment variable name",
-                ));
-                None
-            }
-            None => None,
+            Some(WorkspaceRow::AddBrowser) => Outcome::dismiss_reporting(
+                Commands::runtime(RuntimeCommand::BeginLogin),
+                Status::AwaitingBrowser,
+            ),
+            Some(WorkspaceRow::AddKey) => Outcome::set(Overlay::Input(Input::new(
+                InputPurpose::AddWorkspaceKey,
+                "Paste a Linear API key",
+            ))),
+            Some(WorkspaceRow::AddEnvVar) => Outcome::set(Overlay::Input(Input::new(
+                InputPurpose::AddWorkspaceEnvVar,
+                "Environment variable name",
+            ))),
+            None => Outcome::close(),
         },
     }
 }
 
-pub(super) fn apply_action(app: &mut App, action: Action) -> Option<Command> {
+pub(super) fn apply_action(app: &mut App, action: Action) -> Effects {
+    app.ui.status = None;
+
     match action {
         Action::Quit => {
             app.should_quit = true;
-            None
+            Effects::default()
         }
         Action::NextPanel => cycle_panel(app, Direction::Next),
         Action::PrevPanel => cycle_panel(app, Direction::Prev),
@@ -739,65 +765,64 @@ pub(super) fn apply_action(app: &mut App, action: Action) -> Option<Command> {
         Action::NextView => cycle_view(app, Direction::Next),
         Action::PrevView => cycle_view(app, Direction::Prev),
         Action::JumpToPanel(index) => jump_panel(app, index),
-        Action::Reload => Some(reload(app)),
-        Action::OpenInBrowser => open_in_browser(app),
-        Action::YankUrl => yank_url(app),
+        Action::Reload => reload(app),
+        Action::OpenInBrowser => open_in_browser(app).write(app),
+        Action::YankUrl => yank_url(app).write(app),
         Action::Edit => {
-            app.overlay = open_edit_prefix();
-            None
+            app.set_overlay(open_edit_prefix());
+            Effects::default()
         }
-        Action::SetStatus => open_status_picker(app),
-        Action::Assign => open_assign_picker(app),
-        Action::SetPriority => open_priority_picker(app),
-        Action::SetLabels => open_labels(app),
-        Action::Comment => open_comment_input(app),
-        Action::EnterComments => enter_comments(app),
+        Action::SetStatus => open_status_picker(app).write(app),
+        Action::Assign => open_assign_picker(app).write(app),
+        Action::SetPriority => open_priority_picker(app).write(app),
+        Action::SetLabels => open_labels(app).write(app),
+        Action::Comment => open_comment_input(app).write(app),
+        Action::EnterComments => enter_comments(app).write(app),
         Action::Reply => open_reply_editor(app),
-        Action::EditComment => open_edit_editor(app),
-        Action::DeleteComment => open_delete_comment(app),
+        Action::EditComment => open_edit_editor(app).write(app),
+        Action::DeleteComment => open_delete_comment(app).write(app),
         Action::React => open_reactions(app),
         Action::CycleGroup => {
             cycle_view_group(app);
-            None
+            Effects::default()
         }
         Action::CycleSort => {
             cycle_view_sort(app);
-            None
+            Effects::default()
         }
         Action::ToggleZoom => {
-            app.zoom = app.zoom.toggle();
-            None
+            app.ui.zoom = app.ui.zoom.toggle();
+            Effects::default()
         }
         Action::ViewDisplay => {
-            app.overlay = open_display_prefix();
-            None
+            app.set_overlay(open_display_prefix());
+            Effects::default()
         }
         Action::ClearRecent => {
             clear_recent(app);
-            None
+            Effects::default()
         }
         Action::GoPrefix => {
-            app.overlay = open_prefix(Overlay::None);
-            None
+            app.set_overlay(open_prefix(Overlay::None));
+            Effects::default()
         }
         Action::GoToIssue => {
-            app.overlay = Overlay::Input(Input::new(InputPurpose::Jump, "Issue id or URL"));
-            None
+            app.set_overlay(Overlay::Input(Input::new(
+                InputPurpose::Jump,
+                "Issue id or URL",
+            )));
+            Effects::default()
         }
         Action::Search => {
-            app.search_return = None;
-            app.overlay = Overlay::Input(Input::new(InputPurpose::Search, "Search issues"));
-            None
+            app.set_overlay(Overlay::Input(Input::new(
+                InputPurpose::Search,
+                "Search issues",
+            )));
+            Effects::default()
         }
-        Action::Find => open_find(app),
-        Action::FindNext => {
-            find_step(app, Direction::Next);
-            None
-        }
-        Action::FindPrev => {
-            find_step(app, Direction::Prev);
-            None
-        }
+        Action::Find => open_find(app).write(app),
+        Action::FindNext => find_step(app, Direction::Next).write(app),
+        Action::FindPrev => find_step(app, Direction::Prev).write(app),
         Action::HalfPageDown => scroll_half(app, Direction::Next),
         Action::HalfPageUp => scroll_half(app, Direction::Prev),
         Action::HistoryBack => history_step(app, Direction::Prev),
@@ -806,55 +831,40 @@ pub(super) fn apply_action(app: &mut App, action: Action) -> Option<Command> {
         Action::JumpToBottom => jump_edge(app, Edge::Bottom),
         Action::Help => {
             open_menu(app);
-            None
+            Effects::default()
         }
         Action::Workspaces => {
             super::open_workspaces(app);
-            None
+            Effects::default()
         }
     }
 }
 
-pub(super) fn apply_confirm(
-    app: &mut App,
-    confirm: Confirm,
-    input: Option<ConfirmInput>,
-) -> Option<Command> {
+pub(super) fn apply_confirm(confirm: Confirm, input: Option<ConfirmInput>) -> Outcome {
     match input {
-        Some(ConfirmInput::Accept) => {
-            app.status = Some(Status::Applying);
-            Some(confirm.command)
-        }
-        Some(ConfirmInput::Reject) => {
-            app.status = Some(Status::Cancelled);
-            None
-        }
-        None => {
-            app.overlay = Overlay::Confirm(confirm);
-            None
-        }
+        Some(ConfirmInput::Accept) => Outcome::dismiss_reporting(confirm.command, Status::Applying),
+        Some(ConfirmInput::Reject) => Outcome::set_reporting(Overlay::None, Status::Cancelled),
+        None => Outcome::set(Overlay::Confirm(confirm)),
     }
 }
 
-pub(super) fn apply_picker(app: &mut App, mut picker: Picker, key: KeyEvent) -> Option<Command> {
+pub(super) fn apply_picker(mut picker: Picker, key: KeyEvent) -> Outcome {
     match key.code {
         KeyCode::Char('/') if picker.searchable() => {
             let purpose = InputPurpose::AssignSearch {
                 issue: picker.target_issue.clone(),
                 label: picker.target_label.clone(),
+                team: picker.target_team.clone(),
             };
 
-            app.overlay = Overlay::Input(Input::new(purpose, "Search people"));
-            return None;
+            return Outcome::set(Overlay::Input(Input::new(purpose, "Search people")));
         }
         KeyCode::Char('g') => {
-            app.overlay = open_prefix(Overlay::Picker(picker));
-            return None;
+            return Outcome::set(open_prefix(Overlay::Picker(picker)));
         }
         KeyCode::Char('G') => {
             select_edge(&mut picker.state, picker.items.len(), Edge::Bottom);
-            app.overlay = Overlay::Picker(picker);
-            return None;
+            return Outcome::set(Overlay::Picker(picker));
         }
         _ => {}
     }
@@ -863,28 +873,22 @@ pub(super) fn apply_picker(app: &mut App, mut picker: Picker, key: KeyEvent) -> 
         Some(PickerInput::Next) => {
             let len = picker.items.len();
             navigate_list(&mut picker.state, len, Direction::Next);
-            app.overlay = Overlay::Picker(picker);
-            None
+            Outcome::set(Overlay::Picker(picker))
         }
         Some(PickerInput::Prev) => {
             let len = picker.items.len();
             navigate_list(&mut picker.state, len, Direction::Prev);
-            app.overlay = Overlay::Picker(picker);
-            None
+            Outcome::set(Overlay::Picker(picker))
         }
-        Some(PickerInput::Accept) => confirm_picker(app, picker),
-        Some(PickerInput::Cancel) => None,
-        None => {
-            app.overlay = Overlay::Picker(picker);
-            None
-        }
+        Some(PickerInput::Accept) => confirm_picker(picker),
+        Some(PickerInput::Cancel) => Outcome::set_reporting(Overlay::None, Status::Cancelled),
+        None => Outcome::set(Overlay::Picker(picker)),
     }
 }
 
-pub(super) fn confirm_picker(app: &mut App, picker: Picker) -> Option<Command> {
+fn confirm_picker(picker: Picker) -> Outcome {
     let Some(item) = picker.selected() else {
-        app.overlay = Overlay::Picker(picker);
-        return None;
+        return Outcome::set(Overlay::Picker(picker));
     };
 
     let (update, message) = match &item.action {
@@ -909,12 +913,11 @@ pub(super) fn confirm_picker(app: &mut App, picker: Picker) -> Option<Command> {
         ),
     };
 
-    app.overlay = Overlay::Confirm(Confirm {
+    Outcome::set(Overlay::Confirm(Confirm {
         message,
-        command: Command::UpdateIssue {
+        command: Effect::Api(ApiCommand::UpdateIssue {
             id: picker.target_issue.clone(),
             update,
-        },
-    });
-    None
+        }),
+    }))
 }

@@ -82,17 +82,17 @@ expression: "render_styled_to_string(&mut app, 100, 20)"
     [35] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "unstarted"
     [71] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [99] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-└ 1 of 7 ───────────────────│In Progress  started                      │                           ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└"
-    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 7 "
-    [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "───────────────────"
+│                           │In Progress  started                      │                           ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [28] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [29] fg=Some(White) bg=Some(Reset) mod=NONE "In Progress"
     [42] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "started"
     [71] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [99] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-┌Recently viewed────────────│Done  completed                           │oven creeps past 480°C and ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Recently viewed────────────"
+└ 1 of 7 ───────────────────│Done  completed                           │oven creeps past 480°C and ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 7 "
+    [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "───────────────────"
     [28] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [29] fg=Some(White) bg=Some(Reset) mod=NONE "Done"
     [35] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "completed"
@@ -101,14 +101,19 @@ expression: "render_styled_to_string(&mut app, 100, 20)"
     [89] fg=Some(Reset) bg=Some(Reset) mod=BOLD "480°C"
     [94] fg=Some(Reset) bg=Some(Reset) mod=NONE " and "
     [99] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│Issues you open land here  │Cancelled  canceled                       │lts.                       ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Issues you open land here  "
+┌Recently viewed────────────│Cancelled  canceled                       │lts.                       ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Recently viewed────────────"
     [28] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [29] fg=Some(White) bg=Some(Reset) mod=NONE "Cancelled"
     [40] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "canceled"
     [71] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [72] fg=Some(Reset) bg=Some(Reset) mod=NONE "lts.                       "
+    [99] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
+│Issues you open land here  │                                          │                           ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Issues you open land here  "
+    [28] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [71] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [99] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
 └───────────────────────────│                                          │                           ║
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└───────────────────────────"
@@ -120,41 +125,31 @@ expression: "render_styled_to_string(&mut app, 100, 20)"
     [28] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [71] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [99] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│⠋  Loading…                │                                          │                           ║
+│⠋  Loading…                │                                          │king open                  ║
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "⠋  Loading…"
     [28] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [71] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [99] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-└───────────────────────────│                                          │king open                  ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└───────────────────────────"
-    [28] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [71] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [72] fg=Some(Reset) bg=Some(Reset) mod=NONE "king open                  "
     [99] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-┌Teams──────────────────────└ 1 of 5 ──────────────────────────────────┘                           ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Teams──────────────────────"
+└───────────────────────────└ 1 of 5 ──────────────────────────────────┘                           ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└───────────────────────────"
     [28] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└"
     [29] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 5 "
     [37] fg=Some(Yellow) bg=Some(Reset) mod=NONE "──────────────────────────────────┘"
     [99] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│Dan's Pizza                         ││Checklist                                                   ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-    [1] fg=Some(Reset) bg=Some(Rgb(45, 45, 48)) mod=NONE "Dan's Pizza                         "
-    [37] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+┌Teams───────────────────────────────┐│Checklist                                                   ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Teams───────────────────────────────┐"
     [38] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [39] fg=Some(Rgb(129, 161, 193)) bg=Some(Reset) mod=BOLD "Checklist"
     [99] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│Dan's Donuts                        ││                                                            ↓
+│                                    ││                                                            ↓
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Dan's Donuts                        "
     [37] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [38] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [99] fg=Some(Yellow) bg=Some(Reset) mod=NONE "↓"
-└ 1 of 2 ────────────────────────────┘└────────────────────────────────────────────────────────────┘
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└"
-    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 2 "
-    [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "────────────────────────────┘"
+└────────────────────────────────────┘└────────────────────────────────────────────────────────────┘
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└────────────────────────────────────┘"
     [38] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└────────────────────────────────────────────────────────────┘"
  j move   enter select   esc cancel                                             Dan's Donuts · @dan
     [0] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " j move   enter select   esc cancel"

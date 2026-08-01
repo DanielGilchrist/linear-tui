@@ -43,7 +43,7 @@ pub const SAVED_VIEWS_HINTS: &[Hint<Action>] = &[
     Hint::Bound(Action::Quit),
 ];
 
-pub const STUB_HINTS: &[Hint<Action>] = &[
+pub const TEAMS_HINTS: &[Hint<Action>] = &[
     Hint::Bound(Action::SelectNext),
     Hint::Bound(Action::NextPanel),
     Hint::Literal {

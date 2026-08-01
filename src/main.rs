@@ -5,11 +5,12 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 
 use linear_tui::api::{self, fixture::FixtureClient, Client, Credential, IssueRef, LinearApi};
+use linear_tui::store::StateDir;
 use linear_tui::tui::{
     self,
     app::App,
     feed::{Feed, FeedKey},
-    focus::{DetailFocus, Focus, LeftPanel},
+    focus::{DetailFocus, LeftPanel, Origin},
     view::ViewKind,
 };
 
@@ -82,13 +83,64 @@ async fn run_tui(bootstrap: Option<Credential>) -> Result<()> {
     let make_client: tui::run::ClientFactory =
         Arc::new(|credential| Arc::new(Client::new(credential)) as Arc<dyn LinearApi>);
 
+    let path = host_state_dir().ok_or_else(|| anyhow!("Could not resolve a state directory"))?;
+    migrate_legacy_state_dir(&path);
+
     let mut terminal = ratatui::init();
     let mut app = App::new();
-    let result = tui::run(&mut terminal, &mut app, bootstrap, make_client).await;
+    let result = tui::run(
+        &mut terminal,
+        &mut app,
+        bootstrap,
+        make_client,
+        StateDir::at(path),
+    )
+    .await;
 
     ratatui::restore();
     result
 }
+
+fn host_state_dir() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+
+    #[cfg(target_os = "macos")]
+    let base = home.join("Library/Application Support");
+
+    #[cfg(target_os = "linux")]
+    let base = std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local/state"));
+
+    Some(base.join(linear_tui::APP_NAME))
+}
+
+#[cfg(target_os = "macos")]
+fn migrate_legacy_state_dir(new: &std::path::Path) {
+    if new.exists() {
+        return;
+    }
+
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return;
+    };
+
+    let old = std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local/state"))
+        .join(linear_tui::APP_NAME);
+
+    if old.exists() {
+        if let Some(parent) = new.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        let _ = std::fs::rename(&old, new);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn migrate_legacy_state_dir(_new: &std::path::Path) {}
 
 async fn headless_render(args: RenderArgs) -> Result<()> {
     let api: Arc<dyn LinearApi> = match &args.fixture {
@@ -97,10 +149,12 @@ async fn headless_render(args: RenderArgs) -> Result<()> {
     };
 
     let mut app = App::new();
-    app.workspace.session = api.session().await.ok();
+    if let Ok(session) = api.session().await {
+        app.workspace.session.set(session, app.now);
+    }
 
     let index = view_index(&args.view);
-    app.view_state.select(Some(index));
+    app.ui.view_state.select(Some(index));
 
     match &app.active_view().kind {
         ViewKind::Issues(filter) => {
@@ -117,7 +171,10 @@ async fn headless_render(args: RenderArgs) -> Result<()> {
 
     if let Some(reference) = &args.detail {
         if let Some(detail) = api.issue_detail(&IssueRef::parse(reference)).await? {
-            app.focus = Focus::Detail(DetailFocus::reading(detail.id.clone(), LeftPanel::MyWork));
+            app.open_detail_focus(DetailFocus::reading(
+                detail.id.clone(),
+                Origin::Panel(LeftPanel::MyWork),
+            ));
             app.workspace.set_detail(detail, app.now);
         }
     }

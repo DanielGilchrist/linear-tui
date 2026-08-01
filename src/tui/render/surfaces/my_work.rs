@@ -59,7 +59,7 @@ pub fn render(frame: &mut Frame, area: Rect, props: MyWorkProps) {
     }
 
     let empty_placeholder = placeholder(
-        Some(&status),
+        Some(status),
         PlaceholderText {
             empty,
             loading: super::LOADING_TEXT,

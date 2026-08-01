@@ -7,6 +7,7 @@ mod notification;
 mod page;
 mod request;
 mod scalar;
+mod team;
 mod user;
 
 pub use credential::*;
@@ -18,4 +19,5 @@ pub use notification::*;
 pub use page::*;
 pub use request::*;
 pub use scalar::*;
+pub use team::*;
 pub use user::*;

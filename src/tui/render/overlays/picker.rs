@@ -15,12 +15,18 @@ pub fn area(frame_area: Rect) -> Rect {
     layout::centred_rect(frame_area, 44, 55)
 }
 
-pub fn render(picker: &mut Picker, spinner: Spinner, frame: &mut Frame, area: Rect) {
+pub fn render(
+    picker: &mut Picker,
+    in_flight: bool,
+    spinner: Spinner,
+    frame: &mut Frame,
+    area: Rect,
+) {
     let rows: Vec<ListItem> = picker.items.iter().map(picker_row).collect();
 
-    let placeholder = if picker.loading {
+    let placeholder = if in_flight {
         format!("{spinner}  Searching…")
-    } else if picker.searching().is_some() {
+    } else if picker.search_query().is_some() {
         "No matches  ·  / search again".to_string()
     } else if picker.searchable() {
         "/ to search".to_string()
@@ -28,10 +34,11 @@ pub fn render(picker: &mut Picker, spinner: Spinner, frame: &mut Frame, area: Re
         "Nothing to choose".to_string()
     };
 
-    let title = match picker.searching() {
+    let title = match picker.search_query() {
         Some(query) => format!("{}  {}  ·  {query}", picker.verb(), picker.target_label),
         None => format!("{}  {}", picker.verb(), picker.target_label),
     };
+
     let selected = picker.state.selected();
     let total = picker.items.len();
 

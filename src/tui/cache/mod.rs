@@ -47,11 +47,11 @@ mod tests {
     fn begin_is_loading_without_a_value_and_revalidating_with_one() {
         let mut cell: Remote<i32> = Remote::default();
         cell.begin();
-        assert_eq!(*cell.status(), CacheStatus::Loading);
+        assert_eq!(cell.status(), CacheStatus::Loading);
 
         cell.set(7, at(100));
         cell.begin();
-        assert_eq!(*cell.status(), CacheStatus::Revalidating);
+        assert_eq!(cell.status(), CacheStatus::Revalidating);
     }
 
     #[test]
@@ -59,11 +59,11 @@ mod tests {
         let mut cell = Remote::ready(9, at(100));
         cell.fail("boom".into());
         assert_eq!(cell.value(), Some(&9));
-        assert_eq!(*cell.status(), CacheStatus::Failed("boom".into()));
+        assert_eq!(cell.status(), CacheStatus::Failed("boom".into()));
 
         cell.bust();
         assert_eq!(cell.value(), None);
-        assert_eq!(*cell.status(), CacheStatus::Idle);
+        assert_eq!(cell.status(), CacheStatus::Idle);
     }
 
     #[test]

@@ -26,7 +26,7 @@ pub fn render(labels: &mut Labels, spinner: Spinner, frame: &mut Frame, area: Re
 
     frame.render_widget(Paragraph::new(search_line(labels)), search_area);
 
-    if labels.loading && labels.results.is_empty() {
+    if labels.results.is_loading() {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 format!("{} searching", spinner.glyph()),
@@ -38,7 +38,7 @@ pub fn render(labels: &mut Labels, spinner: Spinner, frame: &mut Frame, area: Re
     }
 
     let items: Vec<ListItem> = labels
-        .results
+        .results()
         .iter()
         .map(|label| row_item(labels, label))
         .collect();

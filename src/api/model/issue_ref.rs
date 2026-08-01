@@ -35,6 +35,13 @@ impl IssueRef {
         }
     }
 
+    pub fn matches_id(&self, other: &IssueId) -> bool {
+        match self {
+            IssueRef::Id(id) => id == other,
+            IssueRef::Identifier(_) => false,
+        }
+    }
+
     pub fn as_str(&self) -> &str {
         match self {
             IssueRef::Id(id) => id.as_str(),

@@ -122,72 +122,68 @@ expression: "render_styled_to_string(&mut app, 110, 26)"
     [45] fg=Some(Reset) bg=Some(Reset) mod=NONE "Actual: "
     [53] fg=Some(Rgb(163, 190, 140)) bg=Some(Reset) mod=NONE "470-480°C"
     [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-└ 1 of 7 ────────────────────────────────┘│• Suspect the flue damper is sticking open                        ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└"
-    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 7 "
-    [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "────────────────────────────────┘"
+│                                        ││• Suspect the flue damper is sticking open                        ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [43] fg=Some(Rgb(129, 161, 193)) bg=Some(Reset) mod=NONE "• "
     [45] fg=Some(Reset) bg=Some(Reset) mod=NONE "Suspect the flue damper is sticking open                        "
     [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-┌Recently viewed─────────────────────────┐│                                                                  ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Recently viewed─────────────────────────┐"
+└ 1 of 7 ────────────────────────────────┘│                                                                  ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 7 "
+    [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "────────────────────────────────┘"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│Issues you open land here               ││Checklist                                                         ║
+┌Recently viewed─────────────────────────┐│Checklist                                                         ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Recently viewed─────────────────────────┐"
+    [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [43] fg=Some(Rgb(129, 161, 193)) bg=Some(Reset) mod=BOLD "Checklist"
+    [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
+│Issues you open land here               ││                                                                  ║
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Issues you open land here               "
     [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [43] fg=Some(Rgb(129, 161, 193)) bg=Some(Reset) mod=BOLD "Checklist"
     [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-└────────────────────────────────────────┘│                                                                  ║
+└────────────────────────────────────────┘│[x] Swap the thermocouple                                         ║
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└────────────────────────────────────────┘"
-    [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-┌Saved Views─────────────────────────────┐│[x] Swap the thermocouple                                         ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Saved Views─────────────────────────────┐"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [43] fg=Some(Green) bg=Some(Reset) mod=NONE "[x] "
     [47] fg=Some(Reset) bg=Some(Reset) mod=NONE "Swap the thermocouple                                         "
     [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│⠋  Loading…                             ││[ ] Inspect the flue damper                                       ║
+┌Saved Views─────────────────────────────┐│[ ] Inspect the flue damper                                       ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Saved Views─────────────────────────────┐"
+    [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [43] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "[ ] "
+    [47] fg=Some(Reset) bg=Some(Reset) mod=NONE "Inspect the flue damper                                       "
+    [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
+│⠋  Loading…                             ││[ ] Recalibrate the PID loop                                      ║
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "⠋  Loading…"
     [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [43] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "[ ] "
-    [47] fg=Some(Reset) bg=Some(Reset) mod=NONE "Inspect the flue damper                                       "
-    [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-└────────────────────────────────────────┘│[ ] Recalibrate the PID loop                                      ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└────────────────────────────────────────┘"
-    [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [43] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "[ ] "
     [47] fg=Some(Reset) bg=Some(Reset) mod=NONE "Recalibrate the PID loop                                      "
     [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-┌Teams───────────────────────────────────┐│                                                                  ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Teams───────────────────────────────────┐"
+└────────────────────────────────────────┘│                                                                  ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└────────────────────────────────────────┘"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│Dan's Pizza                             ││▌ Damper was replaced 6 months ago, should still be under         ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-    [1] fg=Some(Reset) bg=Some(Rgb(45, 45, 48)) mod=NONE "Dan's Pizza                             "
-    [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+┌Teams───────────────────────────────────┐│▌ Damper was replaced 6 months ago, should still be under         ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Teams───────────────────────────────────┐"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [43] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "▌ "
     [45] fg=Some(Reset) bg=Some(Reset) mod=NONE "Damper was replaced 6 months ago, should still be under         "
     [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│Dan's Donuts                            ││warranty.                                                         ↓
+│                                        ││warranty.                                                         ↓
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Dan's Donuts                            "
     [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [43] fg=Some(Reset) bg=Some(Reset) mod=NONE "warranty.                                                         "
     [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "↓"
-└ 1 of 2 ────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└"
-    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 2 "
-    [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "────────────────────────────────┘"
+└────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└────────────────────────────────────────┘"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└──────────────────────────────────────────────────────────────────┘"
  j/k scroll   C-d/C-u page   e edit   c comment   m comments   + react   o browser   y y… Dan's Donuts · @dan
     [0] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " j/k scroll   C-d/C-u page   e edit   c comment   m comments   + react   o browser   y y…"

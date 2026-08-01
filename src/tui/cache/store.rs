@@ -36,6 +36,10 @@ impl<K: Eq + Hash + Clone, V: Default> Cache<K, V> {
         self.entries.iter()
     }
 
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
+        self.entries.values_mut()
+    }
+
     pub fn retain(&mut self, keep: impl FnMut(&K, &mut V) -> bool) {
         self.entries.retain(keep);
     }

@@ -1,6 +1,5 @@
 ---
 source: tests/render.rs
-assertion_line: 300
 expression: "render_to_string(&mut app, 100, 20)"
 ---
 ┌Assigned to me · In Progress · Inbox┐┌DAN2-7──────────────────────────────────────────────────────┐
@@ -11,15 +10,15 @@ expression: "render_to_string(&mut app, 100, 20)"
 │!!  DAN-13 Todo Introduce a┌Assign  DAN2-7────────────────────────────┐                           █
 │!!  DAN2-5 Backlog Settle t│Unassigned                                │                           █
 │    DAN-15 Backlog Coffee p│dan  you                                  │                           ║
-└ 1 of 7 ───────────────────│                                          │                           ║
-┌Recently viewed────────────│                                          │oven creeps past 480°C and ║
-│Issues you open land here  │                                          │lts.                       ║
+│                           │                                          │                           ║
+└ 1 of 7 ───────────────────│                                          │oven creeps past 480°C and ║
+┌Recently viewed────────────│                                          │lts.                       ║
+│Issues you open land here  │                                          │                           ║
 └───────────────────────────│                                          │                           ║
 ┌Saved Views────────────────│                                          │                           ║
-│⠋  Loading…                │                                          │                           ║
-└───────────────────────────│                                          │king open                  ║
-┌Teams──────────────────────└ 1 of 2 ──────────────────────────────────┘                           ║
-│Dan's Pizza                         ││Checklist                                                   ║
-│Dan's Donuts                        ││                                                            ↓
-└ 1 of 2 ────────────────────────────┘└────────────────────────────────────────────────────────────┘
+│⠋  Loading…                │                                          │king open                  ║
+└───────────────────────────└ 1 of 2 ──────────────────────────────────┘                           ║
+┌Teams───────────────────────────────┐│Checklist                                                   ║
+│                                    ││                                                            ↓
+└────────────────────────────────────┘└────────────────────────────────────────────────────────────┘
  j move   enter select   / search   esc cancel                                  Dan's Donuts · @dan

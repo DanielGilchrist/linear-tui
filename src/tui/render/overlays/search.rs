@@ -15,7 +15,7 @@ use crate::tui::spinner::Spinner;
 
 pub struct SearchFeed<'a> {
     pub results: &'a [IssueSummary],
-    pub status: Option<&'a CacheStatus>,
+    pub status: Option<CacheStatus>,
     pub appending: bool,
 }
 

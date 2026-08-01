@@ -3,7 +3,7 @@ pub mod footer;
 pub mod my_work;
 pub mod recent;
 pub mod saved_views;
-pub mod stub;
+pub mod teams;
 pub mod view;
 
 use ratatui::text::Line;
@@ -15,7 +15,7 @@ use crate::tui::feed::Feed;
 use crate::tui::spinner::Spinner;
 
 #[derive(Clone, Copy)]
-#[must_use = "write this back to app.viewport"]
+#[must_use = "write this back to app.ui.viewport"]
 pub struct Viewport(pub usize);
 
 pub(super) const LOADING_TEXT: &str = "Loading…";
@@ -30,7 +30,7 @@ pub(super) fn feed_truncated(feed: Option<&Feed<IssueSummary>>) -> bool {
     feed.is_some_and(|feed| feed.truncated())
 }
 
-pub(super) fn feed_placeholder(status: Option<&CacheStatus>, spinner: Spinner) -> Line<'static> {
+pub(super) fn feed_placeholder(status: Option<CacheStatus>, spinner: Spinner) -> Line<'static> {
     placeholder(
         status,
         PlaceholderText {

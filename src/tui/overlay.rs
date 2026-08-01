@@ -1,12 +1,14 @@
+use std::num::NonZeroUsize;
+
 use ratatui::widgets::ListState;
 
 use super::action::{self, Action};
 use super::emoji::{self, PaletteEmoji};
 use super::focus::{Direction, Edge, Focus};
-use super::message::Command;
+use super::message::Effect;
 use crate::api::{
     CommentId, IssueId, Label, LabelId, Priority, Reaction, ReactionTarget, StateId, StateOption,
-    User, UserId,
+    TeamId, User, UserId,
 };
 use crate::store::Account;
 
@@ -22,7 +24,13 @@ pub enum PickerKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AssignOptions {
     Suggested,
-    Matching(String),
+    Matching { query: String, phase: SearchPhase },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchPhase {
+    InFlight,
+    Settled,
 }
 
 #[derive(Debug, Clone)]
@@ -91,9 +99,9 @@ pub struct Picker {
     pub kind: PickerKind,
     pub target_issue: IssueId,
     pub target_label: String,
+    pub target_team: TeamId,
     pub items: Vec<PickerItem>,
     pub state: ListState,
-    pub loading: bool,
 }
 
 impl Picker {
@@ -107,10 +115,32 @@ impl Picker {
 
     pub fn searching(&self) -> Option<&str> {
         match &self.kind {
-            PickerKind::Assign(AssignOptions::Matching(query)) => Some(query),
+            PickerKind::Assign(AssignOptions::Matching {
+                query,
+                phase: SearchPhase::InFlight,
+            }) => Some(query),
+            PickerKind::Assign(AssignOptions::Matching {
+                phase: SearchPhase::Settled,
+                ..
+            })
+            | PickerKind::Status
+            | PickerKind::Assign(AssignOptions::Suggested)
+            | PickerKind::Priority => None,
+        }
+    }
+
+    pub fn search_query(&self) -> Option<&str> {
+        match &self.kind {
+            PickerKind::Assign(AssignOptions::Matching { query, .. }) => Some(query),
             PickerKind::Status
             | PickerKind::Assign(AssignOptions::Suggested)
             | PickerKind::Priority => None,
+        }
+    }
+
+    pub fn settle_search(&mut self) {
+        if let PickerKind::Assign(AssignOptions::Matching { phase, .. }) = &mut self.kind {
+            *phase = SearchPhase::Settled;
         }
     }
 
@@ -123,14 +153,31 @@ impl Picker {
     }
 }
 
+pub enum LabelResults {
+    Loading,
+    Loaded(Vec<Label>),
+}
+
+impl LabelResults {
+    pub fn is_loading(&self) -> bool {
+        matches!(self, LabelResults::Loading)
+    }
+
+    fn items(&self) -> &[Label] {
+        match self {
+            LabelResults::Loading => &[],
+            LabelResults::Loaded(labels) => labels,
+        }
+    }
+}
+
 pub struct Labels {
     pub target_issue: IssueId,
     pub target_label: String,
     pub query: String,
-    pub results: Vec<Label>,
+    pub results: LabelResults,
     pub selected: Vec<Label>,
     pub state: ListState,
-    pub loading: bool,
 }
 
 impl Labels {
@@ -139,10 +186,19 @@ impl Labels {
             target_issue,
             target_label,
             query: String::new(),
-            results: Vec::new(),
+            results: LabelResults::Loading,
             selected: current,
             state: ListState::default().with_selected(Some(0)),
-            loading: true,
+        }
+    }
+
+    pub fn results(&self) -> &[Label] {
+        self.results.items()
+    }
+
+    pub fn settle(&mut self) {
+        if self.results.is_loading() {
+            self.results = LabelResults::Loaded(Vec::new());
         }
     }
 
@@ -154,7 +210,7 @@ impl Labels {
         let Some(label) = self
             .state
             .selected()
-            .and_then(|i| self.results.get(i))
+            .and_then(|i| self.results().get(i))
             .cloned()
         else {
             return;
@@ -175,7 +231,7 @@ impl Labels {
 
 pub struct Confirm {
     pub message: String,
-    pub command: Command,
+    pub command: Effect,
 }
 
 pub enum MenuRow {
@@ -209,9 +265,9 @@ impl Menu {
             Focus::MyWork => action::MY_WORK_MENU,
             Focus::Recent => action::RECENT_MENU,
             Focus::SavedViews => action::SAVED_VIEWS_MENU,
-            Focus::View => action::VIEW_MENU,
+            Focus::View(_) => action::VIEW_MENU,
             Focus::Detail(..) => action::DETAIL_MENU,
-            Focus::Stub(_) => action::STUB_MENU,
+            Focus::Teams => action::TEAMS_MENU,
         };
 
         let mut rows = vec![MenuRow::Header("Local")];
@@ -250,15 +306,15 @@ impl Menu {
             .map(|(index, _)| index)
             .collect();
 
-        if items.is_empty() {
+        let Some(len) = NonZeroUsize::new(items.len()) else {
             return;
-        }
+        };
 
         let current = self.state.selected().unwrap_or(items[0]);
         let position = items.iter().position(|&i| i == current).unwrap_or(0);
 
         self.state
-            .select(Some(items[direction.wrap(position, items.len())]));
+            .select(Some(items[direction.wrap(position, len)]));
     }
 
     pub fn jump_section(&mut self, direction: Direction) {
@@ -270,13 +326,13 @@ impl Menu {
             .map(|(index, _)| index)
             .collect();
 
-        if headers.is_empty() {
+        let Some(len) = NonZeroUsize::new(headers.len()) else {
             return;
-        }
+        };
 
         let current = self.state.selected().unwrap_or(0);
         let section = headers.iter().rposition(|&h| h <= current).unwrap_or(0);
-        let target = direction.wrap(section, headers.len());
+        let target = direction.wrap(section, len);
 
         let first_item = (headers[target] + 1..self.rows.len())
             .find(|&index| matches!(self.rows[index], MenuRow::Item { .. }));
@@ -312,7 +368,33 @@ pub struct Prefix {
 
 pub enum PrefixUnder {
     Browse,
-    Modal(Box<Overlay>),
+    Modal(ModalOverlay),
+}
+
+pub enum ModalOverlay {
+    Search(Search),
+    Menu(Menu),
+    Picker(Picker),
+}
+
+impl ModalOverlay {
+    #[allow(clippy::result_large_err)]
+    pub fn try_from_overlay(overlay: Overlay) -> Result<ModalOverlay, Overlay> {
+        match overlay {
+            Overlay::Search(search) => Ok(ModalOverlay::Search(search)),
+            Overlay::Menu(menu) => Ok(ModalOverlay::Menu(menu)),
+            Overlay::Picker(picker) => Ok(ModalOverlay::Picker(picker)),
+            other => Err(other),
+        }
+    }
+
+    pub fn into_overlay(self) -> Overlay {
+        match self {
+            ModalOverlay::Search(search) => Overlay::Search(search),
+            ModalOverlay::Menu(menu) => Overlay::Menu(menu),
+            ModalOverlay::Picker(picker) => Overlay::Picker(picker),
+        }
+    }
 }
 
 pub struct Find {
@@ -324,8 +406,15 @@ pub struct Find {
 pub enum InputPurpose {
     Jump,
     Search,
-    CustomReaction { target: ReactionTarget },
-    AssignSearch { issue: IssueId, label: String },
+    CustomReaction {
+        issue_id: IssueId,
+        target: ReactionTarget,
+    },
+    AssignSearch {
+        issue: IssueId,
+        label: String,
+        team: TeamId,
+    },
     AddWorkspaceKey,
     AddWorkspaceEnvVar,
 }
@@ -420,13 +509,14 @@ impl ReactionChoice {
 }
 
 pub struct Reactions {
+    pub issue_id: IssueId,
     pub target: ReactionTarget,
     pub choices: Vec<ReactionChoice>,
     pub state: ListState,
 }
 
 impl Reactions {
-    pub fn new(target: ReactionTarget, reactions: &[Reaction]) -> Self {
+    pub fn new(issue_id: IssueId, target: ReactionTarget, reactions: &[Reaction]) -> Self {
         let mut choices: Vec<ReactionChoice> = Vec::new();
 
         for reaction in reactions {
@@ -455,6 +545,7 @@ impl Reactions {
         let start = if split < choices.len() { split } else { 0 };
 
         Self {
+            issue_id,
             target,
             choices,
             state: ListState::default().with_selected(Some(start)),
@@ -590,10 +681,26 @@ pub struct Mention {
     pub url: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Position {
+    pub row: usize,
+    pub col: usize,
+}
+
 pub struct MentionMenu {
-    pub at: usize,
+    anchor: Position,
     pub query: String,
     pub state: ListState,
+}
+
+impl MentionMenu {
+    fn new(anchor: Position) -> Self {
+        Self {
+            anchor,
+            query: String::new(),
+            state: ListState::default().with_selected(Some(0)),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -615,18 +722,22 @@ impl Compose {
 
 pub struct Editor {
     pub title: &'static str,
-    pub lines: Vec<Vec<Cell>>,
-    pub row: usize,
-    pub col: usize,
+    pub issue_id: IssueId,
+    pub target_team: TeamId,
+    lines: Vec<Vec<Cell>>,
+    row: usize,
+    col: usize,
     pub compose: Compose,
-    pub members: Vec<User>,
-    pub mention: Option<MentionMenu>,
+    members: Vec<User>,
+    mention: Option<MentionMenu>,
 }
 
 impl Editor {
-    pub fn new(compose: Compose) -> Self {
+    pub fn new(issue_id: IssueId, target_team: TeamId, compose: Compose) -> Self {
         Self {
             title: compose.title(),
+            issue_id,
+            target_team,
             lines: vec![Vec::new()],
             row: 0,
             col: 0,
@@ -636,8 +747,8 @@ impl Editor {
         }
     }
 
-    pub fn seeded(compose: Compose, body: &str) -> Self {
-        let mut editor = Self::new(compose);
+    pub fn seeded(issue_id: IssueId, target_team: TeamId, compose: Compose, body: &str) -> Self {
+        let mut editor = Self::new(issue_id, target_team, compose);
 
         editor.lines = body
             .split('\n')
@@ -646,8 +757,44 @@ impl Editor {
 
         editor.row = editor.lines.len() - 1;
         editor.col = editor.lines[editor.row].len();
+        editor.settle();
 
         editor
+    }
+
+    fn settle(&mut self) {
+        if self.lines.is_empty() {
+            self.lines.push(Vec::new());
+        }
+
+        self.row = self.row.min(self.lines.len() - 1);
+        self.col = self.col.min(self.lines[self.row].len());
+
+        if let Some(mention) = &mut self.mention {
+            mention.anchor.row = mention.anchor.row.min(self.lines.len() - 1);
+            let anchor_line = self.lines[mention.anchor.row].len();
+            mention.anchor.col = if mention.anchor.row == self.row {
+                mention.anchor.col.min(self.col)
+            } else {
+                mention.anchor.col.min(anchor_line)
+            };
+        }
+    }
+
+    pub fn lines(&self) -> &[Vec<Cell>] {
+        &self.lines
+    }
+
+    pub fn row(&self) -> usize {
+        self.row
+    }
+
+    pub fn col(&self) -> usize {
+        self.col
+    }
+
+    pub fn mention(&self) -> Option<&MentionMenu> {
+        self.mention.as_ref()
     }
 
     pub fn text(&self) -> String {
@@ -674,24 +821,26 @@ impl Editor {
     }
 
     pub fn insert_char(&mut self, c: char) {
-        let col = self.col.min(self.line_len(self.row));
-        self.lines[self.row].insert(col, Cell::Char(c));
-        self.col = col + 1;
+        self.lines[self.row].insert(self.col, Cell::Char(c));
+        self.col += 1;
+        self.settle();
     }
 
-    pub fn insert_mention(&mut self, display: String, url: String) {
-        let col = self.col.min(self.line_len(self.row));
-        self.lines[self.row].insert(col, Cell::Mention(Mention { display, url }));
-        self.col = col + 1;
+    fn insert_mention(&mut self, display: String, url: String) {
+        self.lines[self.row].insert(self.col, Cell::Mention(Mention { display, url }));
+        self.col += 1;
+        self.settle();
     }
 
     pub fn newline(&mut self) {
-        let col = self.col.min(self.line_len(self.row));
-        let tail = self.lines[self.row].split_off(col);
+        self.close_mention();
+
+        let tail = self.lines[self.row].split_off(self.col);
 
         self.lines.insert(self.row + 1, tail);
         self.row += 1;
         self.col = 0;
+        self.settle();
     }
 
     pub fn backspace(&mut self) {
@@ -705,6 +854,7 @@ impl Editor {
             self.col = self.line_len(self.row);
             self.lines[self.row].extend(current);
         }
+        self.settle();
     }
 
     pub fn move_left(&mut self) {
@@ -714,6 +864,7 @@ impl Editor {
             self.row -= 1;
             self.col = self.line_len(self.row);
         }
+        self.settle();
     }
 
     pub fn move_right(&mut self) {
@@ -723,20 +874,27 @@ impl Editor {
             self.row += 1;
             self.col = 0;
         }
+        self.settle();
     }
 
     pub fn move_up(&mut self) {
+        self.close_mention();
+
         if self.row > 0 {
             self.row -= 1;
             self.col = self.col.min(self.line_len(self.row));
         }
+        self.settle();
     }
 
     pub fn move_down(&mut self) {
+        self.close_mention();
+
         if self.row + 1 < self.lines.len() {
             self.row += 1;
             self.col = self.col.min(self.line_len(self.row));
         }
+        self.settle();
     }
 
     pub fn at_word_boundary(&self) -> bool {
@@ -751,6 +909,14 @@ impl Editor {
         }
     }
 
+    pub fn set_members(&mut self, members: Vec<User>) {
+        self.members = members;
+
+        if let Some(mention) = &mut self.mention {
+            mention.state.select(Some(0));
+        }
+    }
+
     pub fn candidates(&self, query: &str) -> Vec<&User> {
         let needle = query.to_lowercase();
 
@@ -759,8 +925,87 @@ impl Editor {
             .filter(|user| user.display_name.to_lowercase().contains(&needle))
             .collect()
     }
+
+    pub fn open_mention(&mut self) {
+        self.insert_char('@');
+        self.mention = Some(MentionMenu::new(Position {
+            row: self.row,
+            col: self.col - 1,
+        }));
+        self.settle();
+    }
+
+    pub fn close_mention(&mut self) {
+        self.mention = None;
+    }
+
+    pub fn mention_type(&mut self, c: char) {
+        self.insert_char(c);
+        if let Some(mention) = &mut self.mention {
+            mention.query.push(c);
+            mention.state.select(Some(0));
+        }
+    }
+
+    pub fn mention_backspace(&mut self) {
+        self.backspace();
+        match &mut self.mention {
+            Some(mention) if !mention.query.is_empty() => {
+                mention.query.pop();
+                mention.state.select(Some(0));
+            }
+            _ => self.mention = None,
+        }
+    }
+
+    pub fn mention_move(&mut self, direction: Direction) {
+        let Some(mention) = &self.mention else {
+            return;
+        };
+        let Some(len) = NonZeroUsize::new(self.candidates(&mention.query).len()) else {
+            return;
+        };
+
+        let current = mention.state.selected().unwrap_or(0);
+        let next = direction.wrap(current, len);
+        if let Some(mention) = &mut self.mention {
+            mention.state.select(Some(next));
+        }
+    }
+
+    pub fn accept_mention(&mut self) {
+        let Some(mention) = self.mention.take() else {
+            return;
+        };
+
+        if mention.anchor.row != self.row || mention.anchor.col > self.col {
+            return;
+        }
+
+        let Some(selected) = mention.state.selected() else {
+            return;
+        };
+
+        let query = mention.query.to_lowercase();
+        let picked = self
+            .members
+            .iter()
+            .filter(|user| user.display_name.to_lowercase().contains(&query))
+            .nth(selected)
+            .map(|user| (user.display_name.clone(), user.url.clone()));
+
+        let Some((display, url)) = picked else {
+            return;
+        };
+
+        self.lines[mention.anchor.row].drain(mention.anchor.col..self.col);
+        self.col = mention.anchor.col;
+        self.settle();
+        self.insert_mention(display, url);
+    }
 }
 
+#[derive(Debug, Clone)]
 pub struct Search {
     pub query: String,
     pub state: ListState,
@@ -790,4 +1035,69 @@ pub enum Overlay {
     Reactions(Reactions),
     Workspaces(Workspaces),
     Labels(Labels),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::UserId;
+
+    fn editor_with_member() -> Editor {
+        let mut editor = Editor::new(
+            IssueId::from_raw("i1"),
+            TeamId::from_raw("t1"),
+            Compose::Comment,
+        );
+
+        editor.set_members(vec![User {
+            id: UserId::from_raw("u_dan"),
+            name: "dan".into(),
+            display_name: "dan".into(),
+            url: "https://linear.app/dans-donuts/profiles/dan".into(),
+            is_me: true,
+        }]);
+
+        editor
+    }
+
+    #[test]
+    fn accept_mention_replaces_the_typed_query() {
+        let mut editor = editor_with_member();
+        editor.open_mention();
+        editor.mention_type('d');
+
+        editor.accept_mention();
+
+        assert_eq!(editor.text(), "https://linear.app/dans-donuts/profiles/dan");
+    }
+
+    #[test]
+    fn accept_mention_after_a_cross_row_move_is_a_no_op() {
+        let mut editor = editor_with_member();
+        editor.insert_char('h');
+        editor.open_mention();
+        editor.mention_type('d');
+
+        editor.lines.push(Vec::new());
+        editor.row = 1;
+        editor.col = 0;
+
+        editor.accept_mention();
+
+        assert_eq!(editor.lines[0].len(), 3, "the anchored row is untouched");
+        assert!(editor.lines[1].is_empty());
+    }
+
+    #[test]
+    fn moving_off_the_row_closes_a_live_mention() {
+        let mut editor = editor_with_member();
+        editor.newline();
+        editor.open_mention();
+        editor.mention_type('d');
+        assert!(editor.mention().is_some());
+
+        editor.move_up();
+
+        assert!(editor.mention().is_none());
+    }
 }

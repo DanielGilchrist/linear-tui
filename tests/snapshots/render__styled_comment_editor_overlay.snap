@@ -102,80 +102,76 @@ expression: "render_styled_to_string(&mut app, 90, 24)"
     [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-└ 1 of 7 ─────│ ┌Mention───────────────────────────────┐                    │            ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└"
-    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 7 "
-    [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "─────"
+│             │ ┌Mention───────────────────────────────┐                    │            ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [16] fg=Some(Yellow) bg=Some(Reset) mod=NONE "┌Mention───────────────────────────────┐"
     [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-┌Recently view│ │@dan                                  │                    │            ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Recently view"
+└ 1 of 7 ─────│ │@dan                                  │                    │            ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 7 "
+    [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "─────"
     [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [16] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [17] fg=Some(White) bg=Some(DarkGray) mod=NONE "@dan                                  "
     [55] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│Issues you op│ │@sam                                  │                    │            ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Issues you op"
+┌Recently view│ │@sam                                  │                    │            ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Recently view"
     [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [16] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [17] fg=Some(Blue) bg=Some(Reset) mod=NONE "@sam"
     [55] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-└─────────────│ │@alex                                 │                    │            ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└─────────────"
+│Issues you op│ │@alex                                 │                    │            ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Issues you op"
     [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [16] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [17] fg=Some(Blue) bg=Some(Reset) mod=NONE "@alex"
     [55] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-┌Saved Views──│ └──────────────────────────────────────┘                    │            ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Saved Views──"
+└─────────────│ └──────────────────────────────────────┘                    │            ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└─────────────"
     [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [16] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└──────────────────────────────────────┘"
     [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│⠋  Loading…  └─────────────────────────────────────────────────────────────┘            ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "⠋  Loading…"
+┌Saved Views──└─────────────────────────────────────────────────────────────┘            ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Saved Views──"
     [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└─────────────────────────────────────────────────────────────┘"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-└────────────────────────────────┘│[x] Swap the thermocouple                             ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└────────────────────────────────┘"
+│⠋  Loading…                     ││[x] Swap the thermocouple                             ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "⠋  Loading…"
+    [33] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [35] fg=Some(Green) bg=Some(Reset) mod=NONE "[x] "
     [39] fg=Some(Reset) bg=Some(Reset) mod=NONE "Swap the thermocouple                             "
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-┌Teams───────────────────────────┐│[ ] Inspect the flue damper                           ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Teams───────────────────────────┐"
+└────────────────────────────────┘│[ ] Inspect the flue damper                           ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└────────────────────────────────┘"
     [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [35] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "[ ] "
     [39] fg=Some(Reset) bg=Some(Reset) mod=NONE "Inspect the flue damper                           "
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│Dan's Pizza                     ││[ ] Recalibrate the PID loop                          ║
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-    [1] fg=Some(Reset) bg=Some(Rgb(45, 45, 48)) mod=NONE "Dan's Pizza                     "
-    [33] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+┌Teams───────────────────────────┐│[ ] Recalibrate the PID loop                          ║
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Teams───────────────────────────┐"
     [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [35] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "[ ] "
     [39] fg=Some(Reset) bg=Some(Reset) mod=NONE "Recalibrate the PID loop                          "
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│Dan's Donuts                    ││                                                      ↓
+│                                ││                                                      ↓
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Dan's Donuts                    "
     [33] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "↓"
-└ 1 of 2 ────────────────────────┘└──────────────────────────────────────────────────────┘
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└"
-    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 2 "
-    [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "────────────────────────┘"
+└────────────────────────────────┘└──────────────────────────────────────────────────────┘
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└────────────────────────────────┘"
     [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└──────────────────────────────────────────────────────┘"
  C-s post   enter newline   ↑/↓/←/→ move   esc cancel                 Dan's Donuts · @dan
     [0] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " C-s post   enter newline   ↑/↓/←/→ move   esc cancel"

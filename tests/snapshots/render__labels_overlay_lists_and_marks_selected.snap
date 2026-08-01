@@ -10,15 +10,15 @@ expression: "render_to_string(&mut app, 100, 20)"
 │!!  DAN-13 Todo Introdu│  ● bug                                           │                       █
 │!!  DAN2-5 Backlog Sett│                                                  │                       █
 │    DAN-15 Backlog Coff│                                                  │                       ║
-└ 1 of 7 ───────────────│                                                  │                       ║
-┌Recently viewed────────│                                                  │ creeps past 480°C and ║
+│                       │                                                  │                       ║
+└ 1 of 7 ───────────────│                                                  │ creeps past 480°C and ║
+┌Recently viewed────────│                                                  │                       ║
 │Issues you open land he│                                                  │                       ║
 └───────────────────────│                                                  │                       ║
 ┌Saved Views────────────│                                                  │                       ║
-│⠋  Loading…            │                                                  │                       ║
-└───────────────────────│                                                  │ open                  ║
+│⠋  Loading…            │                                                  │ open                  ║
+└───────────────────────│                                                  │                       ║
 ┌Teams──────────────────│                                                  │                       ║
-│Dan's Pizza            │                                                  │                       ║
-│Dan's Donuts           └──────────────────────────────────────────────────┘                       ↓
-└ 1 of 2 ────────────────────────────┘└────────────────────────────────────────────────────────────┘
+│                       └──────────────────────────────────────────────────┘                       ↓
+└────────────────────────────────────┘└────────────────────────────────────────────────────────────┘
  type search   space toggle   enter submit   esc cancel                         Dan's Donuts · @dan

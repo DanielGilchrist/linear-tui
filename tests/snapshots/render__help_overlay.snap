@@ -14,15 +14,15 @@ expression: "render_to_string(&mut app, 84, 24)"
 │                       │        /  find                   │                       │
 │                       │        n  next match             │                       │
 │                       │        o  browser                │                       │
-└───────────────────────│        y  yank                   │                       │
-┌Recently viewed────────│        r  reload                 │                       │
-│Issues you open land he│Global                            │                       │
-└───────────────────────│        g  go to                  │                       │
-┌Saved Views────────────│      tab  panel                  │                       │
-│⠋  Loading…            │shift+tab  panel                  │                       │
-└───────────────────────│        ?  help                   │                       │
-┌Teams──────────────────└──────────────────────────────────┘                       │
-│Dan's Pizza                   ││                                                  │
-│Dan's Donuts                  ││                                                  │
-└ 1 of 2 ──────────────────────┘└──────────────────────────────────────────────────┘
+│                       │        y  yank                   │                       │
+└───────────────────────│        r  reload                 │                       │
+┌Recently viewed────────│Global                            │                       │
+│Issues you open land he│        g  go to                  │                       │
+└───────────────────────│      tab  panel                  │                       │
+┌Saved Views────────────│shift+tab  panel                  │                       │
+│⠋  Loading…            │        ?  help                   │                       │
+└───────────────────────└──────────────────────────────────┘                       │
+┌Teams─────────────────────────┐│                                                  │
+│                              ││                                                  │
+└──────────────────────────────┘└──────────────────────────────────────────────────┘
  j move   tab section   enter run   esc close                           connecting…

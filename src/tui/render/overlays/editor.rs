@@ -22,25 +22,25 @@ pub fn render(editor: &Editor, frame: &mut Frame, area: Rect) {
         .border_style(theme::ACCENT);
 
     let inner_height = (area.height.saturating_sub(2) as usize).max(1);
-    let offset = editor.row.saturating_sub(inner_height - 1);
+    let offset = editor.row().saturating_sub(inner_height - 1);
 
     let lines: Vec<Line> = editor
-        .lines
+        .lines()
         .iter()
         .enumerate()
         .skip(offset)
         .take(inner_height)
         .map(|(row, cells)| {
-            let cursor = (row == editor.row).then_some(editor.col);
+            let cursor = (row == editor.row()).then_some(editor.col());
             editor_line(cells, cursor)
         })
         .collect();
 
     let inner_width = area.width.saturating_sub(2);
     let cursor_column = editor
-        .lines
-        .get(editor.row)
-        .map_or(1, |cells| cursor_column(cells, editor.col));
+        .lines()
+        .get(editor.row())
+        .map_or(1, |cells| cursor_column(cells, editor.col()));
 
     let scroll_x = cursor_column.saturating_sub(inner_width.saturating_sub(1));
     let paragraph = Paragraph::new(Text::from(lines))
@@ -49,7 +49,7 @@ pub fn render(editor: &Editor, frame: &mut Frame, area: Rect) {
 
     frame.render_widget(paragraph, area);
 
-    if let Some(mention) = &editor.mention {
+    if let Some(mention) = editor.mention() {
         render_mention_popup(editor, mention, frame, area);
     }
 }

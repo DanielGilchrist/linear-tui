@@ -12,15 +12,15 @@ expression: "render_to_string(&mut app, 90, 22)"
 │    DAN-15 Backlog Coffee pairin││Symptoms                                              █
 │                                ││                                                      ║
 │                  ┌React─────────────────────────────────────────────┐n creeps past     ║
-└ 1 of 7 ──────────│Current: 👀  1 🚀  1                                │eese melts.       ║
-┌Recently viewed───│Add:     👍    ❤️    🎉    😄    😕    👎               │                  ║
-│Issues you open la│h/l move · j/k row · enter toggle · c custom · esc│                  ║
-└──────────────────└──────────────────────────────────────────────────┘                  ║
-┌Saved Views─────────────────────┐│• Suspect the flue damper is sticking open            ║
-│⠋  Loading…                     ││                                                      ║
-└────────────────────────────────┘│Checklist                                             ║
-┌Teams───────────────────────────┐│                                                      ║
-│Dan's Pizza                     ││[x] Swap the thermocouple                             ║
-│Dan's Donuts                    ││[ ] Inspect the flue damper                           ↓
-└ 1 of 2 ────────────────────────┘└──────────────────────────────────────────────────────┘
+│                  │Current: 👀  1 🚀  1                                │eese melts.       ║
+└ 1 of 7 ──────────│Add:     👍    ❤️    🎉    😄    😕    👎               │                  ║
+┌Recently viewed───│h/l move · j/k row · enter toggle · c custom · esc│                  ║
+│Issues you open la└──────────────────────────────────────────────────┘                  ║
+└────────────────────────────────┘│• Suspect the flue damper is sticking open            ║
+┌Saved Views─────────────────────┐│                                                      ║
+│⠋  Loading…                     ││Checklist                                             ║
+└────────────────────────────────┘│                                                      ║
+┌Teams───────────────────────────┐│[x] Swap the thermocouple                             ║
+│                                ││[ ] Inspect the flue damper                           ↓
+└────────────────────────────────┘└──────────────────────────────────────────────────────┘
  h/l move   j/k row   enter toggle   c custom   esc cancel            Dan's Donuts · @dan

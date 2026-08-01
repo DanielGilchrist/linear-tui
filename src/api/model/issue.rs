@@ -163,20 +163,29 @@ impl IssueDetail {
 
         let mut ordered = Vec::new();
         for root in roots {
-            ordered.push(ThreadedComment {
-                comment: root,
-                depth: 0,
-            });
-            if let Some(replies) = children.get(root.id.as_str()) {
-                for reply in replies {
-                    ordered.push(ThreadedComment {
-                        comment: reply,
-                        depth: 1,
-                    });
-                }
-            }
+            push_thread(&mut ordered, root, 0, &children);
         }
+
         ordered
+    }
+
+    pub fn thread_len(&self) -> usize {
+        self.threaded_comments().len()
+    }
+}
+
+fn push_thread<'a>(
+    ordered: &mut Vec<ThreadedComment<'a>>,
+    comment: &'a Comment,
+    depth: usize,
+    children: &std::collections::HashMap<&str, Vec<&'a Comment>>,
+) {
+    ordered.push(ThreadedComment { comment, depth });
+
+    if let Some(replies) = children.get(comment.id.as_str()) {
+        for reply in replies {
+            push_thread(ordered, reply, depth + 1, children);
+        }
     }
 }
 

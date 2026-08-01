@@ -1,165 +1,312 @@
-use ratatui::widgets::ScrollbarState;
-
 use super::feed::{
-    access_feed, feed_keep_id, reconcile_feed, resolve, revalidate_focus, save_feeds_command,
-    selected_view_key,
+    access_feed, feed_keep_id, reconcile_feed, resolve, revalidate_focus, selected_view_key,
 };
 use super::issue::{
-    fill_picker, found_users, newest_comment_index, status_items, stop_assign_picker,
-    stop_status_picker,
+    fill_picker, found_users, newest_comment_index, open_editor, place_editor, status_items,
+    stop_assign_picker,
 };
 use super::nav::clamp_selection;
-use crate::api::IssueSummary;
-use crate::tui::app::{App, AuthState, RECENT_CAP};
+use crate::api::{
+    Credential, IssueDetail, IssueSummary, Label, NotificationItem, Page, Session, StateOption,
+    TeamId, User,
+};
+use crate::store::Account;
+use crate::tui::app::{App, AuthState};
 use crate::tui::cache::Stale;
-use crate::tui::feed::FeedRequest;
-use crate::tui::focus::{DetailFocus, DetailView, Focus, LeftPanel, Reveal};
-use crate::tui::message::{Command, FailureTarget, Message, RequestError};
-use crate::tui::overlay::{Overlay, PickerKind};
+use crate::tui::feed::{FeedKey, FeedRequest};
+use crate::tui::focus::{Cursor, DetailView, Focus, LeftPanel, Reveal, Scroll};
+use crate::tui::message::{
+    ApiCommand, Commands, ComposeRecovery, Effect, Effects, FailureTarget, Message, RequestError,
+    RuntimeCommand, StoreCommand,
+};
+use crate::tui::overlay::{LabelResults, Overlay, PickerKind};
 use crate::tui::status::Status;
 use crate::tui::view::ViewKind;
 
-pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
+enum Transition {
+    SessionLoaded(Session),
+    FeedApplied {
+        key: FeedKey,
+        request: FeedRequest,
+        page: Page<IssueSummary>,
+        keep: Option<crate::api::IssueId>,
+    },
+    InboxApplied {
+        request: FeedRequest,
+        page: Page<NotificationItem>,
+        active: bool,
+        keep: Option<String>,
+    },
+    CustomViewsLoaded(Vec<crate::api::SavedView>),
+    TeamsLoaded(Vec<crate::api::Team>),
+    DetailLoaded {
+        detail: Box<IssueDetail>,
+        reveal: Reveal,
+        focused: bool,
+        settle: bool,
+    },
+    RecentLoaded(Vec<IssueSummary>),
+    RecentCleared {
+        leave_panel: bool,
+    },
+    StatesLoaded {
+        team_id: TeamId,
+        states: Vec<StateOption>,
+    },
+    MembersLoaded {
+        team_id: TeamId,
+        members: Vec<User>,
+    },
+    UsersFound {
+        query: String,
+        users: Vec<User>,
+    },
+    LabelsFound {
+        query: String,
+        labels: Vec<Label>,
+    },
+    IssueUpdated {
+        id: crate::api::IssueId,
+        on_detail: bool,
+    },
+    ReloadDetail {
+        id: crate::api::IssueId,
+        reveal: Reveal,
+        status: Option<Status>,
+        on_detail: bool,
+    },
+    AccountAdded(Box<Account>),
+    LoginSucceeded(Credential),
+    TokenRefreshed {
+        workspace_key: String,
+        credential: Credential,
+    },
+    RefreshFailed {
+        workspace_key: String,
+    },
+    Failed {
+        target: FailureTarget,
+        error: RequestError,
+    },
+}
+
+pub fn apply(app: &mut App, msg: Message) -> Commands {
+    let transition = reduce(app, msg);
+    commit(app, transition)
+}
+
+fn reduce(app: &App, msg: Message) -> Transition {
     match msg {
-        Message::SessionLoaded(session) => {
-            app.workspace.session = Some(session);
-            app.auth = AuthState::Authenticated;
-            None
-        }
+        Message::SessionLoaded(session) => Transition::SessionLoaded(session),
         Message::FeedLoaded { key, request, page } => {
             let keep = feed_keep_id(app, &key);
-
-            let applied = app
-                .workspace
-                .feeds
-                .get_or_default(&key)
-                .apply(&request, page, app.now);
-            if !applied {
-                return None;
-            }
-
-            app.status = None;
-            reconcile_feed(app, &key, keep);
-
-            match request {
-                FeedRequest::Refresh => Some(save_feeds_command(app)),
-                FeedRequest::LoadMore { .. } => None,
+            Transition::FeedApplied {
+                key,
+                request,
+                page,
+                keep,
             }
         }
         Message::InboxLoaded { request, page } => {
-            let inbox_active = match app.active_view().kind {
-                ViewKind::Inbox => true,
-                ViewKind::Issues(_) => false,
-            };
-            let keep = inbox_active
+            let active = matches!(app.active_view().kind, ViewKind::Inbox);
+            let keep = active
                 .then(|| app.selected_notification().map(|n| n.grouping_key.clone()))
                 .flatten();
+            Transition::InboxApplied {
+                request,
+                page,
+                active,
+                keep,
+            }
+        }
+        Message::CustomViewsLoaded(views) => Transition::CustomViewsLoaded(views),
+        Message::TeamsLoaded { teams } => Transition::TeamsLoaded(teams),
+        Message::DetailLoaded { detail, reveal } => {
+            let focused = app
+                .focus()
+                .detail()
+                .is_some_and(|focus| focus.issue.matches_detail(&detail));
+            let revalidates = app
+                .workspace
+                .detail()
+                .value()
+                .is_some_and(|current| current.id == detail.id);
 
-            let applied = app.workspace.inbox.apply(&request, page, app.now);
-            if !applied {
-                return None;
+            Transition::DetailLoaded {
+                detail,
+                reveal,
+                focused,
+                settle: focused || revalidates,
+            }
+        }
+        Message::RecentLoaded(issues) => Transition::RecentLoaded(issues),
+        Message::RecentCleared => Transition::RecentCleared {
+            leave_panel: app.focus().left() == LeftPanel::Recent,
+        },
+        Message::StatesLoaded { team_id, states } => Transition::StatesLoaded { team_id, states },
+        Message::MembersLoaded { team_id, members } => {
+            Transition::MembersLoaded { team_id, members }
+        }
+        Message::UsersFound { query, users } => Transition::UsersFound { query, users },
+        Message::LabelsFound { query, labels } => Transition::LabelsFound { query, labels },
+        Message::IssueUpdated { id } => Transition::IssueUpdated {
+            on_detail: focused_on_issue(app, &id),
+            id,
+        },
+        Message::CommentPosted { id } => {
+            let reveal = match app.focus() {
+                Focus::Detail(detail) if detail.view.is_comments() => Reveal::NewestComment,
+                Focus::Detail(_)
+                | Focus::MyWork
+                | Focus::Recent
+                | Focus::SavedViews
+                | Focus::Teams
+                | Focus::View(_) => Reveal::Bottom,
+            };
+            Transition::ReloadDetail {
+                on_detail: focused_on_issue(app, &id),
+                id,
+                reveal,
+                status: Some(Status::CommentPosted),
+            }
+        }
+        Message::CommentEdited { id } => Transition::ReloadDetail {
+            on_detail: focused_on_issue(app, &id),
+            id,
+            reveal: Reveal::Top,
+            status: Some(Status::CommentEdited),
+        },
+        Message::CommentDeleted { id } => Transition::ReloadDetail {
+            on_detail: focused_on_issue(app, &id),
+            id,
+            reveal: Reveal::Top,
+            status: Some(Status::CommentDeleted),
+        },
+        Message::ReactionToggled { id } => Transition::ReloadDetail {
+            on_detail: focused_on_issue(app, &id),
+            id,
+            reveal: Reveal::Keep,
+            status: None,
+        },
+        Message::AccountAdded { account } => Transition::AccountAdded(account),
+        Message::LoginSucceeded { credential } => Transition::LoginSucceeded(credential),
+        Message::TokenRefreshed {
+            workspace_key,
+            credential,
+        } => Transition::TokenRefreshed {
+            workspace_key,
+            credential,
+        },
+        Message::RefreshFailed { workspace_key } => Transition::RefreshFailed { workspace_key },
+        Message::Failed { target, error } => Transition::Failed { target, error },
+    }
+}
+
+fn focused_on_issue(app: &App, id: &crate::api::IssueId) -> bool {
+    app.focus()
+        .detail()
+        .is_some_and(|detail| detail.issue.matches_id(id))
+}
+
+fn commit(app: &mut App, transition: Transition) -> Commands {
+    match transition {
+        Transition::SessionLoaded(session) => {
+            app.workspace.session.set(session, app.now);
+            app.session.authenticated();
+            Commands::default()
+        }
+        Transition::FeedApplied {
+            key,
+            request,
+            page,
+            keep,
+        } => {
+            if !app.apply_feed(&key, &request, page) {
+                return Commands::default();
             }
 
-            app.status = None;
+            app.clear_transient_status();
+            reconcile_feed(app, &key, keep);
 
-            if inbox_active {
+            match request {
+                FeedRequest::Refresh => Commands::from(Effect::Store(StoreCommand::SaveFeeds(
+                    app.persisted_cache(),
+                ))),
+                FeedRequest::LoadMore { .. } => Commands::default(),
+            }
+        }
+        Transition::InboxApplied {
+            request,
+            page,
+            active,
+            keep,
+        } => {
+            if !app.apply_inbox(&request, page) {
+                return Commands::default();
+            }
+
+            app.clear_transient_status();
+
+            if active {
                 let idx = resolve(
                     app.workspace.inbox.items(),
                     keep.as_ref(),
-                    app.list_state.selected(),
+                    app.ui.list_state.selected(),
                 );
-
-                app.list_state.select(idx);
+                app.ui.list_state.select(idx);
             }
 
             match request {
-                FeedRequest::Refresh => Some(save_feeds_command(app)),
-                FeedRequest::LoadMore { .. } => None,
+                FeedRequest::Refresh => Commands::from(Effect::Store(StoreCommand::SaveFeeds(
+                    app.persisted_cache(),
+                ))),
+                FeedRequest::LoadMore { .. } => Commands::default(),
             }
         }
-        Message::CustomViewsLoaded(views) => {
+        Transition::CustomViewsLoaded(views) => {
             app.workspace.saved_views.views.set(views, app.now);
 
             let len = app.workspace.saved_views.list().len();
             clamp_selection(&mut app.workspace.saved_views.state, len);
 
-            selected_view_key(app).and_then(|key| access_feed(app, key))
+            selected_view_key(app)
+                .map(|key| access_feed(app, key))
+                .unwrap_or_default()
+                .into()
         }
-        Message::DetailLoaded { detail, reveal } => {
-            let open = app
-                .focus
-                .detail()
-                .is_some_and(|focus| focus.issue.matches_detail(&detail));
+        Transition::TeamsLoaded(teams) => {
+            app.workspace.teams.teams.set(teams, app.now);
 
-            if !open {
-                return None;
-            }
+            let len = app.workspace.teams.list().len();
+            clamp_selection(&mut app.workspace.teams.state, len);
 
-            if let Focus::Detail(detail_focus) = &app.focus {
-                app.focus = Focus::Detail(DetailFocus {
-                    issue: detail.id.clone().into(),
-                    ..detail_focus.clone()
-                });
-            }
-
-            app.workspace.set_detail(*detail, app.now);
-            app.status = None;
-
-            match reveal {
-                Reveal::Keep => {}
-                Reveal::Top | Reveal::NewestComment => {
-                    app.scroll_position = 0;
-                    app.scroll_state = ScrollbarState::default();
-                }
-                Reveal::Bottom => {
-                    app.scroll_position = usize::MAX;
-                    app.scroll_state = ScrollbarState::default();
-                }
-            }
-
-            let detail = app.workspace.detail().value()?;
-            let summary = IssueSummary::from_detail(detail);
-            let comment_count = detail.comments.len();
-            let newest_comment = match reveal {
-                Reveal::NewestComment => newest_comment_index(detail),
-                _ => None,
-            };
-
-            if let Focus::Detail(detail_focus) = &app.focus {
-                if detail_focus.view == DetailView::Comments && comment_count == 0 {
-                    app.focus = Focus::Detail(detail_focus.with_view(DetailView::Reading));
-                } else if let Some(index) = newest_comment {
-                    app.comment_state.select(Some(index));
-                } else {
-                    clamp_selection(&mut app.comment_state, comment_count);
-                }
-            }
-
-            app.record_recent(summary);
-
-            Some(Command::SaveRecent(app.workspace.recently_viewed.clone()))
+            Commands::default()
         }
-        Message::RecentLoaded(mut issues) => {
-            if app.workspace.recently_viewed.is_empty() {
-                issues.truncate(RECENT_CAP);
-                app.workspace.recently_viewed = issues;
-                app.workspace.recent_state.select(Some(0));
-            }
+        Transition::DetailLoaded {
+            detail,
+            reveal,
+            focused,
+            settle,
+        } => commit_detail(app, *detail, reveal, focused, settle),
+        Transition::RecentLoaded(issues) => {
+            app.merge_recent(issues);
 
-            None
+            let len = app.workspace.recently_viewed.len();
+            clamp_selection(&mut app.workspace.recent_state, len);
+
+            Commands::default()
         }
-        Message::RecentCleared => {
+        Transition::RecentCleared { leave_panel } => {
             app.workspace.recently_viewed.clear();
             app.workspace.recent_state.select(Some(0));
-            app.status = Some(Status::RecentCleared);
+            app.ui.status = Some(Status::RecentCleared);
 
-            if app.focus.left() == LeftPanel::Recent {
-                app.focus = Focus::MyWork;
+            if leave_panel {
+                app.focus_my_work();
             }
-
-            None
+            Commands::default()
         }
-        Message::StatesLoaded { team_id, states } => {
+        Transition::StatesLoaded { team_id, states } => {
             let items = status_items(&states);
 
             app.workspace
@@ -167,202 +314,292 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
                 .get_or_default(&team_id)
                 .set(states, app.now);
 
-            if let Overlay::Picker(picker) = &mut app.overlay {
-                if picker.kind == PickerKind::Status {
+            if let Some(picker) = app.picker_mut() {
+                if picker.kind == PickerKind::Status && picker.target_team == team_id {
                     fill_picker(picker, items);
                 }
             }
-            None
+            Commands::default()
         }
-        Message::MembersLoaded { team_id, members } => {
+        Transition::MembersLoaded { team_id, members } => {
             app.workspace
                 .members
                 .get_or_default(&team_id)
                 .set(members.clone(), app.now);
 
-            if let Overlay::Editor(editor) = &mut app.overlay {
-                editor.members = members;
+            if let Some(editor) = app.editor_mut() {
+                if editor.target_team == team_id {
+                    editor.set_members(members);
+                }
             }
-
-            None
+            Commands::default()
         }
-        Message::UsersFound { query, users } => {
-            if let Overlay::Picker(picker) = &mut app.overlay {
+        Transition::UsersFound { query, users } => {
+            if let Some(picker) = app.picker_mut() {
                 if picker.searching() == Some(query.as_str()) {
                     fill_picker(picker, found_users(users));
+                    picker.settle_search();
                 }
             }
-
-            None
+            Commands::default()
         }
-        Message::LabelsFound { query, labels } => {
-            if let Overlay::Labels(overlay) = &mut app.overlay {
+        Transition::LabelsFound { query, labels } => {
+            if let Some(overlay) = app.labels_mut() {
                 if overlay.query == query {
-                    overlay.results = labels;
-                    overlay.loading = false;
-                    clamp_selection(&mut overlay.state, overlay.results.len());
+                    overlay.results = LabelResults::Loaded(labels);
+
+                    let len = overlay.results().len();
+                    clamp_selection(&mut overlay.state, len);
                 }
             }
-
-            None
+            Commands::default()
         }
-        Message::IssueUpdated { id } => {
-            app.status = Some(Status::IssueUpdated);
+        Transition::IssueUpdated { id, on_detail } => {
+            app.ui.status = Some(Status::IssueUpdated);
             app.workspace.feeds.invalidate_all();
             app.workspace.inbox.mark_stale();
-            let refresh = revalidate_focus(app);
+            let mut refresh = revalidate_focus(app);
 
-            match app.focus {
-                Focus::Detail(..) => {
-                    app.workspace.begin_detail();
+            if on_detail {
+                app.workspace.begin_detail();
 
-                    let detail = Command::LoadDetail {
-                        target: id.into(),
-                        reveal: Reveal::Top,
-                    };
-
-                    Some(match refresh {
-                        Some(refresh) => Command::Batch(vec![refresh, detail]),
-                        None => detail,
-                    })
-                }
-                _ => refresh,
+                refresh.push(Effect::Api(ApiCommand::LoadDetail {
+                    target: id.into(),
+                    reveal: Reveal::Top,
+                }));
             }
+
+            refresh.into()
         }
-        Message::CommentPosted { id } => {
-            app.status = Some(Status::CommentPosted);
+        Transition::ReloadDetail {
+            id,
+            reveal,
+            status,
+            on_detail,
+        } => {
+            if let Some(status) = status {
+                app.ui.status = Some(status);
+            }
+
+            if !on_detail {
+                return Commands::default();
+            }
+
             app.workspace.begin_detail();
 
-            let reveal = match &app.focus {
-                Focus::Detail(detail) if detail.view == DetailView::Comments => {
-                    Reveal::NewestComment
-                }
-                _ => Reveal::Bottom,
-            };
-
-            Some(Command::LoadDetail {
+            Commands::from(Effect::Api(ApiCommand::LoadDetail {
                 target: id.into(),
                 reveal,
-            })
+            }))
         }
-        Message::CommentEdited { id } => {
-            app.status = Some(Status::CommentEdited);
-            app.workspace.begin_detail();
-
-            Some(Command::LoadDetail {
-                target: id.into(),
-                reveal: Reveal::Top,
-            })
-        }
-        Message::CommentDeleted { id } => {
-            app.status = Some(Status::CommentDeleted);
-            app.workspace.begin_detail();
-
-            Some(Command::LoadDetail {
-                target: id.into(),
-                reveal: Reveal::Top,
-            })
-        }
-        Message::ReactionToggled { id } => {
-            app.workspace.begin_detail();
-
-            Some(Command::LoadDetail {
-                target: id.into(),
-                reveal: Reveal::Keep,
-            })
-        }
-        Message::AccountAdded { account } => {
+        Transition::AccountAdded(account) => {
             let account = *account;
-            app.accounts
-                .retain(|existing| existing.workspace_key != account.workspace_key);
-            app.accounts.push(account.clone());
+            app.session.upsert_account(account.clone());
+            Commands::runtime(RuntimeCommand::SwitchWorkspace(Box::new(account)))
+        }
+        Transition::LoginSucceeded(credential) => {
+            app.ui.status = Some(Status::ConnectingWorkspace);
+            Commands::runtime(RuntimeCommand::AddAccount { credential })
+        }
+        Transition::TokenRefreshed {
+            workspace_key,
+            credential,
+        } => {
+            app.session.set_credential(&workspace_key, credential);
 
-            Some(Command::SwitchWorkspace(Box::new(account)))
-        }
-        Message::LoginSucceeded { credential } => {
-            app.status = Some(Status::ConnectingWorkspace);
-            Some(Command::AddAccount { credential })
-        }
-        Message::TokenRefreshed { credential } => {
-            if let Some(account) = app.active_account_mut() {
-                account.credential = credential;
-            }
-            app.auth = AuthState::Authenticated;
-            Some(Command::Reconnect)
-        }
-        Message::RefreshFailed => {
-            app.auth = AuthState::Unauthenticated;
-            None
-        }
-        Message::Failed { target, error } => {
-            let (error, command) = match error {
-                RequestError::Unauthorised(message) => (message, reauthenticate(app)),
-                RequestError::Other(message) => (message, None),
-            };
-
-            match target {
-                FailureTarget::Feed(key) => {
-                    app.workspace.feeds.get_or_default(&key).fail(error.clone())
-                }
-                FailureTarget::Inbox => app.workspace.inbox.fail(error.clone()),
-                FailureTarget::CustomViews => app.workspace.saved_views.views.fail(error.clone()),
-                FailureTarget::Detail => app.workspace.fail_detail(error.clone()),
-                FailureTarget::States { team_id } => {
-                    app.workspace
-                        .states
-                        .get_or_default(&team_id)
-                        .fail(error.clone());
-                    stop_status_picker(&mut app.overlay);
-                }
-                FailureTarget::Members { team_id } => {
-                    app.workspace
-                        .members
-                        .get_or_default(&team_id)
-                        .fail(error.clone());
-                }
-                FailureTarget::UserSearch => stop_assign_picker(&mut app.overlay),
-                FailureTarget::LabelSearch => {
-                    if let Overlay::Labels(overlay) = &mut app.overlay {
-                        overlay.loading = false;
-                    }
-                }
-                FailureTarget::Ephemeral => {}
+            if !is_active_workspace(app, &workspace_key) {
+                return Commands::default();
             }
 
-            app.status = Some(Status::Error(error));
-            command
+            app.session.authenticated();
+
+            Commands::runtime(RuntimeCommand::Reconnect)
         }
+        Transition::RefreshFailed { workspace_key } => {
+            if is_active_workspace(app, &workspace_key) {
+                app.session.expired();
+            }
+
+            Commands::default()
+        }
+        Transition::Failed { target, error } => commit_failure(app, target, error),
     }
 }
 
-const REFRESH_SKEW_SECS: i64 = 60;
+fn is_active_workspace(app: &App, workspace_key: &str) -> bool {
+    app.session.active_workspace() == Some(workspace_key)
+}
 
-pub fn proactive_refresh(app: &mut App) -> Option<Command> {
-    if app.auth != AuthState::Authenticated {
-        return None;
+fn commit_detail(
+    app: &mut App,
+    detail: IssueDetail,
+    reveal: Reveal,
+    focused: bool,
+    settle: bool,
+) -> Commands {
+    if !settle {
+        return Commands::default();
     }
 
-    let token = app.active_oauth()?;
-    if token.refresh_token.is_some() && token.is_expiring(app.now.epoch(), REFRESH_SKEW_SECS) {
-        app.auth = AuthState::Refreshing;
-        Some(Command::RefreshToken)
-    } else {
-        None
+    let id = detail.id.clone();
+
+    app.workspace.set_detail(detail, app.now);
+    app.clear_transient_status();
+
+    if !focused {
+        return Commands::default();
+    }
+
+    app.refocus_detail_issue(id.into());
+
+    let Some(detail) = app.workspace.detail().value() else {
+        return Commands::default();
+    };
+    let summary = IssueSummary::from_detail(detail);
+    let len = detail.thread_len();
+    let newest = match reveal {
+        Reveal::NewestComment => newest_comment_index(detail),
+        Reveal::Keep | Reveal::Top | Reveal::Bottom => None,
+    };
+
+    if let Some(view) = app.focus().detail().map(|focus| focus.view) {
+        app.set_detail_view(revealed_view(view, reveal, len, newest));
+    }
+
+    app.record_recent(summary);
+
+    Commands::from(Effect::Store(StoreCommand::SaveRecent(
+        app.workspace.recently_viewed.clone(),
+    )))
+}
+
+fn revealed_view(
+    view: DetailView,
+    reveal: Reveal,
+    len: usize,
+    newest: Option<usize>,
+) -> DetailView {
+    match view {
+        DetailView::Reading { scroll } => DetailView::Reading {
+            scroll: match reveal {
+                Reveal::Keep => scroll,
+                Reveal::Top | Reveal::NewestComment => Scroll::Top,
+                Reveal::Bottom => Scroll::Bottom,
+            },
+        },
+        DetailView::Comments { at } if len > 0 => {
+            let index = newest.unwrap_or(at.index()).min(len - 1);
+
+            DetailView::Comments {
+                at: Cursor::new(index, len).unwrap_or(at),
+            }
+        }
+        DetailView::Comments { .. } => DetailView::reading(),
     }
 }
 
-fn reauthenticate(app: &mut App) -> Option<Command> {
-    match app.auth {
-        AuthState::Authenticated => match app.active_refresh_token() {
-            Some(_) => {
-                app.auth = AuthState::Refreshing;
-                Some(Command::RefreshToken)
+fn commit_failure(app: &mut App, target: FailureTarget, error: RequestError) -> Commands {
+    let (error, command) = match error {
+        RequestError::Unauthorised(message) => (message, reauthenticate(app)),
+        RequestError::Other(message) => (message, Commands::default()),
+    };
+
+    match target {
+        FailureTarget::Session => app.workspace.session.fail(error.clone()),
+        FailureTarget::Feed(key) => app.workspace.feeds.get_or_default(&key).fail(error.clone()),
+        FailureTarget::Inbox => app.workspace.inbox.fail(error.clone()),
+        FailureTarget::CustomViews => app.workspace.saved_views.views.fail(error.clone()),
+        FailureTarget::Teams => app.workspace.teams.teams.fail(error.clone()),
+        FailureTarget::Detail => app.workspace.fail_detail(error.clone()),
+        FailureTarget::States { team_id } => {
+            app.workspace
+                .states
+                .get_or_default(&team_id)
+                .fail(error.clone());
+        }
+        FailureTarget::Members { team_id } => {
+            app.workspace
+                .members
+                .get_or_default(&team_id)
+                .fail(error.clone());
+        }
+        FailureTarget::UserSearch => stop_assign_picker(app.picker_mut()),
+        FailureTarget::LabelSearch => {
+            if let Some(overlay) = app.labels_mut() {
+                overlay.results = LabelResults::Loaded(Vec::new());
+            }
+        }
+        FailureTarget::Compose(recovery) => {
+            app.ui.status = Some(Status::Error(error));
+
+            if command.is_empty() {
+                return recover_compose(app, *recovery).into();
+            }
+
+            reopen_compose_cached(app, *recovery);
+
+            return command;
+        }
+        FailureTarget::Ephemeral => {}
+    }
+
+    app.ui.status = Some(Status::Error(error));
+
+    command
+}
+
+fn recoverable(app: &App, recovery: ComposeRecovery) -> Option<ComposeRecovery> {
+    matches!(app.overlay(), Overlay::None).then_some(recovery)
+}
+
+fn recover_compose(app: &mut App, recovery: ComposeRecovery) -> Effects {
+    let Some(recovery) = recoverable(app, recovery) else {
+        return Effects::default();
+    };
+
+    let ComposeRecovery {
+        issue_id,
+        team_id,
+        compose,
+        body,
+    } = recovery;
+
+    open_editor(app, issue_id, compose, team_id, Some(&body))
+}
+
+fn reopen_compose_cached(app: &mut App, recovery: ComposeRecovery) {
+    let Some(recovery) = recoverable(app, recovery) else {
+        return;
+    };
+
+    let ComposeRecovery {
+        issue_id,
+        team_id,
+        compose,
+        body,
+    } = recovery;
+
+    place_editor(app, issue_id, compose, &team_id, Some(&body));
+}
+
+fn refreshable(app: &App) -> Option<String> {
+    app.session.active_refresh_token()?;
+
+    app.session.active_workspace().map(str::to_string)
+}
+
+fn reauthenticate(app: &mut App) -> Commands {
+    match app.session.auth() {
+        AuthState::Authenticated => match refreshable(app) {
+            Some(workspace_key) => {
+                app.session.begin_refresh(app.now);
+                Commands::runtime(RuntimeCommand::RefreshToken { workspace_key })
             }
             None => {
-                app.auth = AuthState::Unauthenticated;
-                None
+                app.session.expired();
+                Commands::default()
             }
         },
-        AuthState::Refreshing | AuthState::Unauthenticated => None,
+        AuthState::Refreshing { .. } | AuthState::Unauthenticated => Commands::default(),
     }
 }

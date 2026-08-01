@@ -6,10 +6,7 @@ use crate::api::Timestamp;
 pub enum Event {
     Input(KeyEvent),
     Resize,
-    Message {
-        generation: Generation,
-        message: Message,
-    },
+    Message { lane: Lane, message: Message },
     Tick(Timestamp),
     Ignored,
     Closed,
@@ -19,6 +16,12 @@ pub enum Event {
 pub enum Redraw {
     Needed,
     Skipped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lane {
+    Workspace(Generation),
+    Host,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

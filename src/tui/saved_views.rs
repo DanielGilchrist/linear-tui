@@ -33,8 +33,9 @@ impl Default for SavedViewsPanel {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ViewSurface {
-    pub saved: SavedView,
+    saved: SavedView,
     pub display: Display,
     pub state: ListState,
     pub layout: ListState,
@@ -48,6 +49,10 @@ impl ViewSurface {
             state: ListState::default().with_selected(Some(0)),
             layout: ListState::default(),
         }
+    }
+
+    pub fn saved(&self) -> &SavedView {
+        &self.saved
     }
 
     pub fn id(&self) -> &ViewId {

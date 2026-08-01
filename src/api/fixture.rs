@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::api::model::{
     Comment, CommentId, Cursor, IssueDetail, IssueFilter, IssueId, IssueRef, IssueSummary,
     IssueUpdate, Label, LabelId, NotificationItem, Page, Priority, Reaction, ReactionId,
-    ReactionTarget, Rgb, SavedView, Session, StateId, StateOption, StateType, TeamId, User, UserId,
-    ViewId, WorkflowState,
+    ReactionTarget, Rgb, SavedView, Session, StateId, StateOption, StateType, Team, TeamId, User,
+    UserId, ViewId, WorkflowState,
 };
 use crate::api::{ApiResult, LinearApi};
 
@@ -169,6 +169,21 @@ impl LinearApi for FixtureClient {
                 id: StateId::from_raw("s_canceled"),
                 name: "Cancelled".into(),
                 state_type: StateType::Cancelled,
+            },
+        ])
+    }
+
+    async fn teams(&self) -> ApiResult<Vec<Team>> {
+        Ok(vec![
+            Team {
+                id: TeamId::from_raw("t_donut"),
+                name: "Donuts".into(),
+                key: "DAN".into(),
+            },
+            Team {
+                id: TeamId::from_raw("t_pizza"),
+                name: "Pizza".into(),
+                key: "DAN2".into(),
             },
         ])
     }

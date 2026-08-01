@@ -6,15 +6,15 @@ expression: "render_to_string(&mut app, 84, 16)"
 │⠋  Loading…                   ││No issue selected                                 │
 │                              ││                                                  │
 │                              ││                                                  │
+│                              ││                                                  │
+└────────────────────────────┌Go to───────────────────┐                            │
+┌Recently viewed─────────────│g  top                  │                            │
+│Issues you open land here   │G  bottom               │                            │
+└────────────────────────────│i  issue                │                            │
+┌Saved Views─────────────────│s  search               │                            │
+│⠋  Loading…                 └────────────────────────┘                            │
 └──────────────────────────────┘│                                                  │
-┌Recently viewed─────────────┌Go to───────────────────┐                            │
-│Issues you open land here   │g  top                  │                            │
-└────────────────────────────│G  bottom               │                            │
-┌Saved Views─────────────────│i  issue                │                            │
-│⠋  Loading…                 │s  search               │                            │
-└────────────────────────────└────────────────────────┘                            │
 ┌Teams─────────────────────────┐│                                                  │
-│Dan's Pizza                   ││                                                  │
-│Dan's Donuts                  ││                                                  │
-└ 1 of 2 ──────────────────────┘└──────────────────────────────────────────────────┘
+│                              ││                                                  │
+└──────────────────────────────┘└──────────────────────────────────────────────────┘
  g top   G bottom   i issue   s search   esc cancel                     connecting…

@@ -1,82 +1,61 @@
+use std::num::NonZeroUsize;
+
 use ratatui::widgets::ListState;
 
 use super::feed::{
-    access_active, access_feed, load_more, load_more_for_focus, prefetch_selected_view,
+    access_active, access_feed, access_focused_panel, load_more, load_more_for_focus,
+    prefetch_selected_view,
 };
 use super::issue::open_issue;
-use crate::api::IssueId;
-use crate::tui::app::{App, Zoom, SCROLL_STEP};
+use crate::api::{IssueId, IssueRef, IssueSummary};
+use crate::tui::app::{App, Zoom};
 use crate::tui::feed::FeedKey;
-use crate::tui::focus::{DetailView, Direction, Edge, Focus, LeftPanel, Nav};
-use crate::tui::message::Command;
+use crate::tui::focus::{
+    select_edge, DetailView, Direction, Edge, Focus, LeftPanel, Origin, PANELS,
+};
+use crate::tui::message::Effects;
 use crate::tui::overlay::Overlay;
 use crate::tui::saved_views::ViewSurface;
 use crate::tui::view::ViewKind;
 
-pub(super) fn scrolled(position: usize, step: usize, direction: Direction) -> usize {
-    match direction {
-        Direction::Next => position.saturating_add(step),
-        Direction::Prev => position.saturating_sub(step),
-    }
-}
-
-pub(super) fn select_edge(state: &mut ListState, len: usize, edge: Edge) {
-    if len == 0 {
-        return;
-    }
-
-    state.select(Some(match edge {
-        Edge::Bottom => len - 1,
-        Edge::Top => 0,
-    }));
-}
-
-pub(super) fn navigate_list(state: &mut ListState, len: usize, direction: Direction) {
-    if len == 0 {
-        return;
-    }
-    let index = match state.selected() {
-        Some(current) => direction.wrap(current, len),
-        None => 0,
-    };
-    state.select(Some(index));
-}
-
 pub(super) fn clamp_selection(state: &mut ListState, len: usize) {
-    if len == 0 {
-        state.select(Some(0));
-    } else if state.selected().unwrap_or(0) >= len {
-        state.select(Some(len - 1));
-    }
+    let selected = state.selected().unwrap_or(0);
+
+    state.select(Some(selected.min(len.saturating_sub(1))));
 }
 
-pub(super) fn cycle_panel(app: &mut App, direction: Direction) -> Option<Command> {
-    let leaving_view = app.focus == Focus::View;
-    let panels = app.panels();
-    let count = panels.len();
-    let current = panels
+pub(super) fn cycle_panel(app: &mut App, direction: Direction) -> Effects {
+    let leaving_view = app.focus().is_view();
+    let count = PANELS.len();
+    let current = PANELS
         .iter()
-        .position(|&p| p == app.focus.left())
+        .position(|&p| p == app.focus().left())
         .unwrap_or(0);
 
-    let mut next = direction.wrap(current, count + 1);
+    let slots = NonZeroUsize::MIN.saturating_add(count);
+    let mut next = direction.wrap(current, slots);
 
     let opening = if next == count {
-        let id = selected_issue_id(app);
+        let open = selected_open(app);
 
-        if id.is_none() {
-            next = direction.wrap(next, count + 1);
+        if open.is_none() {
+            next = direction.wrap(next, slots);
         }
-        id
+        open
     } else {
         None
     };
 
     let command = match opening {
-        Some(id) => open_issue(app, id),
+        Some((target, summary)) => {
+            let origin = app.take_origin();
+            open_issue(app, target, summary, origin)
+        }
         None => {
-            app.focus = panels[next].focus();
-            None
+            if let Some(panel) = PANELS.get(next) {
+                app.focus_panel(*panel);
+            }
+            Effects::default()
         }
     };
 
@@ -84,89 +63,96 @@ pub(super) fn cycle_panel(app: &mut App, direction: Direction) -> Option<Command
         app.close_view_surface();
     }
 
-    command.or_else(|| prefetch_selected_view(app))
+    command.or_else(|| access_focused_panel(app))
 }
 
-fn selected_issue_id(app: &App) -> Option<IssueId> {
-    match &app.focus {
+fn selected_open(app: &App) -> Option<(IssueRef, Option<IssueSummary>)> {
+    match app.focus() {
         Focus::MyWork => match app.active_view().kind {
-            ViewKind::Issues(_) => app.selected_issue().map(|issue| issue.id.clone()),
+            ViewKind::Issues(_) => app.selected_issue().map(with_summary),
             ViewKind::Inbox => app
                 .selected_notification()
-                .and_then(|notification| notification.issue_id.clone()),
+                .and_then(|notification| notification.issue_id.clone())
+                .map(|id| (id.into(), None)),
         },
-        Focus::Recent => app.selected_recent().map(|issue| issue.id.clone()),
-        Focus::View => app.view_selected_issue().map(|issue| issue.id.clone()),
-        Focus::SavedViews | Focus::Stub(_) | Focus::Detail(..) => None,
+        Focus::Recent => app.selected_recent().map(with_summary),
+        Focus::View(_) => app.view_selected_issue().map(with_summary),
+        Focus::SavedViews | Focus::Teams | Focus::Detail(..) => None,
     }
 }
 
-pub(super) fn jump_panel(app: &mut App, index: usize) -> Option<Command> {
-    let leaving_view = app.focus == Focus::View;
+fn with_summary(issue: &IssueSummary) -> (IssueRef, Option<IssueSummary>) {
+    (issue.id.clone().into(), Some(issue.clone()))
+}
 
-    if index < app.panel_count() {
-        app.focus = app.panel_at(index).focus();
+pub(super) fn jump_panel(app: &mut App, index: usize) -> Effects {
+    let leaving_view = app.focus().is_view();
+
+    match app.panel_at(index) {
+        Some(panel) => app.focus_panel(panel),
+        None => return Effects::default(),
     }
 
-    if leaving_view && app.focus != Focus::View {
+    if leaving_view && !app.focus().is_view() {
         app.close_view_surface();
     }
 
-    prefetch_selected_view(app)
+    access_focused_panel(app)
 }
 
-pub(super) fn ascend(app: &mut App) -> Option<Command> {
-    if app.find_query.take().is_some() {
-        return None;
+pub(super) fn ascend(app: &mut App) -> Effects {
+    if app.ui.find_query.take().is_some() {
+        return Effects::default();
     }
 
-    if app.zoom == Zoom::Full {
-        app.zoom = Zoom::Normal;
-        return None;
+    if app.ui.zoom == Zoom::Full {
+        app.ui.zoom = Zoom::Normal;
+        return Effects::default();
     }
 
-    match &app.focus {
-        Focus::Detail(detail) if detail.view == DetailView::Comments => {
-            app.focus = Focus::Detail(detail.with_view(DetailView::Reading));
-        }
-        Focus::Detail(detail) if detail.from == LeftPanel::SavedViews => {
-            match app.workspace.view_open {
-                Some(_) => app.focus = Focus::View,
-                None => leave_detail(app),
-            }
+    match app.focus() {
+        Focus::Detail(detail) if detail.view.is_comments() => {
+            app.set_detail_view(DetailView::reading());
         }
         Focus::Detail(_) => leave_detail(app),
-        Focus::View => {
+        Focus::View(_) => {
             app.close_view_surface();
         }
-        Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::Stub(_) => {
-            app.focus = Focus::MyWork
-        }
+        Focus::MyWork | Focus::Recent | Focus::SavedViews | Focus::Teams => app.focus_my_work(),
     }
 
-    None
+    Effects::default()
 }
 
 pub(super) fn leave_detail(app: &mut App) {
-    match app.search_return.take() {
-        Some(search) => app.overlay = Overlay::Search(search),
-        None => app.focus = app.focus.left().focus(),
-    }
-}
-
-pub(super) fn descend(app: &mut App) -> Option<Command> {
-    match app.focus {
-        Focus::SavedViews => open_view(app),
-        Focus::MyWork | Focus::Recent | Focus::View => {
-            let id = selected_issue_id(app)?;
-            open_issue(app, id)
+    match app.take_origin() {
+        Origin::Panel(panel) => app.focus_panel(panel),
+        Origin::View(surface) => app.open_view_surface(*surface),
+        Origin::Search(search) => {
+            app.focus_panel(LeftPanel::MyWork);
+            app.set_overlay(Overlay::Search(*search));
         }
-        Focus::Stub(_) | Focus::Detail(..) => None,
     }
 }
 
-pub(super) fn open_view(app: &mut App) -> Option<Command> {
-    let view = app.workspace.saved_views.selected_view()?.clone();
+pub(super) fn descend(app: &mut App) -> Effects {
+    match app.focus().clone() {
+        Focus::SavedViews => open_view(app),
+        Focus::MyWork | Focus::Recent | Focus::View(_) => {
+            let Some((target, summary)) = selected_open(app) else {
+                return Effects::default();
+            };
+            let origin = app.take_origin();
+            open_issue(app, target, summary, origin)
+        }
+        Focus::Teams | Focus::Detail(..) => Effects::default(),
+    }
+}
+
+pub(super) fn open_view(app: &mut App) -> Effects {
+    let Some(view) = app.workspace.saved_views.selected_view().cloned() else {
+        return Effects::default();
+    };
 
     let command = access_feed(app, FeedKey::View(view.id.clone()));
     app.open_view_surface(ViewSurface::new(view));
@@ -176,7 +162,7 @@ pub(super) fn open_view(app: &mut App) -> Option<Command> {
 
 pub(super) fn cycle_view_group(app: &mut App) {
     let keep = app.view_selected_issue().map(|issue| issue.id.clone());
-    if let Some(view) = &mut app.workspace.view_open {
+    if let Some(view) = app.view_mut() {
         view.display.cycle_group();
     }
     reselect_view(app, keep);
@@ -184,7 +170,7 @@ pub(super) fn cycle_view_group(app: &mut App) {
 
 pub(super) fn cycle_view_sort(app: &mut App) {
     let keep = app.view_selected_issue().map(|issue| issue.id.clone());
-    if let Some(view) = &mut app.workspace.view_open {
+    if let Some(view) = app.view_mut() {
         view.display.cycle_sort();
     }
     reselect_view(app, keep);
@@ -200,15 +186,15 @@ pub(super) fn reselect_view(app: &mut App, keep: Option<IssueId>) {
         })
         .unwrap_or(0);
 
-    if let Some(view) = &mut app.workspace.view_open {
+    if let Some(view) = app.view_mut() {
         view.layout = ListState::default();
         view.state.select(Some(pos));
     }
 }
 
-pub(super) fn history_step(app: &mut App, direction: Direction) -> Option<Command> {
+pub(super) fn history_step(app: &mut App, direction: Direction) -> Effects {
     if app.workspace.recently_viewed.is_empty() {
-        return None;
+        return Effects::default();
     }
 
     let target = match (app.open_recent_pos(), direction) {
@@ -217,108 +203,85 @@ pub(super) fn history_step(app: &mut App, direction: Direction) -> Option<Comman
         (None, _) => Some(0),
     };
 
-    let issue = target.and_then(|index| app.workspace.recently_viewed.get(index))?;
-    let id = issue.id.clone();
-    open_issue(app, id)
+    let Some(issue) = target
+        .and_then(|index| app.workspace.recently_viewed.get(index))
+        .cloned()
+    else {
+        return Effects::default();
+    };
+
+    let origin = app.take_origin();
+
+    open_issue(app, issue.id.clone().into(), Some(issue), origin)
 }
 
-pub(super) fn move_selection(app: &mut App, direction: Direction) -> Option<Command> {
-    match app.nav() {
-        Nav::List { state, len, .. } => navigate_list(state, len, direction),
-        Nav::Scroll { position, .. } => *position = scrolled(*position, SCROLL_STEP, direction),
-    }
-
+pub(super) fn move_selection(app: &mut App, direction: Direction) -> Effects {
+    app.step_selection(direction);
     prefetch_selected_view(app).or_else(|| load_more_for_focus(app))
 }
 
-pub(super) fn scroll_half(app: &mut App, direction: Direction) -> Option<Command> {
-    match app.nav() {
-        Nav::List {
-            state,
-            len,
-            viewport,
-        } => {
-            if len == 0 {
-                return None;
-            }
-
-            let step = (viewport / 2).max(1);
-            let current = state.selected().unwrap_or(0);
-            let next = match direction {
-                Direction::Next => (current + step).min(len - 1),
-                Direction::Prev => current.saturating_sub(step),
-            };
-
-            state.select(Some(next));
-        }
-        Nav::Scroll { position, viewport } => {
-            *position = scrolled(*position, (viewport / 2).max(1), direction)
-        }
-    }
-
+pub(super) fn scroll_half(app: &mut App, direction: Direction) -> Effects {
+    app.scroll_half_page(direction);
     load_more_for_focus(app)
 }
 
-pub(super) fn jump_edge(app: &mut App, edge: Edge) -> Option<Command> {
-    match &mut app.overlay {
+pub(super) fn jump_edge(app: &mut App, edge: Edge) -> Effects {
+    let mut overlay = app.take_overlay();
+
+    let commands = match &mut overlay {
         Overlay::Menu(menu) => {
             menu.jump_edge(edge);
-            return None;
+            Effects::default()
         }
         Overlay::Picker(picker) => {
             select_edge(&mut picker.state, picker.items.len(), edge);
-            return None;
+            Effects::default()
         }
-        Overlay::Search(_) => {
-            let (key, len) = match &app.overlay {
-                Overlay::Search(search) => (
-                    FeedKey::Search(search.query.clone()),
-                    app.search_results(&search.query).len(),
-                ),
-                _ => return None,
-            };
-            let selected = if let Overlay::Search(search) = &mut app.overlay {
-                select_edge(&mut search.state, len, edge);
-                search.state.selected()
-            } else {
-                None
-            };
-            return load_more(app, &key, selected, len);
-        }
-        _ => {}
-    }
+        Overlay::Search(search) => {
+            let key = FeedKey::Search(search.query.clone());
+            let len = app.search_results(&search.query).len();
+            select_edge(&mut search.state, len, edge);
+            let selected = search.state.selected();
 
-    match app.nav() {
-        Nav::List { state, len, .. } => select_edge(state, len, edge),
-        Nav::Scroll { position, .. } => {
-            *position = match edge {
-                Edge::Bottom => usize::MAX,
-                Edge::Top => 0,
-            }
+            load_more(app, &key, selected, len)
         }
-    }
+        Overlay::None
+        | Overlay::Confirm(_)
+        | Overlay::Prefix(_)
+        | Overlay::Input(_)
+        | Overlay::Editor(_)
+        | Overlay::Find(_)
+        | Overlay::Reactions(_)
+        | Overlay::Workspaces(_)
+        | Overlay::Labels(_) => {
+            app.jump_to_edge(edge);
+            load_more_for_focus(app)
+        }
+    };
 
-    load_more_for_focus(app)
+    app.set_overlay(overlay);
+
+    commands
 }
 
-pub(super) fn cycle_view(app: &mut App, direction: Direction) -> Option<Command> {
-    match app.focus {
+pub(super) fn cycle_view(app: &mut App, direction: Direction) -> Effects {
+    match app.focus().clone() {
         Focus::MyWork => {
-            let next = direction.wrap(app.active_view_index(), app.views.len());
+            let next = direction.wrap(app.active_view_index(), app.ui.views.len());
             select_view(app, next)
         }
-        Focus::Recent | Focus::SavedViews | Focus::View | Focus::Stub(_) | Focus::Detail(..) => {
-            None
+        Focus::Recent | Focus::SavedViews | Focus::View(_) | Focus::Teams | Focus::Detail(..) => {
+            Effects::default()
         }
     }
 }
 
-pub(super) fn select_view(app: &mut App, index: usize) -> Option<Command> {
-    app.focus = Focus::MyWork;
-    app.view_state.select(Some(index));
-    app.list_state.select(Some(0));
+pub(super) fn select_view(app: &mut App, index: usize) -> Effects {
+    app.focus_my_work();
+    app.ui.view_state.select(Some(index));
+    app.ui.list_state.select(Some(0));
     app.workspace.bust_detail();
-    app.find_query = None;
+    app.ui.find_query = None;
 
     access_active(app)
 }

@@ -66,15 +66,12 @@ expression: "render_styled_to_string(&mut app, 100, 14)"
 ┌Teams───────────────────────────────┐│                                                            │
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Teams───────────────────────────────┐│"
     [99] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-│Dan's Pizza                         ││                                                            │
+│                                    ││                                                            │
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-    [1] fg=Some(Reset) bg=Some(Rgb(45, 45, 48)) mod=NONE "Dan's Pizza                         "
     [37] fg=Some(Gray) bg=Some(Reset) mod=NONE "││"
     [99] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-└ 1 of 2 ────────────────────────────┘└────────────────────────────────────────────────────────────┘
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└"
-    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 2 "
-    [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "────────────────────────────┘└────────────────────────────────────────────────────────────┘"
+└────────────────────────────────────┘└────────────────────────────────────────────────────────────┘
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└────────────────────────────────────┘└────────────────────────────────────────────────────────────┘"
  Search  oven    1 matches   enter select   esc cancel
     [0] fg=Some(Black) bg=Some(Yellow) mod=BOLD " Search "
     [8] fg=Some(White) bg=Some(Reset) mod=NONE " oven"

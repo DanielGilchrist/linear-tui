@@ -10,15 +10,15 @@ expression: "render_to_string(&mut app, 100, 20)"
 │!!  DAN-13 Todo Introduce a┌Set status  DAN2-7────────────────────────┐                           █
 │!!  DAN2-5 Backlog Settle t│Backlog  backlog                          │                           █
 │    DAN-15 Backlog Coffee p│Todo  unstarted                           │                           ║
-└ 1 of 7 ───────────────────│In Progress  started                      │                           ║
-┌Recently viewed────────────│Done  completed                           │oven creeps past 480°C and ║
-│Issues you open land here  │Cancelled  canceled                       │lts.                       ║
+│                           │In Progress  started                      │                           ║
+└ 1 of 7 ───────────────────│Done  completed                           │oven creeps past 480°C and ║
+┌Recently viewed────────────│Cancelled  canceled                       │lts.                       ║
+│Issues you open land here  │                                          │                           ║
 └───────────────────────────│                                          │                           ║
 ┌Saved Views────────────────│                                          │                           ║
-│⠋  Loading…                │                                          │                           ║
-└───────────────────────────│                                          │king open                  ║
-┌Teams──────────────────────└ 1 of 5 ──────────────────────────────────┘                           ║
-│Dan's Pizza                         ││Checklist                                                   ║
-│Dan's Donuts                        ││                                                            ↓
-└ 1 of 2 ────────────────────────────┘└────────────────────────────────────────────────────────────┘
+│⠋  Loading…                │                                          │king open                  ║
+└───────────────────────────└ 1 of 5 ──────────────────────────────────┘                           ║
+┌Teams───────────────────────────────┐│Checklist                                                   ║
+│                                    ││                                                            ↓
+└────────────────────────────────────┘└────────────────────────────────────────────────────────────┘
  j move   enter select   esc cancel                                             Dan's Donuts · @dan

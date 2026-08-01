@@ -14,58 +14,98 @@ pub enum Phase {
     Failed,
 }
 
-#[derive(Debug, Clone)]
-pub struct Remote<T> {
-    value: Option<T>,
-    status: CacheStatus,
-    fetched_at: Timestamp,
-}
-
-impl<T> Default for Remote<T> {
-    fn default() -> Self {
-        Self {
-            value: None,
-            status: CacheStatus::Idle,
-            fetched_at: Timestamp::default(),
-        }
-    }
+#[derive(Debug, Clone, Default)]
+pub enum Remote<T> {
+    #[default]
+    Missing,
+    Loading,
+    Ready {
+        value: T,
+        fetched_at: Timestamp,
+    },
+    Stale {
+        value: T,
+        fetched_at: Timestamp,
+    },
+    Revalidating {
+        value: T,
+        fetched_at: Timestamp,
+    },
+    Failed {
+        error: String,
+        last: Option<(T, Timestamp)>,
+    },
 }
 
 impl<T> Remote<T> {
     pub fn ready(value: T, fetched_at: Timestamp) -> Self {
-        Self {
-            value: Some(value),
-            status: CacheStatus::Ready,
-            fetched_at,
-        }
+        Remote::Ready { value, fetched_at }
     }
 
     pub fn value(&self) -> Option<&T> {
-        self.value.as_ref()
+        match self {
+            Remote::Ready { value, .. }
+            | Remote::Stale { value, .. }
+            | Remote::Revalidating { value, .. }
+            | Remote::Failed {
+                last: Some((value, _)),
+                ..
+            } => Some(value),
+            Remote::Missing | Remote::Loading | Remote::Failed { last: None, .. } => None,
+        }
     }
 
     pub fn value_mut(&mut self) -> Option<&mut T> {
-        self.value.as_mut()
+        match self {
+            Remote::Ready { value, .. }
+            | Remote::Stale { value, .. }
+            | Remote::Revalidating { value, .. }
+            | Remote::Failed {
+                last: Some((value, _)),
+                ..
+            } => Some(value),
+            Remote::Missing | Remote::Loading | Remote::Failed { last: None, .. } => None,
+        }
     }
 
-    pub fn status(&self) -> &CacheStatus {
-        &self.status
+    pub fn status(&self) -> CacheStatus {
+        match self {
+            Remote::Missing => CacheStatus::Idle,
+            Remote::Loading => CacheStatus::Loading,
+            Remote::Ready { .. } | Remote::Stale { .. } => CacheStatus::Ready,
+            Remote::Revalidating { .. } => CacheStatus::Revalidating,
+            Remote::Failed { error, .. } => CacheStatus::Failed(error.clone()),
+        }
     }
 
     pub fn fetched_at(&self) -> Timestamp {
-        self.fetched_at
+        match self {
+            Remote::Ready { fetched_at, .. }
+            | Remote::Stale { fetched_at, .. }
+            | Remote::Revalidating { fetched_at, .. }
+            | Remote::Failed {
+                last: Some((_, fetched_at)),
+                ..
+            } => *fetched_at,
+            Remote::Missing | Remote::Loading | Remote::Failed { last: None, .. } => {
+                Timestamp::default()
+            }
+        }
     }
 
     pub fn in_flight(&self) -> bool {
-        self.status.in_flight()
+        matches!(self, Remote::Loading | Remote::Revalidating { .. })
     }
 
     pub fn phase(&self) -> Phase {
-        match (&self.value, &self.status) {
-            (Some(_), _) => Phase::Ready,
-            (None, CacheStatus::Loading | CacheStatus::Revalidating) => Phase::Loading,
-            (None, CacheStatus::Failed(_)) => Phase::Failed,
-            (None, CacheStatus::Idle | CacheStatus::Ready) => Phase::Missing,
+        match self {
+            Remote::Missing => Phase::Missing,
+            Remote::Loading => Phase::Loading,
+            Remote::Ready { .. }
+            | Remote::Stale { .. }
+            | Remote::Revalidating { .. }
+            | Remote::Failed { last: Some(_), .. } => Phase::Ready,
+            Remote::Failed { last: None, .. } => Phase::Failed,
         }
     }
 
@@ -73,21 +113,32 @@ impl<T> Remote<T> {
         if self.in_flight() {
             return Access::Skip;
         }
-        match (
-            &self.value,
-            policy.classify(now.seconds_since(self.fetched_at)),
-        ) {
-            (None, _) => Access::Load,
-            (Some(_), Age::Fresh) => Access::Skip,
-            (Some(_), Age::Stale) => Access::Revalidate,
-            (Some(_), Age::Cold) => Access::Bust,
+
+        if matches!(self, Remote::Stale { .. }) {
+            return Access::Revalidate;
+        }
+
+        match self.value() {
+            None => Access::Load,
+            Some(_) => match policy.classify(now.seconds_since(self.fetched_at())) {
+                Age::Fresh => Access::Skip,
+                Age::Stale => Access::Revalidate,
+                Age::Cold => Access::Bust,
+            },
         }
     }
 
     pub fn begin(&mut self) {
-        self.status = match self.value {
-            Some(_) => CacheStatus::Revalidating,
-            None => CacheStatus::Loading,
+        *self = match std::mem::take(self) {
+            Remote::Missing | Remote::Loading => Remote::Loading,
+            Remote::Ready { value, fetched_at }
+            | Remote::Stale { value, fetched_at }
+            | Remote::Revalidating { value, fetched_at }
+            | Remote::Failed {
+                last: Some((value, fetched_at)),
+                ..
+            } => Remote::Revalidating { value, fetched_at },
+            Remote::Failed { last: None, .. } => Remote::Loading,
         };
     }
 
@@ -107,23 +158,57 @@ impl<T> Remote<T> {
     }
 
     pub fn set(&mut self, value: T, now: Timestamp) {
-        self.value = Some(value);
-        self.status = CacheStatus::Ready;
-        self.fetched_at = now;
+        *self = Remote::Ready {
+            value,
+            fetched_at: now,
+        };
     }
 
     pub fn fail(&mut self, error: String) {
-        self.status = CacheStatus::Failed(error);
+        *self = match std::mem::take(self) {
+            Remote::Ready { value, fetched_at }
+            | Remote::Stale { value, fetched_at }
+            | Remote::Revalidating { value, fetched_at } => Remote::Failed {
+                error,
+                last: Some((value, fetched_at)),
+            },
+            Remote::Failed { last, .. } => Remote::Failed { error, last },
+            Remote::Missing | Remote::Loading => Remote::Failed { error, last: None },
+        };
     }
 
     pub fn bust(&mut self) {
-        self.value = None;
-        self.status = CacheStatus::Idle;
+        *self = Remote::Missing;
+    }
+
+    pub fn cancel(&mut self) {
+        *self = match std::mem::take(self) {
+            Remote::Loading => Remote::Missing,
+            Remote::Revalidating { value, fetched_at } => Remote::Ready { value, fetched_at },
+            Remote::Missing => Remote::Missing,
+            Remote::Ready { value, fetched_at } => Remote::Ready { value, fetched_at },
+            Remote::Stale { value, fetched_at } => Remote::Stale { value, fetched_at },
+            Remote::Failed { error, last } => Remote::Failed { error, last },
+        };
+    }
+
+    pub fn is_failed(&self) -> bool {
+        matches!(self, Remote::Failed { .. })
     }
 }
 
 impl<T> Stale for Remote<T> {
     fn mark_stale(&mut self) {
-        self.fetched_at = Timestamp::default();
+        *self = match std::mem::take(self) {
+            Remote::Ready { value, fetched_at } | Remote::Stale { value, fetched_at } => {
+                Remote::Stale { value, fetched_at }
+            }
+            Remote::Revalidating { value, fetched_at } => {
+                Remote::Revalidating { value, fetched_at }
+            }
+            Remote::Failed { error, last } => Remote::Failed { error, last },
+            Remote::Missing => Remote::Missing,
+            Remote::Loading => Remote::Loading,
+        };
     }
 }

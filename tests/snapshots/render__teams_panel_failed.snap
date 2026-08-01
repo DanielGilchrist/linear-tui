@@ -1,0 +1,28 @@
+---
+source: tests/render.rs
+expression: "render_to_string(&mut app, 84, 24)"
+---
+┌Assigned to me 1/3────────────┐┌Teams─────────────────────────────────────────────┐
+│!!! DAN2-7 In Progress Wood-fi││Not implemented yet                               │
+│!!! DAN-10 In Progress Sprinkl││                                                  │
+└ 1 of 7 ──────────────────────┘│                                                  │
+┌Recently viewed───────────────┐│                                                  │
+│Issues you open land here     ││                                                  │
+└──────────────────────────────┘│                                                  │
+┌Saved Views───────────────────┐│                                                  │
+│⠋  Loading…                   ││                                                  │
+└──────────────────────────────┘│                                                  │
+┌Teams─────────────────────────┐│                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+│                              ││                                                  │
+└──────────────────────────────┘└──────────────────────────────────────────────────┘
+ Linear is unreachable                                          Dan's Donuts · @dan

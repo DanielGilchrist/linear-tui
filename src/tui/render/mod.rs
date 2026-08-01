@@ -6,13 +6,13 @@ use ratatui::{
 };
 
 use super::action;
-use super::app::{App, AuthState, Zoom};
+use super::app::{Active, App, Ui, Zoom};
 use super::feed::{Feed, FeedKey, FeedStore};
-use super::focus::{DetailView, Focus, LeftPanel};
+use super::focus::{DetailView, Focus, LeftPanel, Scroll, PANELS};
 use super::layout;
-use super::overlay::{Overlay, PrefixUnder};
+use super::overlay::{Menu, ModalOverlay, Overlay, Picker, PrefixUnder, Search};
 use super::spinner::Spinner;
-use super::view::{View, ViewKind};
+use super::view::{ViewKind, Views};
 use super::workspace::WorkspaceData;
 use crate::api::{IssueDetail, IssueSummary, Timestamp};
 
@@ -50,7 +50,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     let body = chunks[0];
     let footer = chunks[1];
 
-    match app.zoom {
+    match app.ui.zoom {
         Zoom::Full => render_zoomed(app, frame, body),
         Zoom::Normal => {
             let [left, right] = layout::split_horizontal(body, LEFT_PCT);
@@ -61,77 +61,60 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     }
 
     render_footer(app, frame, footer);
-    render_overlay(&mut app.overlay, &app.workspace.feeds, app.spinner, frame);
-
-    app.time_refresh_due = earliest_time_refresh(app);
-}
-
-fn earliest_time_refresh(app: &App) -> Option<Timestamp> {
-    let now = app.now;
-
-    let issue_stamps = app
-        .workspace
-        .recently_viewed
-        .iter()
-        .chain(
-            app.workspace
-                .feeds
-                .iter()
-                .flat_map(|(_, feed)| feed.items()),
-        )
-        .map(|issue| issue.updated_at);
-
-    let comment_stamps = app
-        .workspace
-        .detail()
-        .value()
-        .into_iter()
-        .flat_map(|detail| detail.comments.iter().map(|comment| comment.created_at));
-
-    issue_stamps
-        .chain(comment_stamps)
-        .filter_map(|stamp| stamp.next_change(now))
-        .min()
+    let overlay_in_flight = app.overlay_in_flight();
+    let mut overlay = app.take_overlay();
+    render_overlay(
+        &mut overlay,
+        &app.workspace.feeds,
+        OverlayProps {
+            in_flight: overlay_in_flight,
+            spinner: app.ui.spinner,
+        },
+        frame,
+    );
+    app.set_overlay(overlay);
 }
 
 fn render_zoomed(app: &mut App, frame: &mut Frame, area: Rect) {
-    let Viewport(rows) = match app.focus {
+    let Viewport(rows) = match app.focus().clone() {
         Focus::MyWork => render_panel(app, frame, area, LeftPanel::MyWork, Emphasis::Focused),
         Focus::Recent => render_panel(app, frame, area, LeftPanel::Recent, Emphasis::Focused),
         Focus::SavedViews => {
             render_panel(app, frame, area, LeftPanel::SavedViews, Emphasis::Focused)
         }
-        Focus::View => render_view_surface(app, frame, area, Emphasis::Focused),
-        Focus::Stub(index) => {
-            render_panel(app, frame, area, LeftPanel::Stub(index), Emphasis::Focused)
-        }
+        Focus::View(_) => render_view_surface(app, frame, area, Emphasis::Focused),
+        Focus::Teams => render_panel(app, frame, area, LeftPanel::Teams, Emphasis::Focused),
         Focus::Detail(..) => render_detail_pane(app, frame, area, Emphasis::Focused),
     };
 
-    app.viewport = rows;
+    app.ui.viewport = rows;
 }
 
-fn render_overlay(overlay: &mut Overlay, feeds: &FeedStore, spinner: Spinner, frame: &mut Frame) {
+#[derive(Clone, Copy)]
+struct OverlayProps {
+    in_flight: bool,
+    spinner: Spinner,
+}
+
+fn render_overlay(
+    overlay: &mut Overlay,
+    feeds: &FeedStore,
+    props: OverlayProps,
+    frame: &mut Frame,
+) {
     use ratatui::widgets::Clear;
 
     let frame_area = frame.area();
+    let OverlayProps { in_flight, spinner } = props;
 
     match overlay {
-        Overlay::Picker(picker) => {
-            let area = overlays::picker::area(frame_area);
-            frame.render_widget(Clear, area);
-            overlays::picker::render(picker, spinner, frame, area);
-        }
+        Overlay::Picker(picker) => render_picker(picker, in_flight, spinner, frame),
         Overlay::Confirm(confirm) => {
             let area = overlays::confirm::area(frame_area);
             frame.render_widget(Clear, area);
             overlays::confirm::render(confirm, frame, area);
         }
-        Overlay::Menu(menu) => {
-            let area = overlays::menu::area(frame_area);
-            frame.render_widget(Clear, area);
-            overlays::menu::render(menu, frame, area);
-        }
+        Overlay::Menu(menu) => render_menu(menu, frame),
         Overlay::Input(input) => {
             let area = overlays::input::area(frame_area);
             frame.render_widget(Clear, area);
@@ -142,22 +125,15 @@ fn render_overlay(overlay: &mut Overlay, feeds: &FeedStore, spinner: Spinner, fr
             frame.render_widget(Clear, area);
             overlays::editor::render(editor, frame, area);
         }
-        Overlay::Search(search) => {
-            let feed = feeds.get(&FeedKey::Search(search.query.clone()));
-            let results: &[IssueSummary] = feed.map_or(&[], |feed| feed.items());
-            let feed_data = overlays::search::SearchFeed {
-                results,
-                status: feed.map(Feed::status),
-                appending: feed.is_some_and(|feed| feed.appending()),
-            };
-
-            let area = overlays::search::area(frame_area);
-            frame.render_widget(Clear, area);
-
-            overlays::search::render(search, feed_data, spinner, frame, area);
-        }
+        Overlay::Search(search) => render_search(search, feeds, spinner, frame),
         Overlay::Prefix(prefix) => match &mut prefix.under {
-            PrefixUnder::Modal(modal) => render_overlay(modal, feeds, spinner, frame),
+            PrefixUnder::Modal(ModalOverlay::Picker(picker)) => {
+                render_picker(picker, in_flight, spinner, frame)
+            }
+            PrefixUnder::Modal(ModalOverlay::Menu(menu)) => render_menu(menu, frame),
+            PrefixUnder::Modal(ModalOverlay::Search(search)) => {
+                render_search(search, feeds, spinner, frame)
+            }
             PrefixUnder::Browse => {
                 let area = overlays::prefix::area(frame_area, prefix.keymap);
 
@@ -187,22 +163,39 @@ fn render_overlay(overlay: &mut Overlay, feeds: &FeedStore, spinner: Spinner, fr
     }
 }
 
-fn active_view<'a>(views: &'a [View], view_state: &ListState) -> Option<&'a View> {
-    let index = view_state
-        .selected()
-        .unwrap_or(0)
-        .min(views.len().saturating_sub(1));
+fn render_picker(picker: &mut Picker, in_flight: bool, spinner: Spinner, frame: &mut Frame) {
+    let area = overlays::picker::area(frame.area());
+    frame.render_widget(ratatui::widgets::Clear, area);
+    overlays::picker::render(picker, in_flight, spinner, frame, area);
+}
 
-    views.get(index)
+fn render_menu(menu: &mut Menu, frame: &mut Frame) {
+    let area = overlays::menu::area(frame.area());
+    frame.render_widget(ratatui::widgets::Clear, area);
+    overlays::menu::render(menu, frame, area);
+}
+
+fn render_search(search: &mut Search, feeds: &FeedStore, spinner: Spinner, frame: &mut Frame) {
+    let feed = feeds.get(&FeedKey::Search(search.query.clone()));
+    let results: &[IssueSummary] = feed.map_or(&[], |feed| feed.items());
+    let feed_data = overlays::search::SearchFeed {
+        results,
+        status: feed.map(Feed::status),
+        appending: feed.is_some_and(|feed| feed.appending()),
+    };
+
+    let area = overlays::search::area(frame.area());
+    frame.render_widget(ratatui::widgets::Clear, area);
+    overlays::search::render(search, feed_data, spinner, frame, area);
 }
 
 fn selected_issue<'w>(
     workspace: &'w WorkspaceData,
-    views: &[View],
+    views: &Views,
     view_state: &ListState,
     list_state: &ListState,
 ) -> Option<&'w IssueSummary> {
-    let view = active_view(views, view_state)?;
+    let view = views.active(view_state);
 
     match &view.kind {
         ViewKind::Issues(_) => list_state
@@ -214,28 +207,27 @@ fn selected_issue<'w>(
 
 fn work_preview<'a>(
     workspace: &'a WorkspaceData,
-    views: &'a [View],
+    views: &Views,
     view_state: &ListState,
     list_state: &ListState,
 ) -> surfaces::detail::Preview<'a> {
     use surfaces::detail::Preview;
 
-    match active_view(views, view_state).map(|view| &view.kind) {
-        Some(ViewKind::Issues(_)) => {
+    match &views.active(view_state).kind {
+        ViewKind::Issues(_) => {
             Preview::Issue(selected_issue(workspace, views, view_state, list_state))
         }
-        Some(ViewKind::Inbox) => Preview::Notification(
+        ViewKind::Inbox => Preview::Notification(
             list_state
                 .selected()
                 .and_then(|index| workspace.inbox.items().get(index)),
         ),
-        None => Preview::Issue(None),
     }
 }
 
 fn ready_detail<'w>(
     workspace: &'w WorkspaceData,
-    views: &[View],
+    views: &Views,
     view_state: &ListState,
     list_state: &ListState,
 ) -> Option<&'w IssueDetail> {
@@ -256,16 +248,18 @@ fn render_panel(
         LeftPanel::MyWork => {
             let App {
                 workspace,
-                views,
-                view_state,
-                list_state,
-                spinner,
+                ui:
+                    Ui {
+                        views,
+                        view_state,
+                        list_state,
+                        spinner,
+                        ..
+                    },
                 ..
             } = &mut *app;
             let active = view_state.selected().unwrap_or(0);
-            let Some(view) = active_view(views, view_state) else {
-                return Viewport((rect.height as usize).saturating_sub(2));
-            };
+            let view = views.active(view_state);
 
             let content = match &view.kind {
                 ViewKind::Issues(_) => surfaces::my_work::MyWorkContent::Issues {
@@ -283,7 +277,7 @@ fn render_panel(
                 frame,
                 rect,
                 surfaces::my_work::MyWorkProps {
-                    views,
+                    views: views.as_slice(),
                     active,
                     content,
                     status,
@@ -302,7 +296,7 @@ fn render_panel(
             emphasis,
         ),
         LeftPanel::SavedViews => {
-            let spinner = app.spinner;
+            let spinner = app.ui.spinner;
             surfaces::saved_views::render(
                 frame,
                 rect,
@@ -311,14 +305,14 @@ fn render_panel(
                 spinner,
             )
         }
-        LeftPanel::Stub(index) => {
-            let stub = &mut app.stubs[index];
-            surfaces::stub::render(
+        LeftPanel::Teams => {
+            let items = app.workspace.teams.names();
+            surfaces::teams::render(
                 frame,
                 rect,
-                &stub.title,
-                &stub.items,
-                &mut stub.state,
+                "Teams",
+                &items,
+                &mut app.workspace.teams.state,
                 emphasis,
             );
         }
@@ -333,11 +327,11 @@ fn render_view_surface(
     area: Rect,
     emphasis: Emphasis,
 ) -> Viewport {
-    let spinner = app.spinner;
+    let spinner = app.ui.spinner;
     let now = app.now;
-    let feeds = &app.workspace.feeds;
+    let (view, feeds) = app.view_render_parts();
 
-    match app.workspace.view_open.as_mut() {
+    match view {
         Some(view) => surfaces::view::render(frame, area, feeds, view, spinner, emphasis, now),
         None => Viewport((area.height as usize).saturating_sub(2)),
     }
@@ -349,67 +343,78 @@ fn render_detail_pane(
     area: Rect,
     emphasis: Emphasis,
 ) -> Viewport {
-    let selected = match &app.focus {
-        Focus::Detail(detail) if detail.view == DetailView::Comments => {
-            app.comment_state.selected()
-        }
-        _ => None,
-    };
+    let selected = app.comment_cursor();
+    let scroll = app.reading_scroll().unwrap_or_default();
 
-    let preview = work_preview(&app.workspace, &app.views, &app.view_state, &app.list_state);
+    let preview = work_preview(
+        &app.workspace,
+        &app.ui.views,
+        &app.ui.view_state,
+        &app.ui.list_state,
+    );
 
-    surfaces::detail::render_pane(
+    let max = surfaces::detail::render_pane(
         frame,
         area,
         app.workspace.detail(),
         app.workspace.detail_markdown(),
-        app.spinner,
+        app.ui.spinner,
         preview,
         surfaces::detail::ReadingProps {
             now: app.now,
             selected,
-            scroll_position: &mut app.scroll_position,
-            scroll_state: &mut app.scroll_state,
+            scroll,
             emphasis,
         },
     );
+
+    app.ui.detail_scroll_max = max;
 
     Viewport((area.height as usize).saturating_sub(2))
 }
 
 fn render_my_work_right(app: &mut App, frame: &mut Frame, area: Rect) {
-    match ready_detail(&app.workspace, &app.views, &app.view_state, &app.list_state) {
-        Some(detail) => surfaces::detail::render_reading(
-            frame,
-            area,
-            detail,
-            app.workspace.detail_markdown(),
-            surfaces::detail::ReadingProps {
-                now: app.now,
-                selected: None,
-                scroll_position: &mut app.scroll_position,
-                scroll_state: &mut app.scroll_state,
-                emphasis: Emphasis::Blurred,
-            },
-        ),
+    match ready_detail(
+        &app.workspace,
+        &app.ui.views,
+        &app.ui.view_state,
+        &app.ui.list_state,
+    ) {
+        Some(detail) => {
+            surfaces::detail::render_reading(
+                frame,
+                area,
+                detail,
+                app.workspace.detail_markdown(),
+                surfaces::detail::ReadingProps {
+                    now: app.now,
+                    selected: None,
+                    scroll: Scroll::Top,
+                    emphasis: Emphasis::Blurred,
+                },
+            );
+        }
         None => {
-            let preview =
-                work_preview(&app.workspace, &app.views, &app.view_state, &app.list_state);
+            let preview = work_preview(
+                &app.workspace,
+                &app.ui.views,
+                &app.ui.view_state,
+                &app.ui.list_state,
+            );
             surfaces::detail::render_work_preview(frame, area, preview, Emphasis::Blurred);
         }
     }
 }
 
 fn render_left(app: &mut App, frame: &mut Frame, area: Rect) {
-    let panels = app.panels();
-    let expanded = app.focus.left();
-    let constraints: Vec<Constraint> = panels
+    let expanded = app.focus().left();
+    let constraints: Vec<Constraint> = PANELS
         .iter()
         .map(|&panel| {
             if panel == expanded {
                 Constraint::Min(5)
             } else {
-                let rows = app.panel_len(&panel.focus()).clamp(1, COLLAPSED_PEEK);
+                let rows = app.panel(panel).len.clamp(1, COLLAPSED_PEEK);
                 Constraint::Length(rows as u16 + 2)
             }
         })
@@ -417,31 +422,25 @@ fn render_left(app: &mut App, frame: &mut Frame, area: Rect) {
 
     let rects = Layout::vertical(constraints).split(area);
 
-    for (rect, panel) in rects.iter().zip(panels) {
-        let focused = panel.focus() == app.focus;
+    for (rect, panel) in rects.iter().zip(PANELS) {
+        let focused = app.focus().is_panel(panel);
         let Viewport(rows) = render_panel(app, frame, *rect, panel, Emphasis::of_focus(focused));
 
         if focused {
-            app.viewport = rows;
+            app.ui.viewport = rows;
         }
     }
 }
 
 fn render_right(app: &mut App, frame: &mut Frame, area: Rect) {
-    match app.focus {
-        Focus::Stub(index) => {
-            let stub = &app.stubs[index];
-            let selected = stub
-                .state
-                .selected()
-                .and_then(|i| stub.items.get(i))
-                .map(String::as_str)
-                .unwrap_or("");
-            surfaces::stub::render_placeholder(frame, area, &stub.title, selected);
+    match app.focus() {
+        Focus::Teams => {
+            let selected = app.teams().selected().map_or("", |team| team.name.as_str());
+            surfaces::teams::render_placeholder(frame, area, "Teams", selected);
         }
         Focus::Recent => surfaces::recent::render_preview(frame, area, app.selected_recent()),
         Focus::SavedViews => {
-            let spinner = app.spinner;
+            let spinner = app.ui.spinner;
             let now = app.now;
             match app.workspace.saved_views.selected_view() {
                 Some(view) => {
@@ -466,12 +465,12 @@ fn render_right(app: &mut App, frame: &mut Frame, area: Rect) {
                 ),
             }
         }
-        Focus::View => {
-            app.viewport = render_view_surface(app, frame, area, Emphasis::Focused).0;
+        Focus::View(_) => {
+            app.ui.viewport = render_view_surface(app, frame, area, Emphasis::Focused).0;
         }
         Focus::MyWork => render_my_work_right(app, frame, area),
         Focus::Detail(..) => {
-            app.viewport = render_detail_pane(app, frame, area, Emphasis::Focused).0;
+            app.ui.viewport = render_detail_pane(app, frame, area, Emphasis::Focused).0;
         }
     }
 }
@@ -487,21 +486,36 @@ fn footer_state(app: &App) -> surfaces::footer::Footer {
         return Footer::Find(find);
     }
 
-    let workspace = match &app.workspace.session {
+    let workspace = match app.workspace.session.value() {
         Some(session) => format!("{} · @{} ", session.org_name, session.user.display_name),
         None => "connecting… ".to_string(),
     };
 
-    let left = match app.auth {
-        AuthState::Unauthenticated => FooterLeft::Status {
+    let error = app
+        .ui
+        .status
+        .as_ref()
+        .filter(|status| status.is_error())
+        .map(ToString::to_string);
+
+    let left = match (app.session.active(), error) {
+        (Active::None, _) => FooterLeft::Status {
+            text: "Not connected  ·  press w to add a workspace".to_string(),
+            is_error: false,
+        },
+        (Active::Unauthenticated { .. }, _) => FooterLeft::Status {
             text: "Session expired  ·  press w to sign in again".to_string(),
             is_error: true,
         },
-        AuthState::Refreshing => FooterLeft::Status {
+        (_, Some(text)) => FooterLeft::Status {
+            text,
+            is_error: true,
+        },
+        (Active::Refreshing { .. }, None) => FooterLeft::Status {
             text: "Refreshing your session…".to_string(),
             is_error: false,
         },
-        AuthState::Authenticated => match &app.status {
+        (Active::Authenticated { .. }, None) => match &app.ui.status {
             Some(status) => FooterLeft::Status {
                 text: status.to_string(),
                 is_error: status.is_error(),
@@ -518,13 +532,13 @@ fn footer_state(app: &App) -> surfaces::footer::Footer {
 fn find_bar_state(app: &App) -> Option<surfaces::footer::FindBar> {
     use surfaces::footer::FindBar;
 
-    match &app.overlay {
+    match app.overlay() {
         Overlay::Find(find) => Some(FindBar::Typing {
             query: find.query.clone(),
             total: app.focused_matches(&find.query).len(),
         }),
         Overlay::None => {
-            let query = app.find_query.as_deref()?;
+            let query = app.ui.find_query.as_deref()?;
             let matches = app.focused_matches(query);
 
             if matches.is_empty() {
@@ -550,7 +564,7 @@ fn find_bar_state(app: &App) -> Option<surfaces::footer::FindBar> {
 }
 
 fn footer_hint(app: &App) -> String {
-    match &app.overlay {
+    match app.overlay() {
         Overlay::Menu(_) => return action::MENU.hint_bar(action::MENU_HINTS),
         Overlay::Confirm(_) => return action::CONFIRM.hint_bar(action::CONFIRM_HINTS),
         Overlay::Picker(picker) if picker.searchable() => {
@@ -568,15 +582,15 @@ fn footer_hint(app: &App) -> String {
         Overlay::Find(_) | Overlay::None => {}
     }
 
-    let specs = match &app.focus {
+    let specs = match app.focus() {
         Focus::MyWork => action::MY_WORK_HINTS,
         Focus::Recent => action::RECENT_HINTS,
         Focus::SavedViews => action::SAVED_VIEWS_HINTS,
-        Focus::View => action::VIEW_HINTS,
-        Focus::Stub(_) => action::STUB_HINTS,
+        Focus::View(_) => action::VIEW_HINTS,
+        Focus::Teams => action::TEAMS_HINTS,
         Focus::Detail(detail) => match detail.view {
-            DetailView::Reading => action::DETAIL_HINTS,
-            DetailView::Comments => action::COMMENTS_HINTS,
+            DetailView::Reading { .. } => action::DETAIL_HINTS,
+            DetailView::Comments { .. } => action::COMMENTS_HINTS,
         },
     };
     action::BROWSE.hint_bar(specs)

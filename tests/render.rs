@@ -1,11 +1,13 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
-use linear_tui::api::{IssueRef, LinearApi, TeamId, Timestamp, ViewId};
+use linear_tui::api::{Credential, IssueRef, LinearApi, TeamId, Timestamp, ViewId};
 use linear_tui::api::{Label, LabelId, Rgb};
+use linear_tui::store::Account;
 use linear_tui::tui::app::App;
+use linear_tui::tui::cache::Remote;
 use linear_tui::tui::feed::{Feed, FeedKey, FeedRequest};
-use linear_tui::tui::focus::{DetailFocus, Focus, LeftPanel};
-use linear_tui::tui::message::Message;
+use linear_tui::tui::focus::{DetailFocus, LeftPanel, Origin};
+use linear_tui::tui::message::{FailureTarget, Message, RequestError};
 use linear_tui::tui::update::{apply, handle_key};
 use linear_tui::tui::view::ViewKind;
 use linear_tui::tui::{render_styled_to_string, render_to_string};
@@ -15,11 +17,21 @@ fn edit(app: &mut App, field: char) {
     handle_key(app, KeyEvent::new(KeyCode::Char(field), KeyModifiers::NONE));
 }
 
+fn sign_in(app: &mut App) {
+    app.session.upsert_account(Account {
+        workspace_key: "ws".into(),
+        org_name: "Test".into(),
+        credential: Credential::PersonalKey("k".into()),
+    });
+    assert!(app.session.activate("ws"));
+}
+
 async fn home_app(client: &FixtureClient, view: usize) -> App {
     let mut app = App::new();
+    sign_in(&mut app);
     app.now = Timestamp::from("2026-07-16T21:00:00Z");
-    app.workspace.session = client.session().await.ok();
-    app.view_state.select(Some(view));
+    app.workspace.session = Remote::ready(client.session().await.unwrap(), app.now);
+    app.ui.view_state.select(Some(view));
     match &app.active_view().kind {
         ViewKind::Issues(filter) => {
             let page = client.issues(&filter.clone(), None).await.unwrap();
@@ -54,7 +66,10 @@ async fn opened_detail_app(client: &FixtureClient) -> App {
         .await
         .unwrap()
     {
-        app.focus = Focus::Detail(DetailFocus::reading(detail.id.clone(), LeftPanel::MyWork));
+        app.open_detail_focus(DetailFocus::reading(
+            detail.id.clone(),
+            Origin::Panel(LeftPanel::MyWork),
+        ));
         app.workspace.set_detail(detail, app.now);
     }
     app
@@ -73,9 +88,10 @@ async fn reactions_overlay_shows_current_and_add_sections() {
 
 async fn saved_views_app(client: &FixtureClient) -> App {
     let mut app = App::new();
+    sign_in(&mut app);
     app.now = Timestamp::from("2026-07-16T21:00:00Z");
-    app.workspace.session = client.session().await.ok();
-    app.focus = Focus::SavedViews;
+    app.workspace.session = Remote::ready(client.session().await.unwrap(), app.now);
+    app.focus_panel(LeftPanel::SavedViews);
     apply(
         &mut app,
         Message::CustomViewsLoaded(client.custom_views().await.unwrap()),
@@ -88,6 +104,36 @@ async fn assigned_to_me_view() {
     let client = FixtureClient::sample();
     let mut app = home_app(&client, 0).await;
     insta::assert_snapshot!(render_to_string(&mut app, 110, 16));
+}
+
+#[tokio::test]
+async fn a_refreshing_session_still_shows_an_error_in_the_footer() {
+    let client = FixtureClient::sample();
+    let mut app = home_app(&client, 0).await;
+    app.session.begin_refresh(app.now);
+    app.ui.status = Some(linear_tui::tui::status::Status::Error(
+        "linear returned http 500".into(),
+    ));
+
+    let output = render_to_string(&mut app, 110, 16);
+
+    assert!(
+        output.contains("linear returned http 500"),
+        "the error must not be masked by the refreshing banner"
+    );
+    assert!(!output.contains("Refreshing your session"));
+}
+
+#[tokio::test]
+async fn a_first_run_with_no_account_is_not_shown_as_connected() {
+    let mut app = App::new();
+
+    let output = render_to_string(&mut app, 84, 16);
+
+    assert!(
+        output.contains("Not connected"),
+        "a first run with no account must not render as an authenticated session:\n{output}"
+    );
 }
 
 #[tokio::test]
@@ -242,6 +288,7 @@ async fn detail_view_keeps_the_source_panel_expanded() {
 #[tokio::test]
 async fn loading_placeholder() {
     let mut app = App::new();
+    sign_in(&mut app);
     let key = app.active_feed_key().unwrap();
     app.workspace
         .feeds
@@ -251,16 +298,41 @@ async fn loading_placeholder() {
 }
 
 #[tokio::test]
-async fn stub_panel_focused_expands() {
+async fn teams_panel_focused_expands() {
     let client = FixtureClient::sample();
     let mut app = home_app(&client, 0).await;
-    app.focus = Focus::Stub(0);
+    app.focus_panel(LeftPanel::Teams);
+    insta::assert_snapshot!(render_to_string(&mut app, 84, 24));
+}
+
+#[tokio::test]
+async fn teams_panel_loading() {
+    let client = FixtureClient::sample();
+    let mut app = home_app(&client, 0).await;
+    app.focus_panel(LeftPanel::Teams);
+    app.workspace.teams.teams.begin();
+    insta::assert_snapshot!(render_to_string(&mut app, 84, 24));
+}
+
+#[tokio::test]
+async fn teams_panel_failed() {
+    let client = FixtureClient::sample();
+    let mut app = home_app(&client, 0).await;
+    app.focus_panel(LeftPanel::Teams);
+    apply(
+        &mut app,
+        Message::Failed {
+            target: FailureTarget::Teams,
+            error: RequestError::Other("Linear is unreachable".into()),
+        },
+    );
     insta::assert_snapshot!(render_to_string(&mut app, 84, 24));
 }
 
 #[tokio::test]
 async fn help_overlay() {
     let mut app = App::new();
+    sign_in(&mut app);
     handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
@@ -321,7 +393,7 @@ async fn labels_overlay_lists_and_marks_selected() {
 async fn assign_picker_overlay() {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await;
-    app.workspace.session = client.session().await.ok();
+    app.workspace.session = Remote::ready(client.session().await.unwrap(), app.now);
 
     edit(&mut app, 'a');
 
@@ -332,7 +404,7 @@ async fn assign_picker_overlay() {
 async fn assign_picker_search_results() {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await;
-    app.workspace.session = client.session().await.ok();
+    app.workspace.session = Remote::ready(client.session().await.unwrap(), app.now);
 
     edit(&mut app, 'a');
     for key in ['/', 'a'] {
@@ -409,6 +481,7 @@ async fn mention_autocomplete_popup() {
 #[tokio::test]
 async fn go_prefix_overlay() {
     let mut app = App::new();
+    sign_in(&mut app);
     handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
@@ -419,6 +492,7 @@ async fn go_prefix_overlay() {
 #[tokio::test]
 async fn jump_input_overlay() {
     let mut app = App::new();
+    sign_in(&mut app);
     handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
@@ -439,6 +513,7 @@ async fn jump_input_overlay() {
 #[tokio::test]
 async fn jump_input_scrolls_to_keep_a_long_url_cursor_visible() {
     let mut app = App::new();
+    sign_in(&mut app);
     handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
@@ -553,7 +628,7 @@ async fn detail_viewport_is_the_pane_height_minus_border() {
     let mut app = opened_detail_app(&client).await;
     let _ = render_to_string(&mut app, 110, 26);
     // right pane = body (26 - 1 footer) = 25, minus 2 for the border.
-    assert_eq!(app.viewport, 23);
+    assert_eq!(app.ui.viewport, 23);
 }
 
 #[tokio::test]
@@ -562,7 +637,7 @@ async fn view_surface_viewport_accounts_for_the_group_sort_header() {
     let mut app = open_view_app(&client).await;
     let _ = render_to_string(&mut app, 110, 26);
     // right pane 25, minus 2 border, minus the 3-row group/sort header.
-    assert_eq!(app.viewport, 20);
+    assert_eq!(app.ui.viewport, 20);
 }
 
 #[tokio::test]
@@ -640,6 +715,7 @@ async fn styled_local_find_bar() {
 #[tokio::test]
 async fn styled_help_overlay() {
     let mut app = App::new();
+    sign_in(&mut app);
     handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),

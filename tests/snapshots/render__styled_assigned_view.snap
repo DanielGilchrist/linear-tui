@@ -38,21 +38,30 @@ expression: "render_styled_to_string(&mut app, 110, 16)"
     [43] fg=Some(Blue) bg=Some(Reset) mod=NONE "@dan"
     [48] fg=Some(Black) bg=Some(Rgb(235, 87, 87)) mod=NONE " oven "
     [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-└ 1 of 7 ────────────────────────────────┘│https://linear.app/dans-donuts/issue/DAN2-7                       │
+│!!! DAN2-3 Todo Add gluten-free base opt││https://linear.app/dans-donuts/issue/DAN2-7                       │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(Red) bg=Some(Reset) mod=NONE "!!!"
+    [5] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "DAN2-3"
+    [12] fg=Some(Gray) bg=Some(Reset) mod=NONE "Todo"
+    [17] fg=Some(White) bg=Some(Reset) mod=NONE "Add gluten-free base opt"
+    [41] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [42] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [43] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "https://linear.app/dans-donuts/issue/DAN2-7"
+    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+└ 1 of 7 ────────────────────────────────┘│                                                                  │
     [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└"
     [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 7 "
     [9] fg=Some(Yellow) bg=Some(Reset) mod=NONE "────────────────────────────────┘"
     [42] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-    [43] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "https://linear.app/dans-donuts/issue/DAN2-7"
     [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-┌Recently viewed─────────────────────────┐│                                                                  │
+┌Recently viewed─────────────────────────┐│Press enter to load the description and comments                  │
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Recently viewed─────────────────────────┐│"
+    [43] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "Press enter to load the description and comments"
     [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-│Issues you open land here               ││Press enter to load the description and comments                  │
+│Issues you open land here               ││                                                                  │
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Issues you open land here               "
     [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "││"
-    [43] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "Press enter to load the description and comments"
     [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
 └────────────────────────────────────────┘│                                                                  │
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└────────────────────────────────────────┘│"
@@ -71,20 +80,12 @@ expression: "render_styled_to_string(&mut app, 110, 16)"
 ┌Teams───────────────────────────────────┐│                                                                  │
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Teams───────────────────────────────────┐│"
     [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-│Dan's Pizza                             ││                                                                  │
+│                                        ││                                                                  │
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-    [1] fg=Some(Reset) bg=Some(Rgb(45, 45, 48)) mod=NONE "Dan's Pizza                             "
     [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "││"
     [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-│Dan's Donuts                            ││                                                                  │
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Dan's Donuts                            "
-    [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "││"
-    [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-└ 1 of 2 ────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
-    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└"
-    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " 1 of 2 "
-    [9] fg=Some(Gray) bg=Some(Reset) mod=NONE "────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘"
+└────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
+    [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "└────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘"
  j move   ] view   tab panel   1-9 jump   enter open   o browser   y yank   / find   z z… Dan's Donuts · @dan
     [0] fg=Some(DarkGray) bg=Some(Reset) mod=NONE " j move   ] view   tab panel   1-9 jump   enter open   o browser   y yank   / find   z z…"
     [90] fg=Some(Cyan) bg=Some(Reset) mod=NONE "Dan's Donuts · @dan "

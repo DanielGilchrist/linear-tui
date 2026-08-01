@@ -5,10 +5,11 @@ use ratatui::widgets::ListState;
 use super::cache::{Cache, CacheStatus, Remote};
 use super::feed::{Feed, FeedKey, FeedStore};
 use super::markdown;
-use super::saved_views::{SavedViewsPanel, ViewSurface};
+use super::saved_views::SavedViewsPanel;
 use super::view::{View, ViewKind};
 use crate::api::{
-    IssueDetail, IssueSummary, NotificationItem, Session, StateOption, TeamId, Timestamp, User,
+    IssueDetail, IssueSummary, NotificationItem, Session, StateOption, Team, TeamId, Timestamp,
+    User,
 };
 
 #[derive(Default)]
@@ -39,8 +40,40 @@ impl RenderedDetail {
     }
 }
 
+pub struct TeamsPanel {
+    pub teams: Remote<Vec<Team>>,
+    pub state: ListState,
+}
+
+impl TeamsPanel {
+    pub fn new() -> Self {
+        Self {
+            teams: Remote::default(),
+            state: ListState::default().with_selected(Some(0)),
+        }
+    }
+
+    pub fn list(&self) -> &[Team] {
+        self.teams.value().map_or(&[], Vec::as_slice)
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        self.list().iter().map(|team| team.name.clone()).collect()
+    }
+
+    pub fn selected(&self) -> Option<&Team> {
+        self.state.selected().and_then(|i| self.list().get(i))
+    }
+}
+
+impl Default for TeamsPanel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct WorkspaceData {
-    pub session: Option<Session>,
+    pub session: Remote<Session>,
     pub feeds: FeedStore,
     pub inbox: Feed<NotificationItem>,
     detail: Remote<IssueDetail>,
@@ -48,15 +81,15 @@ pub struct WorkspaceData {
     pub states: Cache<TeamId, Remote<Vec<StateOption>>>,
     pub members: Cache<TeamId, Remote<Vec<User>>>,
     pub saved_views: SavedViewsPanel,
-    pub view_open: Option<ViewSurface>,
     pub recently_viewed: Vec<IssueSummary>,
     pub recent_state: ListState,
+    pub teams: TeamsPanel,
 }
 
 impl WorkspaceData {
     pub fn new() -> Self {
         Self {
-            session: None,
+            session: Remote::default(),
             feeds: FeedStore::default(),
             inbox: Feed::default(),
             detail: Remote::default(),
@@ -64,9 +97,9 @@ impl WorkspaceData {
             states: Cache::default(),
             members: Cache::default(),
             saved_views: SavedViewsPanel::new(),
-            view_open: None,
             recently_viewed: Vec::new(),
             recent_state: ListState::default().with_selected(Some(0)),
+            teams: TeamsPanel::new(),
         }
     }
 
@@ -92,6 +125,40 @@ impl WorkspaceData {
         &self.detail
     }
 
+    pub fn cancel_in_flight(&mut self) {
+        let Self {
+            session,
+            feeds,
+            inbox,
+            detail,
+            detail_markdown: _,
+            states,
+            members,
+            saved_views,
+            recently_viewed: _,
+            recent_state: _,
+            teams,
+        } = self;
+
+        session.cancel();
+        detail.cancel();
+        inbox.cancel();
+        saved_views.views.cancel();
+        teams.teams.cancel();
+
+        for feed in feeds.values_mut() {
+            feed.cancel();
+        }
+
+        for states in states.values_mut() {
+            states.cancel();
+        }
+
+        for members in members.values_mut() {
+            members.cancel();
+        }
+    }
+
     pub fn detail_markdown(&self) -> &RenderedDetail {
         &self.detail_markdown
     }
@@ -113,8 +180,8 @@ impl WorkspaceData {
             ViewKind::Issues(filter) => self
                 .feeds
                 .get(&FeedKey::Issues(filter.clone()))
-                .map_or(CacheStatus::Idle, |feed| feed.status().clone()),
-            ViewKind::Inbox => self.inbox.status().clone(),
+                .map_or(CacheStatus::Idle, |feed| feed.status()),
+            ViewKind::Inbox => self.inbox.status(),
         }
     }
 

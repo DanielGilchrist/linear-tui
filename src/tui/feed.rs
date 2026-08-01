@@ -32,20 +32,65 @@ impl FeedRequest {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+enum Pagination {
+    #[default]
+    Complete,
+    More(Cursor),
+    Appending(Cursor),
+    TruncatedRestored,
+}
+
+impl Pagination {
+    fn from_next(next: Option<Cursor>) -> Self {
+        match next {
+            Some(cursor) => Pagination::More(cursor),
+            None => Pagination::Complete,
+        }
+    }
+
+    fn cursor(&self) -> Option<&Cursor> {
+        match self {
+            Pagination::More(cursor) => Some(cursor),
+            Pagination::Appending(_) | Pagination::Complete | Pagination::TruncatedRestored => None,
+        }
+    }
+
+    fn appending(&self) -> bool {
+        matches!(self, Pagination::Appending(_))
+    }
+
+    fn awaits(&self, after: &Cursor) -> bool {
+        matches!(self, Pagination::Appending(cursor) if cursor == after)
+    }
+
+    fn begin(&mut self, after: &Cursor) {
+        if matches!(self, Pagination::More(cursor) if cursor == after) {
+            *self = Pagination::Appending(after.clone());
+        }
+    }
+
+    fn settle(&mut self) {
+        if let Pagination::Appending(cursor) = self {
+            *self = Pagination::More(cursor.clone());
+        }
+    }
+
+    fn truncated(&self) -> bool {
+        !matches!(self, Pagination::Complete)
+    }
+}
+
 pub struct Feed<T> {
     page: Remote<Vec<T>>,
-    next: Option<Cursor>,
-    truncated: bool,
-    appending: bool,
+    pagination: Pagination,
 }
 
 impl<T> Default for Feed<T> {
     fn default() -> Self {
         Self {
             page: Remote::default(),
-            next: None,
-            truncated: false,
-            appending: false,
+            pagination: Pagination::Complete,
         }
     }
 }
@@ -53,19 +98,19 @@ impl<T> Default for Feed<T> {
 impl<T: HasId> Feed<T> {
     pub fn ready(page: Page<T>, now: Timestamp) -> Self {
         Self {
-            truncated: page.next.is_some(),
-            next: page.next,
+            pagination: Pagination::from_next(page.next),
             page: Remote::ready(page.items, now),
-            appending: false,
         }
     }
 
     pub fn restored(items: Vec<T>, truncated: bool, fetched_at: Timestamp) -> Self {
         Self {
             page: Remote::ready(items, fetched_at),
-            next: None,
-            truncated,
-            appending: false,
+            pagination: if truncated {
+                Pagination::TruncatedRestored
+            } else {
+                Pagination::Complete
+            },
         }
     }
 
@@ -73,16 +118,16 @@ impl<T: HasId> Feed<T> {
         self.page.value().map_or(&[], Vec::as_slice)
     }
 
-    pub fn status(&self) -> &CacheStatus {
+    pub fn status(&self) -> CacheStatus {
         self.page.status()
     }
 
     pub fn truncated(&self) -> bool {
-        self.truncated
+        self.pagination.truncated()
     }
 
     pub fn appending(&self) -> bool {
-        self.appending
+        self.pagination.appending()
     }
 
     pub fn fetched_at(&self) -> Timestamp {
@@ -90,15 +135,15 @@ impl<T: HasId> Feed<T> {
     }
 
     pub fn next(&self) -> Option<&Cursor> {
-        self.next.as_ref()
+        self.pagination.cursor()
     }
 
     pub fn in_flight(&self) -> bool {
-        self.page.in_flight() || self.appending
+        self.page.in_flight() || self.appending()
     }
 
     pub fn can_load_more(&self) -> bool {
-        self.next.is_some() && !self.in_flight()
+        matches!(self.pagination, Pagination::More(_)) && !self.in_flight()
     }
 
     pub fn needs_initial_load(&self) -> bool {
@@ -127,30 +172,25 @@ impl<T: HasId> Feed<T> {
     pub fn begin(&mut self, request: &FeedRequest) {
         match request {
             FeedRequest::Refresh => self.page.begin(),
-            FeedRequest::LoadMore { .. } => self.appending = true,
+            FeedRequest::LoadMore { after } => self.pagination.begin(after),
         }
     }
 
     pub fn bust(&mut self) {
         self.page.bust();
-        self.next = None;
-        self.truncated = false;
-        self.appending = false;
+        self.pagination = Pagination::Complete;
     }
 
     pub fn apply(&mut self, request: &FeedRequest, page: Page<T>, now: Timestamp) -> bool {
         match request {
             FeedRequest::Refresh => {
-                self.truncated = page.next.is_some();
-                self.next = page.next;
+                self.pagination = Pagination::from_next(page.next);
                 self.page.set(page.items, now);
-                self.appending = false;
 
                 true
             }
             FeedRequest::LoadMore { after } => {
-                if self.next.as_ref() != Some(after) {
-                    self.appending = false;
+                if !self.pagination.awaits(after) {
                     return false;
                 }
 
@@ -164,9 +204,7 @@ impl<T: HasId> Feed<T> {
                             .filter(|item| !seen.contains(item.feed_id())),
                     );
                 }
-                self.truncated = page.next.is_some();
-                self.next = page.next;
-                self.appending = false;
+                self.pagination = Pagination::from_next(page.next);
 
                 true
             }
@@ -174,8 +212,13 @@ impl<T: HasId> Feed<T> {
     }
 
     pub fn fail(&mut self, error: String) {
-        self.appending = false;
+        self.pagination.settle();
         self.page.fail(error);
+    }
+
+    pub fn cancel(&mut self) {
+        self.pagination.settle();
+        self.page.cancel();
     }
 }
 
@@ -251,7 +294,7 @@ mod tests {
     fn refresh_replaces_and_records_the_cursor() {
         let mut feed: Feed<Item> = Feed::default();
         feed.begin(&FeedRequest::Refresh);
-        assert_eq!(*feed.status(), CacheStatus::Loading);
+        assert_eq!(feed.status(), CacheStatus::Loading);
 
         assert!(feed.apply(
             &FeedRequest::Refresh,
@@ -262,7 +305,7 @@ mod tests {
         assert_eq!(ids(&feed), vec!["a", "b"]);
         assert!(feed.truncated());
         assert!(feed.can_load_more());
-        assert_eq!(*feed.status(), CacheStatus::Ready);
+        assert_eq!(feed.status(), CacheStatus::Ready);
         assert_eq!(feed.fetched_at(), at(100));
     }
 
@@ -271,7 +314,7 @@ mod tests {
         let mut feed: Feed<Item> = Feed::default();
         feed.apply(&FeedRequest::Refresh, page(&["a"], None), at(100));
         feed.begin(&FeedRequest::Refresh);
-        assert_eq!(*feed.status(), CacheStatus::Revalidating);
+        assert_eq!(feed.status(), CacheStatus::Revalidating);
     }
 
     #[test]
@@ -317,6 +360,59 @@ mod tests {
     }
 
     #[test]
+    fn a_cancelled_append_can_be_asked_for_again() {
+        let mut feed: Feed<Item> = Feed::default();
+        feed.apply(
+            &FeedRequest::Refresh,
+            page(&["a", "b"], Some("c1")),
+            at(100),
+        );
+
+        let request = FeedRequest::LoadMore {
+            after: Cursor("c1".into()),
+        };
+        feed.begin(&request);
+        feed.cancel();
+
+        assert!(!feed.appending());
+        assert!(
+            feed.can_load_more(),
+            "a cancelled append must leave the cursor askable again"
+        );
+        assert_eq!(feed.next(), Some(&Cursor("c1".into())));
+    }
+
+    #[test]
+    fn an_append_reply_for_a_different_cursor_is_dropped() {
+        let mut feed: Feed<Item> = Feed::default();
+        feed.apply(
+            &FeedRequest::Refresh,
+            page(&["a", "b"], Some("c1")),
+            at(100),
+        );
+
+        let first = FeedRequest::LoadMore {
+            after: Cursor("c1".into()),
+        };
+        feed.begin(&first);
+        feed.fail("boom".into());
+
+        feed.apply(&FeedRequest::Refresh, page(&["x"], Some("c2")), at(200));
+
+        let second = FeedRequest::LoadMore {
+            after: Cursor("c2".into()),
+        };
+        feed.begin(&second);
+
+        assert!(
+            !feed.apply(&first, page(&["y"], None), at(300)),
+            "a reply for a cursor the feed is not awaiting must be rejected"
+        );
+        assert_eq!(ids(&feed), vec!["x"]);
+        assert!(feed.appending(), "the live append is still outstanding");
+    }
+
+    #[test]
     fn a_restored_feed_renders_but_cannot_append() {
         let feed = Feed::restored(vec![Item("a".to_string())], true, at(10));
         assert!(feed.truncated());
@@ -336,7 +432,7 @@ mod tests {
         assert!(feed.items().is_empty());
         assert!(feed.next().is_none());
         assert!(!feed.truncated());
-        assert_eq!(*feed.status(), CacheStatus::Idle);
+        assert_eq!(feed.status(), CacheStatus::Idle);
     }
 
     #[test]
@@ -345,6 +441,6 @@ mod tests {
         feed.apply(&FeedRequest::Refresh, page(&["a", "b"], None), at(100));
         feed.fail("boom".into());
         assert_eq!(ids(&feed), vec!["a", "b"]);
-        assert_eq!(*feed.status(), CacheStatus::Failed("boom".into()));
+        assert_eq!(feed.status(), CacheStatus::Failed("boom".into()));
     }
 }

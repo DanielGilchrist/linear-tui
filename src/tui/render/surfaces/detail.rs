@@ -2,7 +2,6 @@ use ratatui::{
     layout::Rect,
     style::Modifier,
     text::{Line, Span, Text},
-    widgets::ScrollbarState,
     Frame,
 };
 
@@ -12,6 +11,7 @@ use super::super::widgets::{
 };
 use crate::api::{IssueDetail, IssueSummary, NotificationItem, ThreadedComment, Timestamp};
 use crate::tui::cache::{Phase, Remote};
+use crate::tui::focus::Scroll;
 use crate::tui::spinner::Spinner;
 use crate::tui::workspace::RenderedDetail;
 
@@ -20,11 +20,10 @@ pub enum Preview<'a> {
     Notification(Option<&'a NotificationItem>),
 }
 
-pub struct ReadingProps<'a> {
+pub struct ReadingProps {
     pub now: Timestamp,
     pub selected: Option<usize>,
-    pub scroll_position: &'a mut usize,
-    pub scroll_state: &'a mut ScrollbarState,
+    pub scroll: Scroll,
     pub emphasis: Emphasis,
 }
 
@@ -34,28 +33,26 @@ pub fn render_reading(
     detail: &IssueDetail,
     rendered: &RenderedDetail,
     props: ReadingProps,
-) {
+) -> usize {
     let ReadingProps {
         now,
         selected,
-        scroll_position,
-        scroll_state,
+        scroll,
         emphasis,
     } = props;
 
     let body = detail_text(detail, rendered, now, selected);
     let title = detail.identifier.clone();
 
-    if let Some(start) = selected.and_then(|index| body.comment_top(index)) {
-        *scroll_position = start;
-    }
+    let scroll = match selected.and_then(|index| body.comment_top(index)) {
+        Some(start) => Scroll::At(start),
+        None => scroll,
+    };
 
-    frame.render_widget(
-        ScrollableText::new(body.text, scroll_position, scroll_state)
-            .title(&title)
-            .border_style(emphasis.border()),
-        area,
-    );
+    ScrollableText::new(body.text, scroll)
+        .title(&title)
+        .border_style(emphasis.border())
+        .render(frame, area)
 }
 
 pub fn render_pane(
@@ -66,21 +63,28 @@ pub fn render_pane(
     spinner: Spinner,
     preview: Preview,
     props: ReadingProps,
-) {
+) -> usize {
     match detail.phase() {
-        Phase::Ready => {
-            if let Some(detail) = detail.value() {
-                render_reading(frame, area, detail, rendered, props);
-            }
+        Phase::Ready => match detail.value() {
+            Some(detail) => render_reading(frame, area, detail, rendered, props),
+            None => 0,
+        },
+        Phase::Loading => {
+            text_panel(
+                frame,
+                area,
+                "Issue",
+                Text::from(format!("{spinner}  Loading issue…")),
+                props.emphasis,
+            );
+
+            0
         }
-        Phase::Loading => text_panel(
-            frame,
-            area,
-            "Issue",
-            Text::from(format!("{spinner}  Loading issue…")),
-            props.emphasis,
-        ),
-        Phase::Missing | Phase::Failed => render_work_preview(frame, area, preview, props.emphasis),
+        Phase::Missing | Phase::Failed => {
+            render_work_preview(frame, area, preview, props.emphasis);
+
+            0
+        }
     }
 }
 
@@ -181,7 +185,7 @@ pub fn detail_text(
 
     if !detail.comments.is_empty() {
         lines.push(Line::from(Span::styled(
-            format!("Comments ({})", detail.comments.len()),
+            format!("Comments ({})", detail.thread_len()),
             theme::ACCENT,
         )));
 

@@ -8,7 +8,7 @@ use crate::api::error::{ApiError, ApiResult};
 use crate::api::model::{
     CommentId, Credential, Cursor, IssueDetail, IssueFilter, IssueId, IssueRef, IssueSummary,
     IssueUpdate, Label, NotificationItem, Page, ReactionId, ReactionTarget, SavedView, Session,
-    StateOption, StateType, TeamId, User, ViewId,
+    StateOption, StateType, Team, TeamId, User, ViewId,
 };
 use crate::api::queries::actions::{
     AssigneeInput, AssigneeMutation, AssigneeVariables, CommentCreateInput, CommentCreateMutation,
@@ -29,6 +29,7 @@ use crate::api::queries::labels::{
 use crate::api::queries::my_issues::{IssuesQuery, IssuesVariables};
 use crate::api::queries::notifications::{NotificationsQuery, NotificationsVariables};
 use crate::api::queries::search::{SearchIssuesQuery, SearchVariables};
+use crate::api::queries::teams::{TeamsQuery, TeamsVariables};
 use crate::api::queries::users::{UserFilter, UserSearchQuery, UserSearchVariables};
 use crate::api::queries::viewer::ViewerQuery;
 use crate::api::LinearApi;
@@ -262,6 +263,24 @@ impl LinearApi for Client {
         states.reverse();
 
         Ok(states)
+    }
+
+    async fn teams(&self) -> ApiResult<Vec<Team>> {
+        let operation = TeamsQuery::build(TeamsVariables {
+            first: Some(PAGE_SIZE),
+        });
+        let result = self.fetch_json(operation).await?;
+
+        Ok(result
+            .teams
+            .nodes
+            .into_iter()
+            .map(|team| Team {
+                id: team.id.into(),
+                name: team.name,
+                key: team.key,
+            })
+            .collect())
     }
 
     async fn team_members(&self, team_id: &TeamId) -> ApiResult<Vec<User>> {

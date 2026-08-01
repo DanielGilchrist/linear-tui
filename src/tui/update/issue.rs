@@ -1,11 +1,15 @@
-use ratatui::widgets::{ListState, ScrollbarState};
+use ratatui::widgets::ListState;
 
+use super::input::Report;
 use super::nav::clamp_selection;
-use crate::api::{IssueRef, Label, Priority, Reaction, ReactionTarget, StateOption, TeamId, User};
+use crate::api::{
+    IssueId, IssueRef, IssueSummary, Label, Priority, Reaction, ReactionTarget, StateOption,
+    TeamId, User,
+};
 use crate::tui::app::{App, FocusedIssue};
 use crate::tui::cache::{RefreshPolicy, Remote};
-use crate::tui::focus::{DetailFocus, DetailView, Focus, Reveal};
-use crate::tui::message::Command;
+use crate::tui::focus::{DetailFocus, DetailView, Focus, Origin, Reveal};
+use crate::tui::message::{ApiCommand, Effect, Effects, PlatformCommand, StoreCommand};
 use crate::tui::overlay::{
     AssignOptions, Compose, Confirm, Editor, Labels, Overlay, Picker, PickerItem, PickerKind,
     Reactions,
@@ -15,39 +19,49 @@ use crate::tui::status::Status;
 const STATES_REFRESH: RefreshPolicy = RefreshPolicy::new(60 * 60, 24 * 60 * 60);
 const MEMBERS_REFRESH: RefreshPolicy = RefreshPolicy::new(60 * 60, 24 * 60 * 60);
 
-pub(super) fn enter_comments(app: &mut App) -> Option<Command> {
+pub(super) fn enter_comments(app: &mut App) -> Report {
     if !app.has_comments() {
-        app.status = Some(Status::NoComments);
-        return None;
+        return Report::status(Status::NoComments);
     }
 
-    if let Focus::Detail(detail_focus) = &app.focus {
-        app.focus = Focus::Detail(detail_focus.with_view(DetailView::Comments));
-        app.comment_state.select(Some(0));
+    let len = app.open_detail().map_or(0, |detail| detail.thread_len());
+    if let Some(view) = DetailView::comments(len) {
+        app.set_detail_view(view);
     }
 
-    None
+    Effects::default().into()
 }
 
-pub(super) fn open_reply_editor(app: &mut App) -> Option<Command> {
-    let detail = app.open_detail()?;
+pub(super) fn open_reply_editor(app: &mut App) -> Effects {
+    let Some(detail) = app.open_detail() else {
+        return Effects::default();
+    };
+    let issue_id = detail.id.clone();
     let team_id = detail.team_id.clone();
-    let selected = app.comment_state.selected()?;
-    let parent_id = detail
+    let Some(selected) = app.comment_cursor() else {
+        return Effects::default();
+    };
+    let Some(threaded) = detail
         .threaded_comments()
-        .get(selected)?
-        .comment
-        .reply_parent();
+        .get(selected)
+        .map(|t| t.comment.reply_parent())
+    else {
+        return Effects::default();
+    };
+    let parent_id = threaded;
 
-    open_editor(app, Compose::Reply { parent_id }, team_id, None)
+    open_editor(app, issue_id, Compose::Reply { parent_id }, team_id, None)
 }
 
-pub(super) fn open_edit_editor(app: &mut App) -> Option<Command> {
-    let selected = app.comment_state.selected()?;
+pub(super) fn open_edit_editor(app: &mut App) -> Report {
+    let Some(selected) = app.comment_cursor() else {
+        return Effects::default().into();
+    };
 
     let picked = app.open_detail().and_then(|detail| {
         detail.threaded_comments().get(selected).map(|threaded| {
             (
+                detail.id.clone(),
                 detail.team_id.clone(),
                 threaded.comment.id.clone(),
                 threaded.comment.body.clone(),
@@ -56,45 +70,72 @@ pub(super) fn open_edit_editor(app: &mut App) -> Option<Command> {
         })
     });
 
-    let (team_id, comment_id, body, is_mine) = picked?;
-
-    if !is_mine {
-        app.status = Some(Status::NotYourComment);
-        return None;
-    }
-
-    open_editor(app, Compose::Edit { comment_id }, team_id, Some(&body))
-}
-
-pub(super) fn open_reactions(app: &mut App) -> Option<Command> {
-    let detail = app.open_detail()?;
-
-    let (target, reactions) = match app.focus.detail()?.view {
-        DetailView::Comments => {
-            let selected = app.comment_state.selected()?;
-            let comment = detail.threaded_comments().get(selected)?.comment;
-            (
-                ReactionTarget::Comment(comment.id.clone()),
-                comment.reactions.clone(),
-            )
-        }
-        DetailView::Reading => (
-            ReactionTarget::Issue(detail.id.clone()),
-            detail.reactions.clone(),
-        ),
+    let Some((issue_id, team_id, comment_id, body, is_mine)) = picked else {
+        return Effects::default().into();
     };
 
-    app.overlay = Overlay::Reactions(Reactions::new(target, &reactions));
-    None
+    if !is_mine {
+        return Report::status(Status::NotYourComment);
+    }
+
+    open_editor(
+        app,
+        issue_id,
+        Compose::Edit { comment_id },
+        team_id,
+        Some(&body),
+    )
+    .into()
+}
+
+pub(super) fn open_reactions(app: &mut App) -> Effects {
+    let Some(detail) = app.open_detail() else {
+        return Effects::default();
+    };
+    let detail_id = detail.id.clone();
+    let Some(view) = app.focus().detail().map(|focus| focus.view) else {
+        return Effects::default();
+    };
+
+    let selection = match view {
+        DetailView::Comments { .. } => {
+            let Some(selected) = app.comment_cursor() else {
+                return Effects::default();
+            };
+            detail.threaded_comments().get(selected).map(|threaded| {
+                (
+                    ReactionTarget::Comment(threaded.comment.id.clone()),
+                    threaded.comment.reactions.clone(),
+                )
+            })
+        }
+        DetailView::Reading { .. } => Some((
+            ReactionTarget::Issue(detail.id.clone()),
+            detail.reactions.clone(),
+        )),
+    };
+
+    let Some((target, reactions)) = selection else {
+        return Effects::default();
+    };
+
+    app.set_overlay(Overlay::Reactions(Reactions::new(
+        detail_id, target, &reactions,
+    )));
+
+    Effects::default()
 }
 
 pub(super) fn toggle_reaction(
-    app: &mut App,
+    app: &App,
+    issue_id: &IssueId,
     target: ReactionTarget,
     emoji: &str,
-) -> Option<Command> {
-    let detail = app.open_detail()?;
-    let issue_id = detail.id.clone();
+) -> Report {
+    let Some(detail) = app.open_detail().filter(|detail| &detail.id == issue_id) else {
+        return Report::status(Status::NeedHighlightedIssue);
+    };
+    let issue_id = issue_id.clone();
 
     let reactions: &[Reaction] = match &target {
         ReactionTarget::Issue(_) => &detail.reactions,
@@ -110,22 +151,24 @@ pub(super) fn toggle_reaction(
         .find(|reaction| reaction.mine && reaction.emoji == emoji);
 
     let command = match mine {
-        Some(reaction) => Command::DeleteReaction {
+        Some(reaction) => Effect::Api(ApiCommand::DeleteReaction {
             issue_id,
             reaction_id: reaction.id.clone(),
-        },
-        None => Command::CreateReaction {
+        }),
+        None => Effect::Api(ApiCommand::CreateReaction {
             issue_id,
             target,
             emoji: emoji.to_string(),
-        },
+        }),
     };
 
-    Some(command)
+    Effects::one(command).into()
 }
 
-pub(super) fn open_delete_comment(app: &mut App) -> Option<Command> {
-    let selected = app.comment_state.selected()?;
+pub(super) fn open_delete_comment(app: &mut App) -> Report {
+    let Some(selected) = app.comment_cursor() else {
+        return Effects::default().into();
+    };
 
     let picked = app.open_detail().and_then(|detail| {
         detail.threaded_comments().get(selected).map(|threaded| {
@@ -137,31 +180,37 @@ pub(super) fn open_delete_comment(app: &mut App) -> Option<Command> {
         })
     });
 
-    let (issue_id, comment_id, is_mine) = picked?;
+    let Some((issue_id, comment_id, is_mine)) = picked else {
+        return Effects::default().into();
+    };
 
     if !is_mine {
-        app.status = Some(Status::NotYourComment);
-        return None;
+        return Report::status(Status::NotYourComment);
     }
 
-    app.overlay = Overlay::Confirm(Confirm {
+    app.set_overlay(Overlay::Confirm(Confirm {
         message: "Delete this comment?".into(),
-        command: Command::DeleteComment {
+        command: Effect::Api(ApiCommand::DeleteComment {
             issue_id,
             comment_id,
-        },
-    });
+        }),
+    }));
 
-    None
+    Effects::default().into()
 }
 
-pub(super) fn open_issue(app: &mut App, target: impl Into<IssueRef>) -> Option<Command> {
-    let target = target.into();
-
-    app.search_return = None;
-    app.focus = Focus::Detail(DetailFocus::reading(target.clone(), app.focus.left()));
-    app.scroll_position = 0;
-    app.scroll_state = ScrollbarState::default();
+pub(super) fn open_issue(
+    app: &mut App,
+    target: IssueRef,
+    summary: Option<IssueSummary>,
+    origin: Origin,
+) -> Effects {
+    app.open_detail_focus(DetailFocus {
+        issue: target.clone(),
+        origin,
+        view: DetailView::reading(),
+        summary: summary.map(Box::new),
+    });
 
     let already_loaded = app
         .workspace
@@ -170,59 +219,79 @@ pub(super) fn open_issue(app: &mut App, target: impl Into<IssueRef>) -> Option<C
         .is_some_and(|detail| target.matches_detail(detail));
 
     if already_loaded {
-        return None;
+        return Effects::default();
     }
 
     app.workspace.bust_detail();
     app.workspace.begin_detail();
 
-    Some(Command::LoadDetail {
+    Effects::one(Effect::Api(ApiCommand::LoadDetail {
         target,
         reveal: Reveal::Top,
-    })
+    }))
 }
 
 pub(super) fn clear_recent(app: &mut App) {
-    match app.focus {
+    match app.focus() {
         Focus::Recent if !app.workspace.recently_viewed.is_empty() => {
-            app.overlay = Overlay::Confirm(Confirm {
+            app.set_overlay(Overlay::Confirm(Confirm {
                 message: "Clear recently viewed?".into(),
-                command: Command::ClearRecent,
-            });
+                command: Effect::Store(StoreCommand::ClearRecent),
+            }));
         }
         Focus::MyWork
         | Focus::Recent
         | Focus::SavedViews
-        | Focus::View
-        | Focus::Stub(_)
+        | Focus::View(_)
+        | Focus::Teams
         | Focus::Detail(..) => {}
     }
 }
 
-pub(super) fn open_status_picker(app: &mut App) -> Option<Command> {
-    let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
-    open_picker(app, PickerKind::Status, target)
+pub(super) fn open_status_picker(app: &mut App) -> Report {
+    let target = match require(app.action_target(), Status::NeedOpenIssue) {
+        Ok(target) => target,
+        Err(status) => return Report::status(status),
+    };
+
+    open_picker(app, PickerKind::Status, target).into()
 }
 
-pub(super) fn open_assign_picker(app: &mut App) -> Option<Command> {
-    let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
-    open_picker(app, PickerKind::Assign(AssignOptions::Suggested), target)
+pub(super) fn open_assign_picker(app: &mut App) -> Report {
+    let target = match require(app.action_target(), Status::NeedOpenIssue) {
+        Ok(target) => target,
+        Err(status) => return Report::status(status),
+    };
+
+    open_picker(app, PickerKind::Assign(AssignOptions::Suggested), target).into()
 }
 
-pub(super) fn open_priority_picker(app: &mut App) -> Option<Command> {
-    let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
-    open_picker(app, PickerKind::Priority, target)
+pub(super) fn open_priority_picker(app: &mut App) -> Report {
+    let target = match require(app.action_target(), Status::NeedOpenIssue) {
+        Ok(target) => target,
+        Err(status) => return Report::status(status),
+    };
+
+    open_picker(app, PickerKind::Priority, target).into()
 }
 
-pub(super) fn open_labels(app: &mut App) -> Option<Command> {
-    let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
+pub(super) fn open_labels(app: &mut App) -> Report {
+    let target = match require(app.action_target(), Status::NeedOpenIssue) {
+        Ok(target) => target,
+        Err(status) => return Report::status(status),
+    };
     let current = current_labels(app);
 
-    app.overlay = Overlay::Labels(Labels::new(target.id, target.identifier, current));
+    app.set_overlay(Overlay::Labels(Labels::new(
+        target.id,
+        target.identifier,
+        current,
+    )));
 
-    Some(Command::SearchLabels {
+    Effects::one(Effect::Api(ApiCommand::SearchLabels {
         query: String::new(),
-    })
+    }))
+    .into()
 }
 
 fn current_labels(app: &App) -> Vec<Label> {
@@ -248,9 +317,13 @@ pub(super) fn priority_items() -> Vec<PickerItem> {
     .collect()
 }
 
-pub(super) fn open_comment_input(app: &mut App) -> Option<Command> {
-    let target = require(app, app.action_target(), Status::NeedOpenIssue)?;
-    open_editor(app, Compose::Comment, target.team_id, None)
+pub(super) fn open_comment_input(app: &mut App) -> Report {
+    let target = match require(app.action_target(), Status::NeedOpenIssue) {
+        Ok(target) => target,
+        Err(status) => return Report::status(status),
+    };
+
+    open_editor(app, target.id, Compose::Comment, target.team_id, None).into()
 }
 
 pub(super) fn status_items(states: &[StateOption]) -> Vec<PickerItem> {
@@ -260,7 +333,7 @@ pub(super) fn status_items(states: &[StateOption]) -> Vec<PickerItem> {
 pub(super) fn assign_suggestions(app: &App) -> Vec<PickerItem> {
     let mut items = vec![PickerItem::unassign()];
 
-    if let Some(session) = &app.workspace.session {
+    if let Some(session) = app.workspace.session.value() {
         items.push(PickerItem::from(session.user.clone()));
     }
 
@@ -271,71 +344,54 @@ pub(super) fn found_users(users: Vec<User>) -> Vec<PickerItem> {
     users.into_iter().map(PickerItem::from).collect()
 }
 
-pub(super) fn search_assignees(app: &mut App, query: String) -> Option<Command> {
-    let Overlay::Picker(picker) = &mut app.overlay else {
-        return None;
-    };
-
-    picker.kind = PickerKind::Assign(AssignOptions::Matching(query.clone()));
-    picker.items = Vec::new();
-    picker.loading = true;
-    picker.state.select(Some(0));
-
-    Some(Command::SearchUsers { query })
-}
-
 pub(super) fn fill_picker(picker: &mut Picker, items: Vec<PickerItem>) {
-    let was_loading = picker.loading;
+    let was_empty = picker.items.is_empty();
     picker.items = items;
-    picker.loading = false;
-    if was_loading {
+
+    if was_empty {
         picker.state.select(Some(0));
     } else {
         clamp_selection(&mut picker.state, picker.items.len());
     }
 }
 
-pub(super) fn stop_status_picker(overlay: &mut Overlay) {
-    stop_picker(overlay, |kind| matches!(kind, PickerKind::Status));
-}
-
-pub(super) fn stop_assign_picker(overlay: &mut Overlay) {
-    stop_picker(overlay, |kind| matches!(kind, PickerKind::Assign(_)));
-}
-
-fn stop_picker(overlay: &mut Overlay, matches_kind: impl Fn(&PickerKind) -> bool) {
-    if let Overlay::Picker(picker) = overlay {
-        if matches_kind(&picker.kind) {
-            picker.loading = false;
-        }
+pub(super) fn stop_assign_picker(picker: Option<&mut Picker>) {
+    if let Some(picker) = picker {
+        picker.settle_search();
     }
 }
 
-pub(super) fn access_states(app: &mut App, team_id: &TeamId) -> Option<Command> {
-    app.workspace
+pub(super) fn access_states(app: &mut App, team_id: &TeamId) -> Effects {
+    let began = app
+        .workspace
         .states
         .get_or_default(team_id)
-        .begin_access(app.now, &STATES_REFRESH)
-        .then(|| Command::LoadStates {
+        .begin_access(app.now, &STATES_REFRESH);
+
+    Effects::when(
+        began,
+        Effect::Api(ApiCommand::LoadStates {
             team_id: team_id.clone(),
-        })
+        }),
+    )
 }
 
-pub(super) fn access_members(app: &mut App, team_id: &TeamId) -> Option<Command> {
-    app.workspace
+pub(super) fn access_members(app: &mut App, team_id: &TeamId) -> Effects {
+    let began = app
+        .workspace
         .members
         .get_or_default(team_id)
-        .begin_access(app.now, &MEMBERS_REFRESH)
-        .then(|| Command::LoadMembers {
+        .begin_access(app.now, &MEMBERS_REFRESH);
+
+    Effects::when(
+        began,
+        Effect::Api(ApiCommand::LoadMembers {
             team_id: team_id.clone(),
-        })
+        }),
+    )
 }
 
-pub(super) fn open_picker(
-    app: &mut App,
-    kind: PickerKind,
-    target: FocusedIssue,
-) -> Option<Command> {
+pub(super) fn open_picker(app: &mut App, kind: PickerKind, target: FocusedIssue) -> Effects {
     let team_id = target.team_id;
     let (items, command) = match kind {
         PickerKind::Status => {
@@ -348,62 +404,81 @@ pub(super) fn open_picker(
                 .map_or_else(Vec::new, |states| status_items(states));
             (items, command)
         }
-        PickerKind::Assign(_) => (assign_suggestions(app), None),
-        PickerKind::Priority => (priority_items(), None),
+        PickerKind::Assign(_) => (assign_suggestions(app), Effects::default()),
+        PickerKind::Priority => (priority_items(), Effects::default()),
     };
 
-    let loading = items.is_empty() && command.is_some();
-    app.overlay = Overlay::Picker(Picker {
+    app.set_overlay(Overlay::Picker(Picker {
         kind,
         target_issue: target.id,
         target_label: target.identifier,
+        target_team: team_id,
         items,
         state: ListState::default().with_selected(Some(0)),
-        loading,
-    });
+    }));
+
     command
+}
+
+pub(super) fn place_editor(
+    app: &mut App,
+    issue_id: IssueId,
+    compose: Compose,
+    team_id: &TeamId,
+    seed: Option<&str>,
+) {
+    let mut editor = match seed {
+        Some(body) => Editor::seeded(issue_id, team_id.clone(), compose, body),
+        None => Editor::new(issue_id, team_id.clone(), compose),
+    };
+    editor.set_members(
+        app.workspace
+            .members
+            .get(team_id)
+            .and_then(Remote::value)
+            .cloned()
+            .unwrap_or_default(),
+    );
+    app.set_overlay(Overlay::Editor(editor));
 }
 
 pub(super) fn open_editor(
     app: &mut App,
+    issue_id: IssueId,
     compose: Compose,
     team_id: TeamId,
     seed: Option<&str>,
-) -> Option<Command> {
-    let mut editor = match seed {
-        Some(body) => Editor::seeded(compose, body),
-        None => Editor::new(compose),
-    };
-    editor.members = app
-        .workspace
-        .members
-        .get(&team_id)
-        .and_then(Remote::value)
-        .cloned()
-        .unwrap_or_default();
-    app.overlay = Overlay::Editor(editor);
+) -> Effects {
+    place_editor(app, issue_id, compose, &team_id, seed);
+
     access_members(app, &team_id)
 }
 
-pub(super) fn open_in_browser(app: &mut App) -> Option<Command> {
-    let target = require(app, app.open_target(), Status::NeedHighlightedIssue)?;
-    Some(Command::OpenUrl(target.url))
+pub(super) fn open_in_browser(app: &mut App) -> Report {
+    let target = match require(app.open_target(), Status::NeedHighlightedIssue) {
+        Ok(target) => target,
+        Err(status) => return Report::status(status),
+    };
+
+    Effects::one(Effect::Platform(PlatformCommand::OpenUrl(target.url))).into()
 }
 
-pub(super) fn yank_url(app: &mut App) -> Option<Command> {
-    let target = require(app, app.open_target(), Status::NeedHighlightedIssue)?;
-    app.status = Some(Status::CopiedUrl);
-    Some(Command::CopyToClipboard(target.url))
+pub(super) fn yank_url(app: &mut App) -> Report {
+    let target = match require(app.open_target(), Status::NeedHighlightedIssue) {
+        Ok(target) => target,
+        Err(status) => return Report::status(status),
+    };
+
+    Report::with_status(
+        Effects::one(Effect::Platform(PlatformCommand::CopyToClipboard(
+            target.url,
+        ))),
+        Status::CopiedUrl,
+    )
 }
 
-pub(super) fn require<T>(app: &mut App, target: Option<T>, status: Status) -> Option<T> {
-    match target {
-        some @ Some(_) => some,
-        None => {
-            app.status = Some(status);
-            None
-        }
-    }
+pub(super) fn require<T>(target: Option<T>, status: Status) -> Result<T, Status> {
+    target.ok_or(status)
 }
 
 pub(super) fn newest_comment_index(detail: &crate::api::IssueDetail) -> Option<usize> {

@@ -12,15 +12,15 @@ expression: "render_to_string(&mut app, 90, 22)"
 │    DAN-15 Ba│ Checked the damper.                                         │            █
 │             │ Spring tension looks off, ordering a replacement.           │            ║
 │             │                                                             │ps past     ║
-└ 1 of 7 ─────│                                                             │elts.       ║
+│             │                                                             │elts.       ║
+└ 1 of 7 ─────│                                                             │            ║
 ┌Recently view│                                                             │            ║
 │Issues you op│                                                             │            ║
 └─────────────│                                                             │            ║
 ┌Saved Views──│                                                             │            ║
-│⠋  Loading…  │                                                             │            ║
-└─────────────└─────────────────────────────────────────────────────────────┘            ║
-┌Teams───────────────────────────┐│                                                      ║
-│Dan's Pizza                     ││[x] Swap the thermocouple                             ║
-│Dan's Donuts                    ││[ ] Inspect the flue damper                           ↓
-└ 1 of 2 ────────────────────────┘└──────────────────────────────────────────────────────┘
+│⠋  Loading…  └─────────────────────────────────────────────────────────────┘            ║
+└────────────────────────────────┘│                                                      ║
+┌Teams───────────────────────────┐│[x] Swap the thermocouple                             ║
+│                                ││[ ] Inspect the flue damper                           ↓
+└────────────────────────────────┘└──────────────────────────────────────────────────────┘
  C-s post   enter newline   ↑/↓/←/→ move   esc cancel                 Dan's Donuts · @dan

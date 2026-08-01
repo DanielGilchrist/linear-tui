@@ -17,6 +17,7 @@ const SCOPES: &str = "read,write,issues:create,comments:create";
 const AUTHORIZE_ENDPOINT: &str = "https://linear.app/oauth/authorize";
 const TOKEN_ENDPOINT: &str = "https://api.linear.app/oauth/token";
 const TIMEOUT: Duration = Duration::from_secs(300);
+const REFRESH_TIMEOUT: Duration = Duration::from_secs(30);
 
 const RESPONSE: &str = concat!(
     "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n",
@@ -51,28 +52,34 @@ pub async fn login(platform: Platform) -> Result<Credential> {
 }
 
 pub async fn refresh(refresh_token: &str) -> Result<OAuthToken> {
-    let body = form_body(&[
-        ("grant_type", "refresh_token"),
-        ("refresh_token", refresh_token),
-        ("client_id", CLIENT_ID),
-    ])?;
+    let request = async {
+        let body = form_body(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", CLIENT_ID),
+        ])?;
 
-    let response = reqwest::Client::new()
-        .post(TOKEN_ENDPOINT)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(body)
-        .send()
-        .await?;
+        let response = reqwest::Client::new()
+            .post(TOKEN_ENDPOINT)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body)
+            .send()
+            .await?;
 
-    if !response.status().is_success() {
-        let detail = response.text().await.unwrap_or_default();
-        return Err(anyhow!("token refresh failed: {detail}"));
-    }
+        if !response.status().is_success() {
+            let detail = response.text().await.unwrap_or_default();
+            return Err(anyhow!("token refresh failed: {detail}"));
+        }
 
-    Ok(response
-        .json::<TokenResponse>()
-        .await?
-        .into_token(refresh_token))
+        Ok(response
+            .json::<TokenResponse>()
+            .await?
+            .into_token(refresh_token))
+    };
+
+    tokio::time::timeout(REFRESH_TIMEOUT, request)
+        .await
+        .context("timed out refreshing the session")?
 }
 
 fn authorize_url(challenge: &str, state: &str) -> Result<String> {
