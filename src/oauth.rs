@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::api::Credential;
+use crate::api::{Credential, OAuthToken};
 use crate::tui::platform::Platform;
 
 const CLIENT_ID: &str = "bc22accf2f8a13d57c8096ce8f332926";
@@ -35,8 +35,8 @@ pub async fn login(platform: Platform) -> Result<Credential> {
     let verifier = random_token(32);
     let state = random_token(16);
     let url = authorize_url(&code_challenge(&verifier), &state)?;
-
     let opener = url.clone();
+
     tokio::task::spawn_blocking(move || platform.open_url(&opener))
         .await
         .context("failed to open the browser")??;
@@ -46,7 +46,33 @@ pub async fn login(platform: Platform) -> Result<Credential> {
         .context("timed out waiting for the browser sign-in")??;
 
     let token = exchange(&code, &verifier).await?;
+
     Ok(Credential::OAuth(token))
+}
+
+pub async fn refresh(refresh_token: &str) -> Result<OAuthToken> {
+    let body = form_body(&[
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+        ("client_id", CLIENT_ID),
+    ])?;
+
+    let response = reqwest::Client::new()
+        .post(TOKEN_ENDPOINT)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let detail = response.text().await.unwrap_or_default();
+        return Err(anyhow!("token refresh failed: {detail}"));
+    }
+
+    Ok(response
+        .json::<TokenResponse>()
+        .await?
+        .into_token(refresh_token))
 }
 
 fn authorize_url(challenge: &str, state: &str) -> Result<String> {
@@ -81,7 +107,7 @@ async fn await_code(listener: &TcpListener, expected_state: &str) -> Result<Stri
         let params: HashMap<String, String> = url.query_pairs().into_owned().collect();
 
         if let Some(error) = params.get("error") {
-            return Err(anyhow!("authorization was denied: {error}"));
+            return Err(anyhow!("authorisation was denied: {error}"));
         }
         if params.get("state").map(String::as_str) != Some(expected_state) {
             return Err(anyhow!("login state did not match"));
@@ -90,7 +116,7 @@ async fn await_code(listener: &TcpListener, expected_state: &str) -> Result<Stri
         return params
             .get("code")
             .cloned()
-            .ok_or_else(|| anyhow!("no authorization code was returned"));
+            .ok_or_else(|| anyhow!("no authorisation code was returned"));
     }
 }
 
@@ -107,25 +133,32 @@ async fn read_request_target(stream: &mut TcpStream) -> Result<String> {
         .ok_or_else(|| anyhow!("malformed callback request"))
 }
 
-async fn exchange(code: &str, verifier: &str) -> Result<String> {
-    #[derive(Deserialize)]
-    struct TokenResponse {
-        access_token: String,
-    }
+#[derive(Deserialize)]
+struct TokenResponse {
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_in: Option<i64>,
+}
 
-    let body = reqwest::Url::parse_with_params(
-        "http://localhost/",
-        &[
-            ("grant_type", "authorization_code"),
-            ("code", code),
-            ("redirect_uri", REDIRECT_URI),
-            ("client_id", CLIENT_ID),
-            ("code_verifier", verifier),
-        ],
-    )?
-    .query()
-    .unwrap_or_default()
-    .to_string();
+impl TokenResponse {
+    fn into_token(self, fallback_refresh: &str) -> OAuthToken {
+        let expires_at = self.expires_in.map(|seconds| now_unix() + seconds);
+        let refresh_token = self
+            .refresh_token
+            .or_else(|| Some(fallback_refresh.to_string()));
+
+        OAuthToken::new(self.access_token, refresh_token, expires_at)
+    }
+}
+
+async fn exchange(code: &str, verifier: &str) -> Result<OAuthToken> {
+    let body = form_body(&[
+        ("grant_type", "authorization_code"),
+        ("code", code),
+        ("redirect_uri", REDIRECT_URI),
+        ("client_id", CLIENT_ID),
+        ("code_verifier", verifier),
+    ])?;
 
     let response = reqwest::Client::new()
         .post(TOKEN_ENDPOINT)
@@ -139,7 +172,31 @@ async fn exchange(code: &str, verifier: &str) -> Result<String> {
         return Err(anyhow!("token exchange failed: {detail}"));
     }
 
-    Ok(response.json::<TokenResponse>().await?.access_token)
+    let response: TokenResponse = response.json().await?;
+    let expires_at = response.expires_in.map(|seconds| now_unix() + seconds);
+
+    Ok(OAuthToken::new(
+        response.access_token,
+        response.refresh_token,
+        expires_at,
+    ))
+}
+
+fn form_body(params: &[(&str, &str)]) -> Result<String> {
+    Ok(
+        reqwest::Url::parse_with_params("http://localhost/", params)?
+            .query()
+            .unwrap_or_default()
+            .to_string(),
+    )
+}
+
+fn now_unix() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 fn code_challenge(verifier: &str) -> String {

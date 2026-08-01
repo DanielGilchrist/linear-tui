@@ -9,11 +9,20 @@ use super::spinner::Spinner;
 use super::status::Status;
 use super::view::{View, ViewKind};
 use super::workspace::WorkspaceData;
-use crate::api::{IssueDetail, IssueId, IssueSummary, NotificationItem, TeamId, Timestamp};
+use crate::api::{
+    Credential, IssueDetail, IssueId, IssueSummary, NotificationItem, OAuthToken, TeamId, Timestamp,
+};
 use crate::store::Account;
 
 pub const SCROLL_STEP: usize = 2;
 pub const RECENT_CAP: usize = 50;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthState {
+    Authenticated,
+    Refreshing,
+    Unauthenticated,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Zoom {
@@ -97,10 +106,36 @@ pub struct App {
     pub time_refresh_due: Option<Timestamp>,
     pub accounts: Vec<Account>,
     pub active_workspace: Option<String>,
+    pub auth: AuthState,
     pub should_quit: bool,
 }
 
 impl App {
+    pub fn active_account(&self) -> Option<&Account> {
+        let key = self.active_workspace.as_ref()?;
+        self.accounts
+            .iter()
+            .find(|account| &account.workspace_key == key)
+    }
+
+    pub fn active_account_mut(&mut self) -> Option<&mut Account> {
+        let key = self.active_workspace.clone()?;
+        self.accounts
+            .iter_mut()
+            .find(|account| account.workspace_key == key)
+    }
+
+    pub fn active_oauth(&self) -> Option<&OAuthToken> {
+        match &self.active_account()?.credential {
+            Credential::OAuth(token) => Some(token),
+            Credential::PersonalKey(_) | Credential::EnvVar(_) => None,
+        }
+    }
+
+    pub fn active_refresh_token(&self) -> Option<String> {
+        self.active_oauth()?.refresh_token.clone()
+    }
+
     pub fn new() -> Self {
         Self {
             workspace: WorkspaceData::new(),
@@ -123,6 +158,7 @@ impl App {
             time_refresh_due: None,
             accounts: Vec::new(),
             active_workspace: None,
+            auth: AuthState::Authenticated,
             should_quit: false,
         }
     }

@@ -4,17 +4,17 @@ use linear_tui::api::{
     CommentId, Cursor, IssueId, IssueRef, IssueSummary, Label, LabelId, Page, Reaction, ReactionId,
     ReactionTarget, Rgb, StateId, TeamId, Timestamp, UserId, ViewId,
 };
-use linear_tui::api::{Credential, IssueUpdate, LinearApi, Priority};
+use linear_tui::api::{Credential, IssueUpdate, LinearApi, OAuthToken, Priority};
 use linear_tui::store::Account;
-use linear_tui::tui::app::App;
+use linear_tui::tui::app::{App, AuthState};
 use linear_tui::tui::cache::{CacheStatus, Remote};
 use linear_tui::tui::event::Redraw;
 use linear_tui::tui::feed::{Feed, FeedKey, FeedRequest};
 use linear_tui::tui::focus::{DetailFocus, DetailView, Focus, LeftPanel, Reveal};
-use linear_tui::tui::message::{Command, FailureTarget, Message};
+use linear_tui::tui::message::{Command, FailureTarget, Message, RequestError};
 use linear_tui::tui::overlay::{Compose, InputPurpose, Overlay, PickerKind, Search};
 use linear_tui::tui::status::Status;
-use linear_tui::tui::update::{apply, handle_key, tick};
+use linear_tui::tui::update::{apply, handle_key, proactive_refresh, tick};
 use linear_tui::tui::view::ViewKind;
 
 fn press(code: KeyCode) -> KeyEvent {
@@ -422,7 +422,7 @@ fn a_failed_views_fetch_clears_the_panel_loading_flag() {
         &mut app,
         Message::Failed {
             target: FailureTarget::CustomViews,
-            error: "boom".into(),
+            error: RequestError::Other("boom".into()),
         },
     );
 
@@ -439,7 +439,7 @@ fn a_failed_view_issues_fetch_is_recorded_and_can_be_retried() {
         &mut app,
         Message::Failed {
             target: FailureTarget::Feed(FeedKey::View(ViewId::from_raw("v1"))),
-            error: "boom".into(),
+            error: RequestError::Other("boom".into()),
         },
     );
 
@@ -471,7 +471,7 @@ fn a_failed_view_is_refetched_on_revisit_from_the_panel() {
         &mut app,
         Message::Failed {
             target: FailureTarget::Feed(FeedKey::View(ViewId::from_raw("v1"))),
-            error: "boom".into(),
+            error: RequestError::Other("boom".into()),
         },
     );
     handle_key(&mut app, press(KeyCode::Esc));
@@ -1858,7 +1858,7 @@ fn a_failed_detail_fetch_marks_the_cell_and_shows_an_error() {
         &mut app,
         Message::Failed {
             target: FailureTarget::Detail,
-            error: "boom".into(),
+            error: RequestError::Other("boom".into()),
         },
     );
 
@@ -1882,7 +1882,7 @@ fn a_failed_states_fetch_stops_the_spinner_and_retries_next_time() {
             target: FailureTarget::States {
                 team_id: TeamId::from_raw("t_pizza"),
             },
-            error: "boom".into(),
+            error: RequestError::Other("boom".into()),
         },
     );
 
@@ -2000,7 +2000,7 @@ fn a_failed_user_search_stops_the_picker_spinner() {
         &mut app,
         Message::Failed {
             target: FailureTarget::UserSearch,
-            error: "boom".into(),
+            error: RequestError::Other("boom".into()),
         },
     );
 
@@ -2843,6 +2843,145 @@ fn comment(id: &str, parent: Option<&str>, body: &str) -> linear_tui::api::Comme
         created_at: linear_tui::api::Timestamp::from("2026-07-16T09:00:00Z"),
         reactions: vec![],
     }
+}
+
+#[test]
+fn an_auth_failure_prompts_reauth_until_the_session_recovers() {
+    let mut app = App::new();
+
+    apply(
+        &mut app,
+        Message::Failed {
+            target: FailureTarget::CustomViews,
+            error: RequestError::Unauthorised("Linear returned HTTP 401".into()),
+        },
+    );
+    assert_eq!(
+        app.auth,
+        AuthState::Unauthenticated,
+        "an auth failure should prompt re-auth"
+    );
+
+    apply(&mut app, Message::SessionLoaded(session("dan")));
+    assert_eq!(
+        app.auth,
+        AuthState::Authenticated,
+        "a successful session means auth is healthy again"
+    );
+}
+
+#[test]
+fn a_non_auth_failure_leaves_us_authenticated() {
+    let mut app = App::new();
+
+    apply(
+        &mut app,
+        Message::Failed {
+            target: FailureTarget::CustomViews,
+            error: RequestError::Other("Linear returned HTTP 500".into()),
+        },
+    );
+
+    assert_eq!(app.auth, AuthState::Authenticated);
+}
+
+fn oauth_app(refresh_token: Option<&str>, expires_at: Option<i64>) -> App {
+    let mut app = App::new();
+    app.now = Timestamp::from_epoch(1_000);
+    app.accounts.push(Account {
+        workspace_key: "ws".into(),
+        org_name: "Dan".into(),
+        credential: Credential::OAuth(OAuthToken::new(
+            "access".into(),
+            refresh_token.map(String::from),
+            expires_at,
+        )),
+    });
+    app.active_workspace = Some("ws".into());
+    app
+}
+
+fn auth_failure() -> Message {
+    Message::Failed {
+        target: FailureTarget::CustomViews,
+        error: RequestError::Unauthorised("Linear returned HTTP 401".into()),
+    }
+}
+
+#[test]
+fn an_auth_failure_with_a_refresh_token_refreshes_rather_than_prompting() {
+    let mut app = oauth_app(Some("refresh"), None);
+
+    let command = apply(&mut app, auth_failure());
+
+    assert_eq!(app.auth, AuthState::Refreshing);
+    assert!(matches!(command, Some(Command::RefreshToken)));
+}
+
+#[test]
+fn further_auth_failures_while_refreshing_do_not_refresh_again() {
+    let mut app = oauth_app(Some("refresh"), None);
+    apply(&mut app, auth_failure());
+
+    let command = apply(&mut app, auth_failure());
+
+    assert_eq!(app.auth, AuthState::Refreshing);
+    assert!(command.is_none());
+}
+
+#[test]
+fn an_auth_failure_without_a_refresh_token_prompts_reauth() {
+    let mut app = oauth_app(None, None);
+
+    apply(&mut app, auth_failure());
+
+    assert_eq!(app.auth, AuthState::Unauthenticated);
+}
+
+#[test]
+fn a_refreshed_token_updates_the_account_and_reconnects() {
+    let mut app = oauth_app(Some("refresh"), None);
+    app.auth = AuthState::Refreshing;
+
+    let command = apply(
+        &mut app,
+        Message::TokenRefreshed {
+            credential: Credential::OAuth(OAuthToken::new(
+                "new-access".into(),
+                Some("new-refresh".into()),
+                Some(9_999),
+            )),
+        },
+    );
+
+    assert_eq!(app.auth, AuthState::Authenticated);
+    assert!(matches!(command, Some(Command::Reconnect)));
+    match &app.accounts[0].credential {
+        Credential::OAuth(token) => assert_eq!(token.access_token, "new-access"),
+        other => panic!("expected OAuth, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_failed_refresh_prompts_reauth() {
+    let mut app = oauth_app(Some("refresh"), None);
+    app.auth = AuthState::Refreshing;
+
+    apply(&mut app, Message::RefreshFailed);
+
+    assert_eq!(app.auth, AuthState::Unauthenticated);
+}
+
+#[test]
+fn proactive_refresh_fires_only_when_the_token_is_near_expiry() {
+    let mut fresh = oauth_app(Some("refresh"), Some(1_000 + 3_600));
+    assert!(proactive_refresh(&mut fresh).is_none());
+    assert_eq!(fresh.auth, AuthState::Authenticated);
+
+    let mut expiring = oauth_app(Some("refresh"), Some(1_000 + 30));
+    let command = proactive_refresh(&mut expiring);
+    assert!(matches!(command, Some(Command::RefreshToken)));
+    assert_eq!(expiring.auth, AuthState::Refreshing);
 }
 
 fn session(name: &str) -> linear_tui::api::Session {

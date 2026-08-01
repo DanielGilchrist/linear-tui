@@ -7,10 +7,10 @@ use futures::StreamExt;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use super::app::App;
+use super::app::{App, AuthState};
 use super::event::{Event, Generation, Redraw};
 use super::feed::FeedKey;
-use super::message::{Command, FailureTarget, Message};
+use super::message::{Command, FailureTarget, Message, RequestError};
 use super::platform::Platform;
 use super::workspace::WorkspaceData;
 use super::{render, update};
@@ -50,8 +50,10 @@ pub async fn run(
     let loaded = crate::store::load_accounts();
     app.accounts = loaded.accounts.clone();
 
+    let conn = startup_connection(app, &loaded, bootstrap, &make_client);
+
     let mut rt = Runtime {
-        conn: startup_connection(app, &loaded, bootstrap, &make_client),
+        conn,
         generation: Generation::START,
         make_client,
         tx,
@@ -76,8 +78,16 @@ pub async fn run(
         match next_event(&mut events, &mut rx, &mut ticker).await {
             Event::Closed => break,
             Event::Ignored => continue,
-            Event::Tick(now) if update::tick(app, now) == Redraw::Skipped => continue,
-            Event::Tick(_) | Event::Resize => {}
+            Event::Tick(now) => {
+                let redraw = update::tick(app, now);
+
+                match update::proactive_refresh(app) {
+                    Some(command) => run_command(&mut rt, app, command),
+                    None if redraw == Redraw::Skipped => continue,
+                    None => {}
+                }
+            }
+            Event::Resize => {}
             Event::Input(key) => {
                 if let Some(command) = update::handle_key(app, key) {
                     run_command(&mut rt, app, command);
@@ -153,6 +163,8 @@ fn run_command(rt: &mut Runtime, app: &mut App, command: Command) {
         }
         Command::SwitchWorkspace(account) => switch_workspace(rt, app, *account),
         Command::AddAccount { credential } => add_account(rt, credential),
+        Command::RefreshToken => refresh_token(rt, app),
+        Command::Reconnect => reconnect(rt, app),
         Command::BeginLogin => begin_login(rt),
         other => {
             if let Some(conn) = &rt.conn {
@@ -176,6 +188,8 @@ fn switch_workspace(rt: &mut Runtime, app: &mut App, account: Account) {
 
     app.active_workspace = Some(account.workspace_key.clone());
     app.workspace = WorkspaceData::new();
+    app.auth = AuthState::Authenticated;
+
     crate::store::save_accounts(&app.accounts, Some(&account.workspace_key));
 
     if let Some(conn) = &rt.conn {
@@ -209,6 +223,46 @@ fn add_account(rt: &Runtime, credential: Credential) {
     });
 }
 
+fn refresh_token(rt: &Runtime, app: &App) {
+    let Some(refresh_token) = app.active_refresh_token() else {
+        return;
+    };
+
+    let tx = rt.tx.clone();
+    let generation = rt.generation;
+
+    tokio::spawn(async move {
+        let message = match crate::oauth::refresh(&refresh_token).await {
+            Ok(token) => Message::TokenRefreshed {
+                credential: Credential::OAuth(token),
+            },
+            Err(_) => Message::RefreshFailed,
+        };
+
+        let _ = tx.send((generation, message));
+    });
+}
+
+fn reconnect(rt: &mut Runtime, app: &mut App) {
+    let Some(account) = app.active_account().cloned() else {
+        return;
+    };
+
+    rt.generation = rt.generation.next();
+    rt.conn = Some(Connection {
+        api: (rt.make_client)(account.credential.clone()),
+        namespace: account.namespace(),
+    });
+
+    crate::store::save_accounts(&app.accounts, app.active_workspace.as_deref());
+
+    if let Some(conn) = &rt.conn {
+        for command in update::initial_commands(app) {
+            dispatch(conn, rt.generation, &rt.tx, rt.platform, command);
+        }
+    }
+}
+
 fn begin_login(rt: &Runtime) {
     let tx = rt.tx.clone();
     let generation = rt.generation;
@@ -233,10 +287,17 @@ fn classify(polled: Option<std::io::Result<CrosstermEvent>>) -> Event {
     }
 }
 
+fn failed(target: FailureTarget, error: &crate::api::ApiError) -> Message {
+    Message::Failed {
+        target,
+        error: RequestError::from(error),
+    }
+}
+
 fn ephemeral_failure(error: String) -> Message {
     Message::Failed {
         target: FailureTarget::Ephemeral,
-        error,
+        error: RequestError::Other(error),
     }
 }
 
@@ -263,13 +324,12 @@ fn dispatch(
             Command::Batch(_) => None,
             Command::SwitchWorkspace(_) => None,
             Command::AddAccount { .. } => None,
+            Command::RefreshToken => None,
+            Command::Reconnect => None,
             Command::BeginLogin => None,
             Command::LoadSession => Some(match api.session().await {
                 Ok(session) => Message::SessionLoaded(session),
-                Err(error) => Message::Failed {
-                    target: FailureTarget::Ephemeral,
-                    error: error.to_string(),
-                },
+                Err(error) => failed(FailureTarget::Ephemeral, &error),
             }),
             Command::LoadFeed { key, request } => {
                 let after = request.cursor().cloned();
@@ -281,10 +341,7 @@ fn dispatch(
 
                 Some(match result {
                     Ok(page) => Message::FeedLoaded { key, request, page },
-                    Err(error) => Message::Failed {
-                        target: FailureTarget::Feed(key),
-                        error: error.to_string(),
-                    },
+                    Err(error) => failed(FailureTarget::Feed(key), &error),
                 })
             }
             Command::LoadInboxFeed { request } => {
@@ -292,10 +349,7 @@ fn dispatch(
 
                 Some(match api.notifications(after.as_ref()).await {
                     Ok(page) => Message::InboxLoaded { request, page },
-                    Err(error) => Message::Failed {
-                        target: FailureTarget::Inbox,
-                        error: error.to_string(),
-                    },
+                    Err(error) => failed(FailureTarget::Inbox, &error),
                 })
             }
             Command::SaveFeeds(cache) => {
@@ -304,10 +358,7 @@ fn dispatch(
             }
             Command::LoadCustomViews => Some(match api.custom_views().await {
                 Ok(views) => Message::CustomViewsLoaded(views),
-                Err(error) => Message::Failed {
-                    target: FailureTarget::CustomViews,
-                    error: error.to_string(),
-                },
+                Err(error) => failed(FailureTarget::CustomViews, &error),
             }),
             Command::LoadDetail { target, reveal } => Some(match api.issue_detail(&target).await {
                 Ok(Some(detail)) => Message::DetailLoaded {
@@ -316,12 +367,9 @@ fn dispatch(
                 },
                 Ok(None) => Message::Failed {
                     target: FailureTarget::Detail,
-                    error: format!("Issue {target} not found"),
+                    error: RequestError::Other(format!("Issue {target} not found")),
                 },
-                Err(error) => Message::Failed {
-                    target: FailureTarget::Detail,
-                    error: error.to_string(),
-                },
+                Err(error) => failed(FailureTarget::Detail, &error),
             }),
             Command::LoadRecent => {
                 Some(Message::RecentLoaded(crate::store::load_recent(&namespace)))
@@ -336,36 +384,24 @@ fn dispatch(
             }
             Command::LoadStates { team_id } => Some(match api.workflow_states(&team_id).await {
                 Ok(states) => Message::StatesLoaded { team_id, states },
-                Err(error) => Message::Failed {
-                    target: FailureTarget::States { team_id },
-                    error: error.to_string(),
-                },
+                Err(error) => failed(FailureTarget::States { team_id }, &error),
             }),
             Command::SearchUsers { query } => Some(match api.search_users(&query).await {
                 Ok(users) => Message::UsersFound { query, users },
-                Err(error) => Message::Failed {
-                    target: FailureTarget::UserSearch,
-                    error: error.to_string(),
-                },
+                Err(error) => failed(FailureTarget::UserSearch, &error),
             }),
             Command::SearchLabels { query } => Some(match api.search_labels(&query).await {
                 Ok(labels) => Message::LabelsFound { query, labels },
-                Err(error) => Message::Failed {
-                    target: FailureTarget::LabelSearch,
-                    error: error.to_string(),
-                },
+                Err(error) => failed(FailureTarget::LabelSearch, &error),
             }),
             Command::LoadMembers { team_id } => Some(match api.team_members(&team_id).await {
                 Ok(members) => Message::MembersLoaded { team_id, members },
-                Err(error) => Message::Failed {
-                    target: FailureTarget::Members { team_id },
-                    error: error.to_string(),
-                },
+                Err(error) => failed(FailureTarget::Members { team_id }, &error),
             }),
             Command::UpdateIssue { id, update } => {
                 Some(match api.update_issue(&id, update).await {
                     Ok(()) => Message::IssueUpdated { id },
-                    Err(error) => ephemeral_failure(error.to_string()),
+                    Err(error) => failed(FailureTarget::Ephemeral, &error),
                 })
             }
             Command::CreateComment {
@@ -378,7 +414,7 @@ fn dispatch(
                     .await
                 {
                     Ok(()) => Message::CommentPosted { id: issue_id },
-                    Err(error) => ephemeral_failure(error.to_string()),
+                    Err(error) => failed(FailureTarget::Ephemeral, &error),
                 },
             ),
             Command::UpdateComment {

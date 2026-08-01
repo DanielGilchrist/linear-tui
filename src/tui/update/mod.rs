@@ -14,7 +14,7 @@ mod message;
 mod nav;
 
 pub use feed::{initial_commands, restore_feeds};
-pub use message::apply;
+pub use message::{apply, proactive_refresh};
 
 use input::{
     apply_action, apply_confirm, apply_editor, apply_find, apply_input, apply_labels, apply_menu,

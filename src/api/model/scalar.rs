@@ -143,6 +143,10 @@ impl Timestamp {
         Self(epoch)
     }
 
+    pub fn epoch(self) -> i64 {
+        self.0
+    }
+
     pub fn seconds_since(self, earlier: Timestamp) -> i64 {
         self.0 - earlier.0
     }

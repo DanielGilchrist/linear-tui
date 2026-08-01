@@ -41,10 +41,6 @@ const PAGE_SIZE: i32 = 100;
 
 const USER_SEARCH_LIMIT: i32 = 25;
 
-fn next_cursor(has_next_page: bool, end_cursor: Option<String>) -> Option<Cursor> {
-    has_next_page.then_some(end_cursor).flatten().map(Cursor)
-}
-
 pub struct Client {
     http_client: HttpClient,
     credential: Credential,
@@ -72,6 +68,16 @@ impl Client {
             .send()
             .await?;
 
+        let status = response.status();
+
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ApiError::Status {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
         let result: GraphQlResponse<T, ErrorExtensions> = response.json().await?;
 
         if let Some(errors) = result.errors {
@@ -88,24 +94,6 @@ impl Client {
     {
         self.fetch_json(operation).await.map(|_| ())
     }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ErrorExtensions {
-    user_presentable_message: Option<String>,
-}
-
-fn error_messages(errors: Vec<GraphQlError<ErrorExtensions>>) -> Vec<String> {
-    errors
-        .into_iter()
-        .map(|error| {
-            error
-                .extensions
-                .and_then(|extensions| extensions.user_presentable_message)
-                .unwrap_or(error.message)
-        })
-        .collect()
 }
 
 #[async_trait::async_trait]
@@ -445,6 +433,28 @@ impl LinearApi for Client {
 
         self.run_mutation(operation).await
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ErrorExtensions {
+    user_presentable_message: Option<String>,
+}
+
+fn next_cursor(has_next_page: bool, end_cursor: Option<String>) -> Option<Cursor> {
+    has_next_page.then_some(end_cursor).flatten().map(Cursor)
+}
+
+fn error_messages(errors: Vec<GraphQlError<ErrorExtensions>>) -> Vec<String> {
+    errors
+        .into_iter()
+        .map(|error| {
+            error
+                .extensions
+                .and_then(|extensions| extensions.user_presentable_message)
+                .unwrap_or(error.message)
+        })
+        .collect()
 }
 
 #[cfg(test)]

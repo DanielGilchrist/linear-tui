@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 use super::action;
-use super::app::{App, Zoom};
+use super::app::{App, AuthState, Zoom};
 use super::feed::{Feed, FeedKey, FeedStore};
 use super::focus::{DetailView, Focus, LeftPanel};
 use super::layout;
@@ -492,13 +492,23 @@ fn footer_state(app: &App) -> surfaces::footer::Footer {
         None => "connecting… ".to_string(),
     };
 
-    let left = match &app.status {
-        Some(status) => FooterLeft::Status {
-            text: status.to_string(),
-            is_error: status.is_error(),
+    let left = match app.auth {
+        AuthState::Unauthenticated => FooterLeft::Status {
+            text: "Session expired  ·  press w to sign in again".to_string(),
+            is_error: true,
         },
-        None => FooterLeft::Hint {
-            text: footer_hint(app),
+        AuthState::Refreshing => FooterLeft::Status {
+            text: "Refreshing your session…".to_string(),
+            is_error: false,
+        },
+        AuthState::Authenticated => match &app.status {
+            Some(status) => FooterLeft::Status {
+                text: status.to_string(),
+                is_error: status.is_error(),
+            },
+            None => FooterLeft::Hint {
+                text: footer_hint(app),
+            },
         },
     };
 

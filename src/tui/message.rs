@@ -63,10 +63,32 @@ pub enum Message {
     LoginSucceeded {
         credential: Credential,
     },
+    TokenRefreshed {
+        credential: Credential,
+    },
+    RefreshFailed,
     Failed {
         target: FailureTarget,
-        error: String,
+        error: RequestError,
     },
+}
+
+#[derive(Debug, Clone)]
+pub enum RequestError {
+    Unauthorised(String),
+    Other(String),
+}
+
+impl From<&crate::api::ApiError> for RequestError {
+    fn from(error: &crate::api::ApiError) -> Self {
+        let message = error.to_string();
+
+        if error.is_auth() {
+            RequestError::Unauthorised(message)
+        } else {
+            RequestError::Other(message)
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +168,8 @@ pub enum Command {
     AddAccount {
         credential: Credential,
     },
+    RefreshToken,
+    Reconnect,
     BeginLogin,
     Batch(Vec<Command>),
 }

@@ -10,11 +10,11 @@ use super::issue::{
 };
 use super::nav::clamp_selection;
 use crate::api::IssueSummary;
-use crate::tui::app::{App, RECENT_CAP};
+use crate::tui::app::{App, AuthState, RECENT_CAP};
 use crate::tui::cache::Stale;
 use crate::tui::feed::FeedRequest;
 use crate::tui::focus::{DetailFocus, DetailView, Focus, LeftPanel, Reveal};
-use crate::tui::message::{Command, FailureTarget, Message};
+use crate::tui::message::{Command, FailureTarget, Message, RequestError};
 use crate::tui::overlay::{Overlay, PickerKind};
 use crate::tui::status::Status;
 use crate::tui::view::ViewKind;
@@ -23,6 +23,7 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
     match msg {
         Message::SessionLoaded(session) => {
             app.workspace.session = Some(session);
+            app.auth = AuthState::Authenticated;
             None
         }
         Message::FeedLoaded { key, request, page } => {
@@ -282,7 +283,23 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             app.status = Some(Status::ConnectingWorkspace);
             Some(Command::AddAccount { credential })
         }
+        Message::TokenRefreshed { credential } => {
+            if let Some(account) = app.active_account_mut() {
+                account.credential = credential;
+            }
+            app.auth = AuthState::Authenticated;
+            Some(Command::Reconnect)
+        }
+        Message::RefreshFailed => {
+            app.auth = AuthState::Unauthenticated;
+            None
+        }
         Message::Failed { target, error } => {
+            let (error, command) = match error {
+                RequestError::Unauthorised(message) => (message, reauthenticate(app)),
+                RequestError::Other(message) => (message, None),
+            };
+
             match target {
                 FailureTarget::Feed(key) => {
                     app.workspace.feeds.get_or_default(&key).fail(error.clone())
@@ -313,7 +330,39 @@ pub fn apply(app: &mut App, msg: Message) -> Option<Command> {
             }
 
             app.status = Some(Status::Error(error));
-            None
+            command
         }
+    }
+}
+
+const REFRESH_SKEW_SECS: i64 = 60;
+
+pub fn proactive_refresh(app: &mut App) -> Option<Command> {
+    if app.auth != AuthState::Authenticated {
+        return None;
+    }
+
+    let token = app.active_oauth()?;
+    if token.refresh_token.is_some() && token.is_expiring(app.now.epoch(), REFRESH_SKEW_SECS) {
+        app.auth = AuthState::Refreshing;
+        Some(Command::RefreshToken)
+    } else {
+        None
+    }
+}
+
+fn reauthenticate(app: &mut App) -> Option<Command> {
+    match app.auth {
+        AuthState::Authenticated => match app.active_refresh_token() {
+            Some(_) => {
+                app.auth = AuthState::Refreshing;
+                Some(Command::RefreshToken)
+            }
+            None => {
+                app.auth = AuthState::Unauthenticated;
+                None
+            }
+        },
+        AuthState::Refreshing | AuthState::Unauthenticated => None,
     }
 }
