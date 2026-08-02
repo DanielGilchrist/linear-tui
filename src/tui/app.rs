@@ -465,8 +465,8 @@ impl App {
     }
 
     pub fn close_view_surface(&mut self) {
-        if self.ui.focus.is_view() {
-            self.ui.focus = Focus::SavedViews;
+        if let Focus::View(surface) = &self.ui.focus {
+            self.ui.focus = surface.panel().focus();
         }
     }
 

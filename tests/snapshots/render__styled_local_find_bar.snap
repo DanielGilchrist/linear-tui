@@ -66,8 +66,9 @@ expression: "render_styled_to_string(&mut app, 100, 14)"
 ┌Teams───────────────────────────────┐│                                                            │
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Teams───────────────────────────────┐│"
     [99] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-│                                    ││                                                            │
+│⠋  Loading…                         ││                                                            │
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "⠋  Loading…"
     [37] fg=Some(Gray) bg=Some(Reset) mod=NONE "││"
     [99] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
 └────────────────────────────────────┘└────────────────────────────────────────────────────────────┘

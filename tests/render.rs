@@ -306,6 +306,66 @@ async fn teams_panel_focused_expands() {
 }
 
 #[tokio::test]
+async fn team_surface_shows_its_mode() {
+    let client = FixtureClient::sample();
+    let mut app = home_app(&client, 0).await;
+    app.focus_panel(LeftPanel::Teams);
+    apply(
+        &mut app,
+        Message::TeamsLoaded {
+            teams: client.teams().await.unwrap(),
+        },
+    );
+
+    handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    let filter = match app.view().map(|view| view.key()) {
+        Some(FeedKey::Issues(filter)) => filter,
+        other => panic!("expected a team feed, got {other:?}"),
+    };
+    let page = client.issues(&filter, None).await.unwrap();
+    app.workspace
+        .feeds
+        .insert(FeedKey::Issues(filter), Feed::ready(page, app.now));
+
+    insta::assert_snapshot!(render_to_string(&mut app, 84, 24));
+}
+
+#[tokio::test]
+async fn team_triage_mode_shows_unrouted_issues() {
+    let client = FixtureClient::sample();
+    let mut app = home_app(&client, 0).await;
+    app.focus_panel(LeftPanel::Teams);
+    apply(
+        &mut app,
+        Message::TeamsLoaded {
+            teams: client.teams().await.unwrap(),
+        },
+    );
+
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+    );
+    handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE),
+    );
+
+    let filter = match app.view().map(|view| view.key()) {
+        Some(FeedKey::Issues(filter)) => filter,
+        other => panic!("expected a team feed, got {other:?}"),
+    };
+    let page = client.issues(&filter, None).await.unwrap();
+    app.workspace
+        .feeds
+        .insert(FeedKey::Issues(filter), Feed::ready(page, app.now));
+
+    insta::assert_snapshot!(render_to_string(&mut app, 84, 24));
+}
+
+#[tokio::test]
 async fn teams_panel_loading() {
     let client = FixtureClient::sample();
     let mut app = home_app(&client, 0).await;

@@ -13,6 +13,7 @@ use crate::api::Timestamp;
 use crate::tui::feed::{Feed, FeedStore};
 use crate::tui::saved_views::ViewSurface;
 use crate::tui::spinner::Spinner;
+use crate::tui::team::TeamMode;
 
 pub const VIEW_HEADER_ROWS: u16 = 3;
 
@@ -30,6 +31,7 @@ pub fn render(
     let block = Block::bordered()
         .title(view_title(
             view.name(),
+            view.mode().map(TeamMode::label),
             feed_count(feed),
             feed_truncated(feed),
         ))

@@ -165,8 +165,9 @@ expression: "render_styled_to_string(&mut app, 90, 24)"
     [35] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "[ ] "
     [39] fg=Some(Reset) bg=Some(Reset) mod=NONE "Recalibrate the PID loop                          "
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│                                ││                                                      ↓
+│⠋  Loading…                     ││                                                      ↓
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "⠋  Loading…"
     [33] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "↓"

@@ -7,4 +7,6 @@ pub struct Team {
     pub id: TeamId,
     pub name: String,
     pub key: String,
+    #[serde(default)]
+    pub triage_enabled: bool,
 }

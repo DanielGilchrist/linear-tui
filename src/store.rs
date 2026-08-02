@@ -326,6 +326,26 @@ mod tests {
     }
 
     #[test]
+    fn a_cache_written_before_team_scoped_feeds_still_loads() {
+        let legacy = r#"{"version":2,"issues":[[{"Issues":{"assigned_to_me":true,
+            "created_by_me":false,"state_types_in":[],"state_types_nin":["completed"],
+            "label":null}},{"items":[],"truncated":false,
+            "fetched_at":"2026-07-16T09:00:00Z"}]],"inbox":null}"#;
+
+        let cache: PersistedCache =
+            serde_json::from_str(legacy).expect("a pre-team cache still deserialises");
+
+        assert_eq!(cache.version, FEEDS_VERSION);
+
+        let (key, _) = &cache.issues[0];
+
+        match key {
+            FeedKey::Issues(filter) => assert_eq!(filter.team, None),
+            other => panic!("expected an issues feed key, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn namespace_is_stable_and_per_key() {
         assert_eq!(namespace("key-a"), namespace("key-a"));
         assert_ne!(namespace("key-a"), namespace("key-b"));

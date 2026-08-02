@@ -1,12 +1,13 @@
 use crate::api::model::{
     Comment, IssueDetail, IssueFilter, IssueSummary, Label, NotificationItem, Priority, Reaction,
-    Rgb, SavedView, StateType, User, UserId, WorkflowState,
+    Rgb, SavedView, StateOption, StateType, Team, User, UserId, WorkflowState,
 };
 use crate::api::queries::my_issues::{
-    self, BooleanComparator, NullableUserFilter, StringComparator, WorkflowStateFilter,
+    self, BooleanComparator, IdComparator, NullableUserFilter, StringComparator, TeamFilter,
+    WorkflowStateFilter,
 };
 use crate::api::queries::notifications::Notification;
-use crate::api::queries::{custom_views, issue, search};
+use crate::api::queries::{actions, custom_views, issue, search, teams, users, viewer};
 
 pub(super) fn build_cynic_filter(filter: &IssueFilter) -> my_issues::IssueFilter {
     let me = || NullableUserFilter {
@@ -17,22 +18,29 @@ pub(super) fn build_cynic_filter(filter: &IssueFilter) -> my_issues::IssueFilter
         (!types.is_empty()).then(|| types.iter().map(|t| t.as_api().to_string()).collect())
     };
 
-    let state = if !filter.state_types_in.is_empty() || !filter.state_types_nin.is_empty() {
+    let state = if !filter.state_types_in.is_empty() || !filter.state_types_not_in.is_empty() {
         Some(WorkflowStateFilter {
             type_: Some(StringComparator {
                 eq: None,
                 in_: api_types(&filter.state_types_in),
-                nin: api_types(&filter.state_types_nin),
+                nin: api_types(&filter.state_types_not_in),
             }),
         })
     } else {
         None
     };
 
+    let team = filter.team.as_ref().map(|team| TeamFilter {
+        id: Some(IdComparator {
+            eq: Some(team.to_string().into()),
+        }),
+    });
+
     my_issues::IssueFilter {
         assignee: filter.assigned_to_me.then(me),
         creator: filter.created_by_me.then(me),
         state,
+        team,
     }
 }
 
@@ -226,5 +234,62 @@ fn named_user(display_name: String) -> User {
         display_name,
         url: String::new(),
         is_me: false,
+    }
+}
+
+impl From<teams::TeamNode> for Team {
+    fn from(team: teams::TeamNode) -> Self {
+        Self {
+            id: team.id.into(),
+            name: team.name,
+            key: team.key,
+            triage_enabled: team.triage_enabled,
+        }
+    }
+}
+
+impl From<actions::User> for User {
+    fn from(user: actions::User) -> Self {
+        Self {
+            id: user.id.into(),
+            name: user.name,
+            display_name: user.display_name,
+            url: user.url,
+            is_me: user.is_me,
+        }
+    }
+}
+
+impl From<users::SearchedUser> for User {
+    fn from(user: users::SearchedUser) -> Self {
+        Self {
+            id: user.id.into(),
+            name: user.name,
+            display_name: user.display_name,
+            url: user.url,
+            is_me: user.is_me,
+        }
+    }
+}
+
+impl From<viewer::User> for User {
+    fn from(user: viewer::User) -> Self {
+        Self {
+            id: user.id.into(),
+            name: user.name,
+            display_name: user.display_name,
+            url: user.url,
+            is_me: user.is_me,
+        }
+    }
+}
+
+impl From<actions::WorkflowState> for StateOption {
+    fn from(state: actions::WorkflowState) -> Self {
+        Self {
+            id: state.id.into(),
+            name: state.name,
+            state_type: StateType::from_api(&state.state_type),
+        }
     }
 }

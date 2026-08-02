@@ -176,8 +176,9 @@ expression: "render_styled_to_string(&mut app, 110, 26)"
     [43] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "▌ "
     [45] fg=Some(Reset) bg=Some(Reset) mod=NONE "Damper was replaced 6 months ago, should still be under         "
     [109] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│                                        ││warranty.                                                         ↓
+│⠋  Loading…                             ││warranty.                                                         ↓
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "⠋  Loading…"
     [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
     [42] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [43] fg=Some(Reset) bg=Some(Reset) mod=NONE "warranty.                                                         "

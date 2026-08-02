@@ -23,6 +23,6 @@ expression: "render_to_string(&mut app, 90, 24)"
 │⠋  Loading…                     ││[x] Swap the thermocouple                             ║
 └────────────────────────────────┘│[ ] Inspect the flue damper                           ║
 ┌Teams───────────────────────────┐│[ ] Recalibrate the PID loop                          ║
-│                                ││                                                      ↓
+│⠋  Loading…                     ││                                                      ↓
 └────────────────────────────────┘└──────────────────────────────────────────────────────┘
  C-s post   enter newline   ↑/↓/←/→ move   esc cancel                 Dan's Donuts · @dan

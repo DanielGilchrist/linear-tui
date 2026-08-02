@@ -24,8 +24,12 @@ pub fn render(
         .items(items)
         .emphasis(emphasis)
         .state(state)
-        .position(selected, total)
-        .placeholder(Line::from("Issues you open land here"));
+        .position(selected, total);
+
+    let list = match total {
+        0 => list.placeholder(Line::from("Issues you open land here")),
+        _ => list,
+    };
 
     frame.render_widget(list, area);
 }

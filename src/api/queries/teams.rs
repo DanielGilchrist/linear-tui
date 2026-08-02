@@ -13,6 +13,7 @@ pub struct TeamNode {
     pub id: cynic::Id,
     pub name: String,
     pub key: String,
+    pub triage_enabled: bool,
 }
 
 #[derive(Debug, QueryFragment)]

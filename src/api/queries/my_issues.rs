@@ -29,6 +29,20 @@ pub struct NullableUserFilter {
 }
 
 #[derive(Debug, Clone, InputObject)]
+#[cynic(schema_path = "schema.graphql", graphql_type = "IDComparator")]
+pub struct IdComparator {
+    #[cynic(skip_serializing_if = "Option::is_none")]
+    pub eq: Option<cynic::Id>,
+}
+
+#[derive(Debug, Clone, InputObject)]
+#[cynic(schema_path = "schema.graphql")]
+pub struct TeamFilter {
+    #[cynic(skip_serializing_if = "Option::is_none")]
+    pub id: Option<IdComparator>,
+}
+
+#[derive(Debug, Clone, InputObject)]
 #[cynic(schema_path = "schema.graphql")]
 pub struct WorkflowStateFilter {
     #[cynic(skip_serializing_if = "Option::is_none", rename = "type")]
@@ -44,6 +58,8 @@ pub struct IssueFilter {
     pub creator: Option<NullableUserFilter>,
     #[cynic(skip_serializing_if = "Option::is_none")]
     pub state: Option<WorkflowStateFilter>,
+    #[cynic(skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamFilter>,
 }
 
 #[derive(Debug, QueryVariables)]

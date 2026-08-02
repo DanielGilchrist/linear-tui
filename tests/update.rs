@@ -291,11 +291,7 @@ fn a_loaded_teams_panel_has_a_selection() {
     handle_key(&mut app, press(KeyCode::Char('4')));
 
     render_to_string(&mut app, 80, 24);
-    assert_eq!(
-        app.teams().state.selected(),
-        None,
-        "an empty stateful list clears the selection on the first draw"
-    );
+    app.workspace.teams.state.select(None);
 
     apply(
         &mut app,
@@ -305,11 +301,13 @@ fn a_loaded_teams_panel_has_a_selection() {
                     id: TeamId::from_raw("t_donut"),
                     name: "Donuts".into(),
                     key: "DAN".into(),
+                    triage_enabled: false,
                 },
                 Team {
                     id: TeamId::from_raw("t_pizza"),
                     name: "Pizza".into(),
                     key: "DAN2".into(),
+                    triage_enabled: true,
                 },
             ],
         },
@@ -347,11 +345,13 @@ fn navigating_the_teams_panel_moves_the_selection() {
                     id: TeamId::from_raw("t_donut"),
                     name: "Donuts".into(),
                     key: "DAN".into(),
+                    triage_enabled: false,
                 },
                 Team {
                     id: TeamId::from_raw("t_pizza"),
                     name: "Pizza".into(),
                     key: "DAN2".into(),
+                    triage_enabled: true,
                 },
             ],
         },
@@ -367,6 +367,149 @@ fn navigating_the_teams_panel_moves_the_selection() {
     );
 }
 
+fn teams_app() -> App {
+    let mut app = App::new();
+    handle_key(&mut app, press(KeyCode::Char('4')));
+    apply(
+        &mut app,
+        Message::TeamsLoaded {
+            teams: vec![
+                Team {
+                    id: TeamId::from_raw("t_pizza"),
+                    name: "Pizza".into(),
+                    key: "DAN2".into(),
+                    triage_enabled: true,
+                },
+                Team {
+                    id: TeamId::from_raw("t_donut"),
+                    name: "Donuts".into(),
+                    key: "DAN".into(),
+                    triage_enabled: false,
+                },
+            ],
+        },
+    );
+
+    app
+}
+
+fn feed_filter(command: Option<Effect>) -> linear_tui::api::IssueFilter {
+    match command {
+        Some(Effect::Api(ApiCommand::LoadFeed {
+            key: FeedKey::Issues(filter),
+            ..
+        })) => filter,
+        other => panic!("expected a team-scoped feed load, got {other:?}"),
+    }
+}
+
+#[test]
+fn teams_are_ordered_by_key_so_a_long_list_is_stable() {
+    let app = teams_app();
+
+    assert_eq!(
+        app.teams()
+            .list()
+            .iter()
+            .map(|team| team.key.as_str())
+            .collect::<Vec<_>>(),
+        vec!["DAN", "DAN2"]
+    );
+}
+
+#[test]
+fn entering_a_team_opens_its_active_issues() {
+    let mut app = teams_app();
+
+    let filter = feed_filter(handle_key(&mut app, press(KeyCode::Enter)));
+
+    assert!(app.focus().is_view());
+    assert_eq!(app.view().map(|view| view.name()), Some("Donuts"));
+    assert_eq!(filter.team, Some(TeamId::from_raw("t_donut")));
+    assert_eq!(
+        filter.state_types_in,
+        vec![
+            linear_tui::api::StateType::Unstarted,
+            linear_tui::api::StateType::Started
+        ],
+        "a team opens on the browser, not a narrow mode"
+    );
+}
+
+#[test]
+fn cycling_a_team_surface_switches_mode_and_loads_that_feed() {
+    let mut app = teams_app();
+    let opened = feed_filter(handle_key(&mut app, press(KeyCode::Enter)));
+
+    let backlog = feed_filter(handle_key(&mut app, press(KeyCode::Char(']'))));
+
+    assert_ne!(backlog, opened, "each mode is its own feed key");
+    assert_eq!(backlog.team, Some(TeamId::from_raw("t_donut")));
+    assert_eq!(
+        backlog.state_types_in,
+        vec![linear_tui::api::StateType::Backlog]
+    );
+}
+
+#[test]
+fn a_cached_team_mode_is_not_refetched_when_you_cycle_back() {
+    let mut app = teams_app();
+    let active = feed_filter(handle_key(&mut app, press(KeyCode::Enter)));
+
+    apply(
+        &mut app,
+        Message::FeedLoaded {
+            key: FeedKey::Issues(active.clone()),
+            request: FeedRequest::Refresh,
+            page: Page::single(vec![sample_issue("i1", "DAN-1")]),
+        },
+    );
+
+    handle_key(&mut app, press(KeyCode::Char(']')));
+    let back = handle_key(&mut app, press(KeyCode::Char('[')));
+
+    assert!(
+        back.is_none(),
+        "the mode's feed is already cached, so cycling back is free"
+    );
+    assert_eq!(app.view_len(), 1);
+}
+
+#[test]
+fn escaping_a_team_surface_returns_to_the_teams_panel() {
+    let mut app = teams_app();
+    handle_key(&mut app, press(KeyCode::Enter));
+
+    handle_key(&mut app, press(KeyCode::Esc));
+
+    assert!(
+        app.focus().is_panel(LeftPanel::Teams),
+        "a team surface belongs to the teams panel, not saved views"
+    );
+}
+
+#[test]
+fn a_detail_opened_from_a_team_returns_to_that_team() {
+    let mut app = teams_app();
+    let filter = feed_filter(handle_key(&mut app, press(KeyCode::Enter)));
+
+    apply(
+        &mut app,
+        Message::FeedLoaded {
+            key: FeedKey::Issues(filter),
+            request: FeedRequest::Refresh,
+            page: Page::single(vec![sample_issue("i1", "DAN-1")]),
+        },
+    );
+    handle_key(&mut app, press(KeyCode::Enter));
+    assert!(matches!(app.focus(), Focus::Detail(..)));
+
+    handle_key(&mut app, press(KeyCode::Esc));
+
+    assert!(app.focus().is_view());
+    assert_eq!(app.view().map(|view| view.name()), Some("Donuts"));
+}
+
 #[test]
 fn reload_on_teams_reloads_teams_not_the_active_feed() {
     let mut app = App::new();
@@ -379,6 +522,7 @@ fn reload_on_teams_reloads_teams_not_the_active_feed() {
                 id: TeamId::from_raw("t_donut"),
                 name: "Donuts".into(),
                 key: "DAN".into(),
+                triage_enabled: false,
             }],
         },
     );
@@ -442,7 +586,10 @@ fn entering_a_view_focuses_the_view_surface() {
     handle_key(&mut app, press(KeyCode::Enter));
 
     assert!(app.focus().is_view());
-    assert_eq!(app.view().expect("view open").id().as_str(), "v1");
+    assert_eq!(
+        app.view().map(|view| view.key()),
+        Some(FeedKey::View(ViewId::from_raw("v1")))
+    );
 }
 
 #[test]
@@ -495,7 +642,10 @@ fn esc_from_a_view_opened_detail_returns_to_the_view() {
     handle_key(&mut app, press(KeyCode::Esc));
 
     assert!(app.focus().is_view());
-    assert_eq!(app.view().expect("view still open").id().as_str(), "v1");
+    assert_eq!(
+        app.view().map(|view| view.key()),
+        Some(FeedKey::View(ViewId::from_raw("v1")))
+    );
 }
 
 #[test]

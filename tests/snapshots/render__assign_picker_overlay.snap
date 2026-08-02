@@ -19,6 +19,6 @@ expression: "render_to_string(&mut app, 100, 20)"
 │⠋  Loading…                │                                          │king open                  ║
 └───────────────────────────└ 1 of 2 ──────────────────────────────────┘                           ║
 ┌Teams───────────────────────────────┐│Checklist                                                   ║
-│                                    ││                                                            ↓
+│⠋  Loading…                         ││                                                            ↓
 └────────────────────────────────────┘└────────────────────────────────────────────────────────────┘
  j move   enter select   / search   esc cancel                                  Dan's Donuts · @dan

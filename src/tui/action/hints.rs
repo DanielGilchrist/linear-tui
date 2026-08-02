@@ -45,7 +45,9 @@ pub const SAVED_VIEWS_HINTS: &[Hint<Action>] = &[
 
 pub const TEAMS_HINTS: &[Hint<Action>] = &[
     Hint::Bound(Action::SelectNext),
+    Hint::Bound(Action::Descend),
     Hint::Bound(Action::NextPanel),
+    Hint::Bound(Action::Find),
     Hint::Literal {
         keys: "1-9",
         label: "jump",
@@ -154,6 +156,19 @@ pub const LABELS_HINTS: &[Hint<LabelsInput>] = &[
     Hint::Bound(LabelsInput::Toggle),
     Hint::Bound(LabelsInput::Submit),
     Hint::Bound(LabelsInput::Cancel),
+];
+
+pub const TEAM_VIEW_HINTS: &[Hint<Action>] = &[
+    Hint::Bound(Action::SelectNext),
+    Hint::Bound(Action::Descend),
+    Hint::Literal {
+        keys: "] [",
+        label: "mode",
+    },
+    Hint::Bound(Action::Edit),
+    Hint::Bound(Action::ToggleZoom),
+    Hint::Bound(Action::Ascend),
+    Hint::Bound(Action::Quit),
 ];
 
 pub const VIEW_HINTS: &[Hint<Action>] = &[

@@ -54,13 +54,33 @@ impl FixtureClient {
 }
 
 fn matches(issue: &IssueSummary, filter: &IssueFilter) -> bool {
-    let ty = &issue.state.state_type;
-    if !filter.state_types_in.is_empty() && !filter.state_types_in.contains(ty) {
+    let state_type = &issue.state.state_type;
+
+    if filter.assigned_to_me
+        && !issue
+            .assignee
+            .as_ref()
+            .is_some_and(|assignee| assignee.is_me)
+    {
         return false;
     }
-    if filter.state_types_nin.contains(ty) {
+
+    if !filter.state_types_in.is_empty() && !filter.state_types_in.contains(state_type) {
         return false;
     }
+
+    if filter.state_types_not_in.contains(state_type) {
+        return false;
+    }
+
+    if filter
+        .team
+        .as_ref()
+        .is_some_and(|team| team != &issue.team_id)
+    {
+        return false;
+    }
+
     true
 }
 
@@ -179,11 +199,13 @@ impl LinearApi for FixtureClient {
                 id: TeamId::from_raw("t_donut"),
                 name: "Donuts".into(),
                 key: "DAN".into(),
+                triage_enabled: false,
             },
             Team {
                 id: TeamId::from_raw("t_pizza"),
                 name: "Pizza".into(),
                 key: "DAN2".into(),
+                triage_enabled: true,
             },
         ])
     }
@@ -385,6 +407,25 @@ fn sample_fixture() -> Fixture {
             &[("upsell", "#f2c94c")],
         ),
     ];
+
+    let triage = IssueSummary {
+        assignee: None,
+        ..summary(
+            "i8",
+            "DAN2-11",
+            "Customer reports a cold delivery, needs routing",
+            state("Triage", StateType::Triage),
+            Priority::None,
+            "dan",
+            &[],
+        )
+    };
+
+    let issues = {
+        let mut issues = issues;
+        issues.push(triage);
+        issues
+    };
 
     let details = vec![IssueDetail {
         id: IssueId::from_raw("i1"),

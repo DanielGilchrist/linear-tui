@@ -145,8 +145,20 @@ pub(super) fn descend(app: &mut App) -> Effects {
             let origin = app.take_origin();
             open_issue(app, target, summary, origin)
         }
-        Focus::Teams | Focus::Detail(..) => Effects::default(),
+        Focus::Teams => open_team(app),
+        Focus::Detail(..) => Effects::default(),
     }
+}
+
+pub(super) fn open_team(app: &mut App) -> Effects {
+    let Some(surface) = app.teams().selected().map(ViewSurface::team) else {
+        return Effects::default();
+    };
+
+    let command = access_feed(app, surface.key());
+    app.open_view_surface(surface);
+
+    command
 }
 
 pub(super) fn open_view(app: &mut App) -> Effects {
@@ -155,7 +167,7 @@ pub(super) fn open_view(app: &mut App) -> Effects {
     };
 
     let command = access_feed(app, FeedKey::View(view.id.clone()));
-    app.open_view_surface(ViewSurface::new(view));
+    app.open_view_surface(ViewSurface::saved(view));
 
     command
 }
@@ -270,10 +282,25 @@ pub(super) fn cycle_view(app: &mut App, direction: Direction) -> Effects {
             let next = direction.wrap(app.active_view_index(), app.ui.views.len());
             select_view(app, next)
         }
-        Focus::Recent | Focus::SavedViews | Focus::View(_) | Focus::Teams | Focus::Detail(..) => {
-            Effects::default()
-        }
+        Focus::View(_) => cycle_mode(app, direction),
+        Focus::Recent | Focus::SavedViews | Focus::Teams | Focus::Detail(..) => Effects::default(),
     }
+}
+
+fn cycle_mode(app: &mut App, direction: Direction) -> Effects {
+    let Some(view) = app.view_mut() else {
+        return Effects::default();
+    };
+
+    if !view.cycle_mode(direction) {
+        return Effects::default();
+    }
+
+    let Some(key) = app.view().map(ViewSurface::key) else {
+        return Effects::default();
+    };
+
+    access_feed(app, key)
 }
 
 pub(super) fn select_view(app: &mut App, index: usize) -> Effects {

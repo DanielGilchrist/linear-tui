@@ -15,6 +15,6 @@ expression: "render_to_string(&mut app, 110, 16)"
 │                                        ││Backlog  1                                                        │
 └ 1 of 3 ────────────────────────────────┘│!!  DAN2-5 Settle the pineapple-on-pizza…   customer-poll  dan  1d│
 ┌Teams───────────────────────────────────┐│                                                                  │
-│                                        ││                                                                  │
+│⠋  Loading…                             ││                                                                  │
 └────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
  j move   tab panel   enter open   o browser   y yank   / find   esc back   q quit        Dan's Donuts · @dan

@@ -58,24 +58,26 @@ pub fn render(frame: &mut Frame, area: Rect, props: MyWorkProps) {
         items.push(loading_more_row(spinner));
     }
 
-    let empty_placeholder = placeholder(
-        Some(status),
-        PlaceholderText {
-            empty,
-            loading: super::LOADING_TEXT,
-            failed: super::LOAD_FAILED_TEXT,
-        },
-        spinner,
-    );
-
     let selected = list_state.selected();
     let list = StyledList::new("My Work")
         .title_line(title)
         .items(items)
         .emphasis(emphasis)
         .state(list_state)
-        .position(selected, total)
-        .placeholder(empty_placeholder);
+        .position(selected, total);
+
+    let list = match total {
+        0 => {
+            let text = PlaceholderText {
+                empty,
+                loading: super::LOADING_TEXT,
+                failed: super::LOAD_FAILED_TEXT,
+            };
+
+            list.placeholder(placeholder(Some(status), text, spinner))
+        }
+        _ => list,
+    };
 
     frame.render_widget(list, area);
 }

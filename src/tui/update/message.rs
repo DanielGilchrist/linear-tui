@@ -274,7 +274,8 @@ fn commit(app: &mut App, transition: Transition) -> Commands {
                 .unwrap_or_default()
                 .into()
         }
-        Transition::TeamsLoaded(teams) => {
+        Transition::TeamsLoaded(mut teams) => {
+            teams.sort_by(|a, b| a.key.cmp(&b.key));
             app.workspace.teams.teams.set(teams, app.now);
 
             let len = app.workspace.teams.list().len();

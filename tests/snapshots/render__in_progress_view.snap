@@ -15,6 +15,6 @@ expression: "render_to_string(&mut app, 110, 16)"
 │⠋  Loading…                             ││                                                                  │
 └────────────────────────────────────────┘│                                                                  │
 ┌Teams───────────────────────────────────┐│                                                                  │
-│                                        ││                                                                  │
+│⠋  Loading…                             ││                                                                  │
 └────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
  j move   ] view   tab panel   1-9 jump   enter open   o browser   y yank   / find   z z… Dan's Donuts · @dan

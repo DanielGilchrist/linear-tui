@@ -8,7 +8,7 @@ use crate::api::error::{ApiError, ApiResult};
 use crate::api::model::{
     CommentId, Credential, Cursor, IssueDetail, IssueFilter, IssueId, IssueRef, IssueSummary,
     IssueUpdate, Label, NotificationItem, Page, ReactionId, ReactionTarget, SavedView, Session,
-    StateOption, StateType, Team, TeamId, User, ViewId,
+    StateOption, Team, TeamId, User, ViewId,
 };
 use crate::api::queries::actions::{
     AssigneeInput, AssigneeMutation, AssigneeVariables, CommentCreateInput, CommentCreateMutation,
@@ -102,16 +102,8 @@ impl LinearApi for Client {
     async fn session(&self) -> ApiResult<Session> {
         let result = self.fetch_json(ViewerQuery::build(())).await?;
 
-        let user = User {
-            id: result.viewer.id.into(),
-            name: result.viewer.name,
-            display_name: result.viewer.display_name,
-            url: String::new(),
-            is_me: result.viewer.is_me,
-        };
-
         Ok(Session {
-            user,
+            user: result.viewer.into(),
             org_name: result.organization.name,
             org_url_key: result.organization.url_key,
         })
@@ -250,16 +242,7 @@ impl LinearApi for Client {
             id: team_id.to_string(),
         })?;
 
-        let mut states: Vec<StateOption> = team
-            .states
-            .nodes
-            .into_iter()
-            .map(|s| StateOption {
-                id: s.id.into(),
-                name: s.name,
-                state_type: StateType::from_api(&s.state_type),
-            })
-            .collect();
+        let mut states: Vec<StateOption> = team.states.nodes.into_iter().map(Into::into).collect();
         states.reverse();
 
         Ok(states)
@@ -269,18 +252,10 @@ impl LinearApi for Client {
         let operation = TeamsQuery::build(TeamsVariables {
             first: Some(PAGE_SIZE),
         });
+
         let result = self.fetch_json(operation).await?;
 
-        Ok(result
-            .teams
-            .nodes
-            .into_iter()
-            .map(|team| Team {
-                id: team.id.into(),
-                name: team.name,
-                key: team.key,
-            })
-            .collect())
+        Ok(result.teams.nodes.into_iter().map(Team::from).collect())
     }
 
     async fn team_members(&self, team_id: &TeamId) -> ApiResult<Vec<User>> {
@@ -294,18 +269,7 @@ impl LinearApi for Client {
             id: team_id.to_string(),
         })?;
 
-        Ok(team
-            .members
-            .nodes
-            .into_iter()
-            .map(|u| User {
-                id: u.id.into(),
-                name: u.name,
-                display_name: u.display_name,
-                url: u.url,
-                is_me: u.is_me,
-            })
-            .collect())
+        Ok(team.members.nodes.into_iter().map(User::from).collect())
     }
 
     async fn search_users(&self, term: &str) -> ApiResult<Vec<User>> {
@@ -315,18 +279,7 @@ impl LinearApi for Client {
         });
         let result = self.fetch_json(operation).await?;
 
-        Ok(result
-            .users
-            .nodes
-            .into_iter()
-            .map(|user| User {
-                id: user.id.into(),
-                name: user.name,
-                display_name: user.display_name,
-                url: user.url,
-                is_me: user.is_me,
-            })
-            .collect())
+        Ok(result.users.nodes.into_iter().map(User::from).collect())
     }
 
     async fn search_labels(&self, term: &str) -> ApiResult<Vec<Label>> {

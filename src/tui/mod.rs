@@ -16,6 +16,7 @@ pub mod run;
 pub mod saved_views;
 pub mod spinner;
 pub mod status;
+pub mod team;
 pub mod update;
 pub mod view;
 pub mod workspace;

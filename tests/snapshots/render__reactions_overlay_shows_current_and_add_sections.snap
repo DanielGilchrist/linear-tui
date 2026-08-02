@@ -21,6 +21,6 @@ expression: "render_to_string(&mut app, 90, 22)"
 │⠋  Loading…                     ││Checklist                                             ║
 └────────────────────────────────┘│                                                      ║
 ┌Teams───────────────────────────┐│[x] Swap the thermocouple                             ║
-│                                ││[ ] Inspect the flue damper                           ↓
+│⠋  Loading…                     ││[ ] Inspect the flue damper                           ↓
 └────────────────────────────────┘└──────────────────────────────────────────────────────┘
  h/l move   j/k row   enter toggle   c custom   esc cancel            Dan's Donuts · @dan

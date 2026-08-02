@@ -3,7 +3,9 @@ use ratatui::widgets::ListState;
 use super::cache::Remote;
 use super::display::Display;
 use super::feed::{FeedKey, FeedStore};
-use crate::api::{IssueSummary, SavedView, ViewId};
+use super::focus::{Direction, LeftPanel};
+use super::team::{TeamMode, TeamSurface};
+use crate::api::{IssueSummary, SavedView, Team};
 
 pub struct SavedViewsPanel {
     pub views: Remote<Vec<SavedView>>,
@@ -34,37 +36,94 @@ impl Default for SavedViewsPanel {
 }
 
 #[derive(Debug, Clone)]
+pub enum SurfaceSource {
+    Saved(SavedView),
+    Team(TeamSurface),
+}
+
+impl SurfaceSource {
+    fn key(&self) -> FeedKey {
+        match self {
+            SurfaceSource::Saved(saved) => FeedKey::View(saved.id.clone()),
+            SurfaceSource::Team(team) => team.key(),
+        }
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            SurfaceSource::Saved(saved) => &saved.name,
+            SurfaceSource::Team(team) => team.name(),
+        }
+    }
+
+    fn mode(&self) -> Option<TeamMode> {
+        match self {
+            SurfaceSource::Saved(_) => None,
+            SurfaceSource::Team(team) => Some(team.mode()),
+        }
+    }
+
+    fn panel(&self) -> LeftPanel {
+        match self {
+            SurfaceSource::Saved(_) => LeftPanel::SavedViews,
+            SurfaceSource::Team(_) => LeftPanel::Teams,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ViewSurface {
-    saved: SavedView,
+    source: SurfaceSource,
     pub display: Display,
     pub state: ListState,
     pub layout: ListState,
 }
 
 impl ViewSurface {
-    pub fn new(saved: SavedView) -> Self {
+    pub fn new(source: SurfaceSource) -> Self {
         Self {
-            saved,
+            source,
             display: Display::new(),
             state: ListState::default().with_selected(Some(0)),
             layout: ListState::default(),
         }
     }
 
-    pub fn saved(&self) -> &SavedView {
-        &self.saved
+    pub fn saved(view: SavedView) -> Self {
+        Self::new(SurfaceSource::Saved(view))
     }
 
-    pub fn id(&self) -> &ViewId {
-        &self.saved.id
+    pub fn team(team: &Team) -> Self {
+        Self::new(SurfaceSource::Team(TeamSurface::new(team)))
     }
 
     pub fn name(&self) -> &str {
-        &self.saved.name
+        self.source.name()
+    }
+
+    pub fn mode(&self) -> Option<TeamMode> {
+        self.source.mode()
+    }
+
+    pub fn panel(&self) -> LeftPanel {
+        self.source.panel()
+    }
+
+    pub fn cycle_mode(&mut self, direction: Direction) -> bool {
+        match &mut self.source {
+            SurfaceSource::Team(team) => {
+                team.cycle(direction);
+                self.state.select(Some(0));
+                self.layout = ListState::default();
+
+                true
+            }
+            SurfaceSource::Saved(_) => false,
+        }
     }
 
     pub fn key(&self) -> FeedKey {
-        FeedKey::View(self.saved.id.clone())
+        self.source.key()
     }
 
     pub fn issues<'a>(&self, feeds: &'a FeedStore) -> Option<&'a [IssueSummary]> {

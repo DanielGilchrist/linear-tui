@@ -47,7 +47,13 @@ pub const VIEW_MENU: &[Action] = &[
     Action::Ascend,
 ];
 
-pub const TEAMS_MENU: &[Action] = &[Action::SelectNext, Action::Find, Action::Ascend];
+pub const TEAMS_MENU: &[Action] = &[
+    Action::SelectNext,
+    Action::Descend,
+    Action::Find,
+    Action::Reload,
+    Action::Ascend,
+];
 
 pub const GLOBAL_MENU: &[Action] = &[
     Action::GoPrefix,

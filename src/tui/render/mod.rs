@@ -306,15 +306,8 @@ fn render_panel(
             )
         }
         LeftPanel::Teams => {
-            let items = app.workspace.teams.names();
-            surfaces::teams::render(
-                frame,
-                rect,
-                "Teams",
-                &items,
-                &mut app.workspace.teams.state,
-                emphasis,
-            );
+            let spinner = app.ui.spinner;
+            surfaces::teams::render(frame, rect, &mut app.workspace.teams, emphasis, spinner)
         }
     }
 
@@ -434,10 +427,13 @@ fn render_left(app: &mut App, frame: &mut Frame, area: Rect) {
 
 fn render_right(app: &mut App, frame: &mut Frame, area: Rect) {
     match app.focus() {
-        Focus::Teams => {
-            let selected = app.teams().selected().map_or("", |team| team.name.as_str());
-            surfaces::teams::render_placeholder(frame, area, "Teams", selected);
-        }
+        Focus::Teams => surfaces::teams::render_preview(
+            frame,
+            area,
+            app.teams(),
+            &app.workspace.feeds,
+            app.ui.spinner,
+        ),
         Focus::Recent => surfaces::recent::render_preview(frame, area, app.selected_recent()),
         Focus::SavedViews => {
             let spinner = app.ui.spinner;
@@ -586,7 +582,10 @@ fn footer_hint(app: &App) -> String {
         Focus::MyWork => action::MY_WORK_HINTS,
         Focus::Recent => action::RECENT_HINTS,
         Focus::SavedViews => action::SAVED_VIEWS_HINTS,
-        Focus::View(_) => action::VIEW_HINTS,
+        Focus::View(surface) => match surface.mode() {
+            Some(_) => action::TEAM_VIEW_HINTS,
+            None => action::VIEW_HINTS,
+        },
         Focus::Teams => action::TEAMS_HINTS,
         Focus::Detail(detail) => match detail.view {
             DetailView::Reading { .. } => action::DETAIL_HINTS,

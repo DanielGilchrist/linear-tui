@@ -20,6 +20,8 @@ pub fn initial_commands(app: &mut App) -> Effects {
         Effect::Store(StoreCommand::LoadRecent),
         Effect::Api(ApiCommand::LoadCustomViews),
     ]);
+
+    commands.extend(access_teams(app));
     commands.extend(access_active(app));
 
     commands
@@ -164,8 +166,16 @@ pub(super) fn revalidate_focus(app: &mut App) -> Effects {
         Focus::Detail(..) => match left {
             LeftPanel::MyWork => access_active(app),
             LeftPanel::SavedViews => access_open_view(app),
-            LeftPanel::Recent | LeftPanel::Teams => Effects::default(),
+            LeftPanel::Teams => access_focused_view(app),
+            LeftPanel::Recent => Effects::default(),
         },
+    }
+}
+
+fn access_focused_view(app: &mut App) -> Effects {
+    match app.view().map(ViewSurface::key) {
+        Some(key) => access_feed(app, key),
+        None => Effects::default(),
     }
 }
 
@@ -202,12 +212,14 @@ fn reload_focus(app: &mut App) -> Effects {
             }));
 
             let feed = match detail.origin.panel() {
-                LeftPanel::SavedViews => match app.view().map(ViewSurface::key) {
-                    Some(key) => force_feed(app, key),
-                    None => Effects::default(),
-                },
+                LeftPanel::SavedViews | LeftPanel::Teams => {
+                    match app.view().map(ViewSurface::key) {
+                        Some(key) => force_feed(app, key),
+                        None => Effects::default(),
+                    }
+                }
                 LeftPanel::MyWork => force_active(app),
-                LeftPanel::Recent | LeftPanel::Teams => Effects::default(),
+                LeftPanel::Recent => Effects::default(),
             };
 
             commands.extend(feed);

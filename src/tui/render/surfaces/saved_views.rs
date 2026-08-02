@@ -26,15 +26,7 @@ pub fn render(
 ) {
     let selected = panel.state.selected();
     let total = panel.list().len();
-    let empty = placeholder(
-        Some(panel.views.status()),
-        PlaceholderText {
-            empty: "No saved views",
-            loading: super::LOADING_TEXT,
-            failed: super::LOAD_FAILED_TEXT,
-        },
-        spinner,
-    );
+    let status = panel.views.status();
 
     let items: Vec<ListItem> = panel
         .list()
@@ -46,8 +38,20 @@ pub fn render(
         .items(items)
         .emphasis(emphasis)
         .state(&mut panel.state)
-        .position(selected, total)
-        .placeholder(empty);
+        .position(selected, total);
+
+    let list = match total {
+        0 => {
+            let text = PlaceholderText {
+                empty: "No saved views",
+                loading: super::LOADING_TEXT,
+                failed: super::LOAD_FAILED_TEXT,
+            };
+
+            list.placeholder(placeholder(Some(status), text, spinner))
+        }
+        _ => list,
+    };
 
     frame.render_widget(list, area);
 }
@@ -64,7 +68,12 @@ pub fn render_preview(
     let feed = feeds.get(&FeedKey::View(id.clone()));
 
     let block = Block::bordered()
-        .title(view_title(name, feed_count(feed), feed_truncated(feed)))
+        .title(view_title(
+            name,
+            None,
+            feed_count(feed),
+            feed_truncated(feed),
+        ))
         .border_style(Emphasis::Blurred.border());
 
     let inner = block.inner(area);

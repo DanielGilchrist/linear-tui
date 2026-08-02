@@ -80,8 +80,9 @@ expression: "render_styled_to_string(&mut app, 110, 16)"
 ┌Teams───────────────────────────────────┐│                                                                  │
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "┌Teams───────────────────────────────────┐│"
     [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
-│                                        ││                                                                  │
+│⠋  Loading…                             ││                                                                  │
     [0] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(DarkGray) bg=Some(Reset) mod=NONE "⠋  Loading…"
     [41] fg=Some(Gray) bg=Some(Reset) mod=NONE "││"
     [109] fg=Some(Gray) bg=Some(Reset) mod=NONE "│"
 └────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘

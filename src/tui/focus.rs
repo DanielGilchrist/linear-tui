@@ -27,7 +27,7 @@ impl Origin {
     pub fn panel(&self) -> LeftPanel {
         match self {
             Origin::Panel(panel) => *panel,
-            Origin::View(_) => LeftPanel::SavedViews,
+            Origin::View(surface) => surface.panel(),
             Origin::Search(_) => LeftPanel::MyWork,
         }
     }
@@ -89,6 +89,10 @@ impl Scroll {
 pub struct Cursor(usize);
 
 impl Cursor {
+    pub fn first() -> Self {
+        Cursor(0)
+    }
+
     pub fn new(index: usize, len: usize) -> Option<Self> {
         (index < len).then_some(Cursor(index))
     }
@@ -170,7 +174,8 @@ impl Focus {
         match self {
             Focus::MyWork => LeftPanel::MyWork,
             Focus::Recent => LeftPanel::Recent,
-            Focus::SavedViews | Focus::View(_) => LeftPanel::SavedViews,
+            Focus::SavedViews => LeftPanel::SavedViews,
+            Focus::View(surface) => surface.panel(),
             Focus::Teams => LeftPanel::Teams,
             Focus::Detail(detail) => detail.origin.panel(),
         }
