@@ -29,7 +29,7 @@ fn describe_items(keymap: &Keymap<Action>) -> Vec<ListItem<'static>> {
         .filter_map(|binding| {
             keymap.describe(binding.action).map(|(keys, label)| {
                 ListItem::new(Line::from(vec![
-                    Span::styled(keys, theme::ACCENT),
+                    Span::styled(keys, theme::accent()),
                     Span::raw("  "),
                     Span::styled(label, theme::TEXT),
                 ]))

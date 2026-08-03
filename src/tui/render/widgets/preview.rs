@@ -49,7 +49,7 @@ fn meta_line(issue: &IssueSummary) -> Option<Line<'static>> {
     if let Some(assignee) = &issue.assignee {
         meta.push(Span::styled(
             format!("@{}", assignee.display_name),
-            theme::PERSON,
+            theme::person(),
         ));
     }
 

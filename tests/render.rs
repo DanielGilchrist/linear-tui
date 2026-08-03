@@ -808,3 +808,114 @@ async fn styled_comment_editor_overlay() {
     );
     insta::assert_snapshot!(render_styled_to_string(&mut app, 90, 24));
 }
+
+#[tokio::test]
+async fn styled_reactions_overlay() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('+'), KeyModifiers::NONE),
+    );
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 90, 22));
+}
+
+#[tokio::test]
+async fn styled_workspaces_overlay() {
+    let mut app = App::new();
+    sign_in(&mut app);
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
+    );
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 84, 20));
+}
+
+#[tokio::test]
+async fn styled_menu_overlay() {
+    let mut app = App::new();
+    sign_in(&mut app);
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
+    );
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 84, 24));
+}
+
+#[tokio::test]
+async fn styled_mention_autocomplete_popup() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+    );
+    let members = client
+        .team_members(&TeamId::from_raw("t_pizza"))
+        .await
+        .unwrap();
+    apply(
+        &mut app,
+        Message::MembersLoaded {
+            team_id: TeamId::from_raw("t_pizza"),
+            members,
+        },
+    );
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+    );
+
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 90, 24));
+}
+
+#[tokio::test]
+async fn styled_confirm_dialog() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+
+    edit(&mut app, 's');
+    let states = client
+        .workflow_states(&TeamId::from_raw("t_pizza"))
+        .await
+        .unwrap();
+    apply(
+        &mut app,
+        Message::StatesLoaded {
+            team_id: TeamId::from_raw("t_pizza"),
+            states,
+        },
+    );
+    handle_key(&mut app, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 100, 20));
+}
+
+#[tokio::test]
+async fn styled_teams_panel() {
+    let client = FixtureClient::sample();
+    let mut app = home_app(&client, 0).await;
+    app.focus_panel(LeftPanel::Teams);
+    apply(
+        &mut app,
+        Message::TeamsLoaded {
+            teams: client.teams().await.unwrap(),
+        },
+    );
+    insta::assert_snapshot!(render_styled_to_string(&mut app, 84, 24));
+}
+
+#[tokio::test]
+async fn only_label_chips_may_carry_raw_rgb() {
+    let client = FixtureClient::sample();
+    let mut app = home_app(&client, 2).await;
+
+    let frame = render_styled_to_string(&mut app, 110, 16);
+
+    assert!(
+        !frame.contains("Rgb("),
+        "a surface with no label chips must carry no raw colour"
+    );
+}

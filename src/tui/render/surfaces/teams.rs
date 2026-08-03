@@ -73,12 +73,12 @@ pub fn render_preview(
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled(team.key.clone(), theme::ACCENT),
+            Span::styled(team.key.clone(), theme::accent()),
             Span::raw("  "),
             Span::styled(team.name.clone(), theme::TEXT),
         ]),
         Line::from(""),
-        Line::from(Span::styled("modes", theme::MUTED)),
+        Line::from(Span::styled("modes", theme::DIM)),
     ];
 
     for mode in TeamModes::for_team(team).as_slice() {

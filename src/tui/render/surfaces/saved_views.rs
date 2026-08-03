@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Constraint, Layout, Rect},
-    text::{Line, Text},
+    text::{Line, Span, Text},
     widgets::{Block, List, ListItem, Paragraph},
     Frame,
 };
@@ -68,11 +68,9 @@ pub fn render_preview(
     let feed = feeds.get(&FeedKey::View(id.clone()));
 
     let block = Block::bordered()
-        .title(view_title(
-            name,
-            None,
-            feed_count(feed),
-            feed_truncated(feed),
+        .title(Span::styled(
+            view_title(name, None, feed_count(feed), feed_truncated(feed)),
+            Emphasis::Blurred.title(),
         ))
         .border_style(Emphasis::Blurred.border());
 

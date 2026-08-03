@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 
 use linear_tui::api::{self, fixture::FixtureClient, Client, Credential, IssueRef, LinearApi};
 use linear_tui::store::StateDir;
+use linear_tui::tui::render::theme::ColourMode;
 use linear_tui::tui::{
     self,
     app::App,
@@ -83,6 +84,8 @@ async fn run_tui(bootstrap: Option<Credential>) -> Result<()> {
     let make_client: tui::run::ClientFactory =
         Arc::new(|credential| Arc::new(Client::new(credential)) as Arc<dyn LinearApi>);
 
+    tui::render::theme::init(colour_mode());
+
     let path = host_state_dir().ok_or_else(|| anyhow!("Could not resolve a state directory"))?;
     migrate_legacy_state_dir(&path);
 
@@ -142,7 +145,16 @@ fn migrate_legacy_state_dir(new: &std::path::Path) {
 #[cfg(not(target_os = "macos"))]
 fn migrate_legacy_state_dir(_new: &std::path::Path) {}
 
+fn colour_mode() -> ColourMode {
+    match std::env::var_os("NO_COLOR") {
+        Some(value) if !value.is_empty() => ColourMode::Monochrome,
+        _ => ColourMode::Ansi,
+    }
+}
+
 async fn headless_render(args: RenderArgs) -> Result<()> {
+    tui::render::theme::init(ColourMode::Ansi);
+
     let api: Arc<dyn LinearApi> = match &args.fixture {
         Some(path) => Arc::new(FixtureClient::from_path(path)?),
         None => Arc::new(FixtureClient::sample()),

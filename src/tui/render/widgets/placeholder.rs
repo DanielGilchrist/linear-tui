@@ -17,7 +17,7 @@ pub fn placeholder(
 ) -> Line<'static> {
     match status {
         Some(CacheStatus::Failed(_)) => {
-            Line::from(Span::styled(text.failed.to_string(), theme::ERROR))
+            Line::from(Span::styled(text.failed.to_string(), theme::error()))
         }
         Some(CacheStatus::Ready) => Line::from(Span::styled(text.empty.to_string(), theme::DIM)),
         None | Some(CacheStatus::Idle | CacheStatus::Loading | CacheStatus::Revalidating) => {
@@ -56,7 +56,7 @@ mod tests {
             Spinner::default(),
         );
         assert_eq!(content(&line), "failed  ·  r to retry");
-        assert_eq!(line.spans[0].style, theme::ERROR);
+        assert_eq!(line.spans[0].style, theme::error());
     }
 
     #[test]

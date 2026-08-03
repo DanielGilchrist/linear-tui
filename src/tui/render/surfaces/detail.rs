@@ -152,7 +152,7 @@ pub fn detail_text(
     if let Some(assignee) = &detail.assignee {
         meta.push(Span::styled(
             format!("@{}", assignee.display_name),
-            theme::PERSON,
+            theme::person(),
         ));
     }
 
@@ -186,7 +186,7 @@ pub fn detail_text(
     if !detail.comments.is_empty() {
         lines.push(Line::from(Span::styled(
             format!("Comments ({})", detail.thread_len()),
-            theme::ACCENT,
+            theme::accent(),
         )));
 
         lines.push(Line::from(""));
@@ -228,7 +228,7 @@ fn append_comment(
 
     header.push(Span::styled(
         comment.author.clone().unwrap_or_else(|| "unknown".into()),
-        theme::COMMENT_AUTHOR,
+        theme::comment_author(),
     ));
 
     header.push(Span::styled(

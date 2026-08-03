@@ -20,7 +20,7 @@ mod format;
 mod overlays;
 mod snapshot;
 mod surfaces;
-mod theme;
+pub mod theme;
 mod widgets;
 
 pub use snapshot::{render_styled_to_string, render_to_string};

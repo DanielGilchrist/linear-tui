@@ -28,7 +28,7 @@ pub fn reaction_chips(reactions: &[Reaction]) -> Option<Line<'static>> {
 
     for (name, count, mine) in groups {
         let style = if mine {
-            theme::REACTION_MINE
+            theme::reaction_mine()
         } else {
             theme::REACTION
         };
@@ -82,7 +82,7 @@ mod tests {
 
         assert_eq!(chips.len(), 2);
         assert_eq!(chips[0].0, "👍 2");
-        assert_eq!(chips[0].1, theme::REACTION_MINE);
+        assert_eq!(chips[0].1, theme::reaction_mine());
         assert_eq!(chips[1].0, "❤️ 1");
         assert_eq!(chips[1].1, theme::REACTION);
     }

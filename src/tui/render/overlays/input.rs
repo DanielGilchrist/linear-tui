@@ -17,7 +17,7 @@ pub fn area(frame_area: Rect) -> Rect {
 pub fn render(input: &Input, frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .title(input.prompt)
-        .border_style(theme::ACCENT);
+        .border_style(theme::accent());
 
     let before: String = input.buffer.chars().take(input.cursor).collect();
     let cursor_column = 1 + format::width(&before) as u16;

@@ -512,7 +512,7 @@ mod tests {
         assert_eq!(lines("run `cargo test` now"), vec!["run cargo test now"]);
         assert_eq!(
             span_style("run `cargo test` now", "cargo test").fg,
-            Some(Color::Rgb(0xa3, 0xbe, 0x8c))
+            Some(Color::Green)
         );
     }
 
@@ -532,12 +532,9 @@ mod tests {
 
     #[test]
     fn heading_levels_get_distinct_colours() {
-        assert_eq!(span_style("# One", "One").fg, Some(Color::White));
+        assert_eq!(span_style("# One", "One").fg, Some(Color::Reset));
         assert_eq!(span_style("## Two", "Two").fg, Some(Color::Cyan));
-        assert_eq!(
-            span_style("### Three", "Three").fg,
-            Some(Color::Rgb(0x81, 0xa1, 0xc1))
-        );
+        assert_eq!(span_style("### Three", "Three").fg, Some(Color::Blue));
     }
 
     #[test]

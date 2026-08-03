@@ -40,10 +40,10 @@ fn menu_items(menu: &Menu) -> Vec<ListItem<'static>> {
         .iter()
         .map(|row| match row {
             MenuRow::Header(title) => {
-                ListItem::new(Line::from(Span::styled(*title, theme::MENU_HEADER)))
+                ListItem::new(Line::from(Span::styled(*title, theme::menu_header())))
             }
             MenuRow::Item { keys, label, .. } => ListItem::new(Line::from(vec![
-                Span::styled(format!("{keys:>key_width$}"), theme::ACCENT),
+                Span::styled(format!("{keys:>key_width$}"), theme::accent()),
                 Span::raw("  "),
                 Span::styled(*label, theme::TEXT),
             ])),

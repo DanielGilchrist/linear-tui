@@ -32,7 +32,9 @@ pub fn area(reactions: &Reactions, frame_area: Rect) -> Rect {
 }
 
 pub fn render(reactions: &Reactions, frame: &mut Frame, area: Rect) {
-    let block = Block::bordered().title("React").border_style(theme::ACCENT);
+    let block = Block::bordered()
+        .title("React")
+        .border_style(theme::accent());
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -98,7 +100,7 @@ fn render_section(
         };
 
         let mut style = if choice.mine {
-            theme::REACTION_MINE
+            theme::reaction_mine()
         } else {
             theme::TEXT
         };

@@ -1,46 +1,47 @@
-#![allow(clippy::disallowed_types)]
-
 use pulldown_cmark::HeadingLevel;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::Style;
 use ratatui::text::Span;
 
+use crate::tui::render::theme;
+
 pub(super) fn heading_style(base: Style, level: HeadingLevel) -> Style {
-    let style = base.add_modifier(Modifier::BOLD);
     match level {
-        HeadingLevel::H1 => style.fg(Color::White),
-        HeadingLevel::H2 => style.fg(Color::Cyan),
-        _ => style.fg(Color::Rgb(0x81, 0xa1, 0xc1)),
+        HeadingLevel::H1 => base.patch(theme::TITLE),
+        HeadingLevel::H2 => base.patch(theme::group_header()),
+        _ => base.patch(theme::heading()),
     }
 }
 
 pub(super) fn code_style(base: Style) -> Style {
-    base.fg(Color::Rgb(0xa3, 0xbe, 0x8c))
+    base.patch(theme::code())
 }
 
 pub(super) fn mention_style(base: Style) -> Style {
-    base.fg(Color::Blue)
+    base.patch(theme::person())
 }
 
 pub(super) fn link_style(base: Style) -> Style {
-    base.fg(Color::Blue).add_modifier(Modifier::UNDERLINED)
+    base.patch(theme::link())
 }
 
 pub(super) fn quote_style(base: Style) -> Style {
-    base.fg(Color::DarkGray)
+    base.patch(theme::DIM)
 }
 
 pub(super) fn dim_style(base: Style) -> Style {
-    base.fg(Color::DarkGray)
+    base.patch(theme::DIM)
 }
 
 pub(super) fn marker_style(base: Style) -> Style {
-    base.fg(Color::Rgb(0x81, 0xa1, 0xc1))
+    base.patch(theme::marker())
 }
 
 pub(super) fn task_marker(base: Style, checked: bool) -> Span<'static> {
-    if checked {
-        Span::styled("[x] ".to_string(), base.fg(Color::Green))
+    let (glyph, style) = if checked {
+        ("[x] ", base.patch(theme::done()))
     } else {
-        Span::styled("[ ] ".to_string(), base.fg(Color::DarkGray))
-    }
+        ("[ ] ", base.patch(theme::DIM))
+    };
+
+    Span::styled(glyph.to_string(), style)
 }

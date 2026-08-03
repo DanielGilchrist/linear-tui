@@ -17,7 +17,7 @@ pub fn area(frame_area: Rect) -> Rect {
 pub fn render(labels: &mut Labels, spinner: Spinner, frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .title("Labels")
-        .border_style(theme::ACCENT);
+        .border_style(theme::accent());
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -57,12 +57,12 @@ fn search_line(labels: &Labels) -> Line<'static> {
         Span::styled(labels.query.clone(), theme::TEXT)
     };
 
-    Line::from(vec![Span::styled("search: ", theme::MUTED), query])
+    Line::from(vec![Span::styled("search: ", theme::DIM), query])
 }
 
 fn row_item(labels: &Labels, label: &crate::api::Label) -> ListItem<'static> {
     let marker = if labels.is_selected(&label.id) {
-        Span::styled("✓ ", theme::ACCENT)
+        Span::styled("✓ ", theme::accent())
     } else {
         Span::raw("  ")
     };

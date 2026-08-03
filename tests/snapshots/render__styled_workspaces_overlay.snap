@@ -1,0 +1,104 @@
+---
+source: tests/render.rs
+expression: "render_styled_to_string(&mut app, 84, 20)"
+---
+┌Assigned to me 1/3────────────┐┌Preview───────────────────────────────────────────┐
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "┌"
+    [1] fg=Some(Reset) bg=Some(Reset) mod=BOLD "Assigned to me"
+    [15] fg=Some(Reset) bg=Some(Reset) mod=DIM " 1/3"
+    [19] fg=Some(Yellow) bg=Some(Reset) mod=NONE "────────────┐"
+    [32] fg=Some(Reset) bg=Some(Reset) mod=DIM "┌Preview───────────────────────────────────────────┐"
+│⠋  Loading…                   ││No issue selected                                 │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(Reset) bg=Some(Reset) mod=DIM "⠋  Loading…"
+    [31] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [32] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+    [33] fg=Some(Reset) bg=Some(Reset) mod=NONE "No issue selected                                 "
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+│                              ││                                                  │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [31] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [32] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+│                              ││                                                  │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [31] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [32] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+│                   ┌Workspaces────────────────────────────────┐                   │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [20] fg=Some(Yellow) bg=Some(Reset) mod=NONE "┌Workspaces────────────────────────────────┐"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+│                   │● Test  API key                           │                   │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [20] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [21] fg=Some(Yellow) bg=Some(Reset) mod=REVERSED "● "
+    [23] fg=Some(Reset) bg=Some(Reset) mod=REVERSED "Test  "
+    [29] fg=Some(Reset) bg=Some(Reset) mod=DIM | REVERSED "API key"
+    [36] fg=Some(Reset) bg=Some(Reset) mod=REVERSED "                           "
+    [63] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+│                   │+ Sign in with browser                    │                   │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [20] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [21] fg=Some(Blue) bg=Some(Reset) mod=NONE "+ Sign in with browser"
+    [63] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+│                   │+ Add with an API key                     │                   │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [20] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [21] fg=Some(Blue) bg=Some(Reset) mod=NONE "+ Add with an API key"
+    [63] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+│                   │+ Add from an environment variable        │                   │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [20] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [21] fg=Some(Blue) bg=Some(Reset) mod=NONE "+ Add from an environment variable"
+    [63] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+└───────────────────│                                          │                   │
+    [0] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└───────────────────│"
+    [63] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+┌Recently viewed────│                                          │                   │
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "┌Recently viewed────"
+    [20] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [63] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+│Issues you open lan│                                          │                   │
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Issues you open lan"
+    [20] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [63] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+└───────────────────│                                          │                   │
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "└───────────────────"
+    [20] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [63] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+┌Saved Views────────│                                          │                   │
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "┌Saved Views────────"
+    [20] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [63] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+│⠋  Loading…        │                                          │                   │
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "│⠋  Loading…"
+    [20] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [63] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+└───────────────────└──────────────────────────────────────────┘                   │
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "└───────────────────"
+    [20] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└──────────────────────────────────────────┘"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+┌Teams─────────────────────────┐│                                                  │
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "┌Teams─────────────────────────┐│"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+│⠋  Loading…                   ││                                                  │
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "│⠋  Loading…"
+    [31] fg=Some(Reset) bg=Some(Reset) mod=DIM "││"
+    [83] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+└──────────────────────────────┘└──────────────────────────────────────────────────┘
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "└──────────────────────────────┘└──────────────────────────────────────────────────┘"
+ j move   enter select   esc cancel                                     connecting…
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM " j move   enter select   esc cancel"
+    [72] fg=Some(Cyan) bg=Some(Reset) mod=NONE "connecting… "

@@ -16,7 +16,7 @@ pub fn area(frame_area: Rect) -> Rect {
 pub fn render(confirm: &Confirm, frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .title("Confirm")
-        .border_style(theme::ACCENT);
+        .border_style(theme::accent());
 
     let text = Text::from(vec![
         Line::from(confirm.message.clone()),

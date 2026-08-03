@@ -19,7 +19,7 @@ pub fn area(frame_area: Rect) -> Rect {
 pub fn render(editor: &Editor, frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .title(editor.title)
-        .border_style(theme::ACCENT);
+        .border_style(theme::accent());
 
     let inner_height = (area.height.saturating_sub(2) as usize).max(1);
     let offset = editor.row().saturating_sub(inner_height - 1);
@@ -73,7 +73,9 @@ fn editor_line(cells: &[Cell], cursor: Option<usize>) -> Line<'static> {
     for (index, cell) in cells.iter().enumerate() {
         let mut span = match cell {
             Cell::Char(c) => Span::raw(c.to_string()),
-            Cell::Mention(mention) => Span::styled(format!("@{}", mention.display), theme::PERSON),
+            Cell::Mention(mention) => {
+                Span::styled(format!("@{}", mention.display), theme::person())
+            }
         };
 
         if cursor == Some(index) {
@@ -122,7 +124,7 @@ fn render_mention_popup(
         .map(|user| {
             ListItem::new(Line::from(Span::styled(
                 format!("@{}", user.display_name),
-                theme::PERSON,
+                theme::person(),
             )))
         })
         .collect();

@@ -21,7 +21,7 @@ pub fn render(workspaces: &mut Workspaces, frame: &mut Frame, area: Rect) {
         .block(
             Block::bordered()
                 .title("Workspaces")
-                .border_style(theme::ACCENT),
+                .border_style(theme::accent()),
         )
         .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
 
@@ -36,18 +36,18 @@ fn row_item(row: &WorkspaceRow) -> ListItem<'static> {
             active,
             ..
         } => Line::from(vec![
-            Span::styled(if *active { "● " } else { "  " }, theme::ACCENT),
+            Span::styled(if *active { "● " } else { "  " }, theme::accent()),
             Span::styled(name.clone(), theme::TEXT),
             Span::raw("  "),
             Span::styled(detail.clone(), theme::DIM),
         ]),
         WorkspaceRow::AddBrowser => {
-            Line::from(Span::styled("+ Sign in with browser", theme::PERSON))
+            Line::from(Span::styled("+ Sign in with browser", theme::person()))
         }
-        WorkspaceRow::AddKey => Line::from(Span::styled("+ Add with an API key", theme::PERSON)),
+        WorkspaceRow::AddKey => Line::from(Span::styled("+ Add with an API key", theme::person())),
         WorkspaceRow::AddEnvVar => Line::from(Span::styled(
             "+ Add from an environment variable",
-            theme::PERSON,
+            theme::person(),
         )),
     };
 

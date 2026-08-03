@@ -50,7 +50,7 @@ pub fn render(frame: &mut Frame, area: Rect, footer: Footer) {
             );
 
             frame.render_widget(
-                Paragraph::new(Line::from(Span::styled(workspace, theme::WORKSPACE)))
+                Paragraph::new(Line::from(Span::styled(workspace, theme::workspace())))
                     .alignment(Alignment::Right),
                 right_area,
             );
@@ -62,9 +62,9 @@ fn left_line(left: FooterLeft, width: usize) -> Line<'static> {
     match left {
         FooterLeft::Status { text, is_error } => {
             let style = if is_error {
-                theme::ERROR
+                theme::error()
             } else {
-                theme::ACCENT
+                theme::accent()
             };
             Line::from(Span::styled(format::fit(&format!(" {text}"), width), style))
         }
@@ -76,7 +76,7 @@ fn left_line(left: FooterLeft, width: usize) -> Line<'static> {
 }
 
 fn find_bar(find: FindBar) -> Line<'static> {
-    let label = Span::styled(" Search ", theme::FIND_LABEL);
+    let label = Span::styled(" Search ", theme::find_label());
 
     match find {
         FindBar::Typing { query, total } => Line::from(vec![
@@ -90,7 +90,7 @@ fn find_bar(find: FindBar) -> Line<'static> {
         ]),
         FindBar::NoMatches { query } => Line::from(vec![
             label,
-            Span::styled(format!(" no matches for '{query}'"), theme::ERROR),
+            Span::styled(format!(" no matches for '{query}'"), theme::error()),
             Span::styled("   esc exit", theme::DIM),
         ]),
         FindBar::Matches {

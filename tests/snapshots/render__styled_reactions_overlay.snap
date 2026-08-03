@@ -1,6 +1,6 @@
 ---
 source: tests/render.rs
-expression: "render_styled_to_string(&mut app, 90, 24)"
+expression: "render_styled_to_string(&mut app, 90, 22)"
 ---
 ┌Assigned to me 1/3──────────────┐┌DAN2-7────────────────────────────────────────────────┐
     [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "┌Assigned to me 1/3──────────────┐"
@@ -55,115 +55,99 @@ expression: "render_styled_to_string(&mut app, 90, 24)"
     [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [35] fg=Some(Reset) bg=Some(Reset) mod=DIM "-oven-runs-too-hot"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "█"
-│!!  DAN2-5 Ba┌Comment──────────────────────────────────────────────────────┐            █
+│!!  DAN2-5 Backlog Settle the pi││                                                      █
     [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
     [1] fg=Some(LightRed) bg=Some(Reset) mod=NONE "!! "
     [5] fg=Some(Reset) bg=Some(Reset) mod=DIM "DAN2-5"
-    [12] fg=Some(Reset) bg=Some(Reset) mod=DIM "Ba"
-    [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "┌Comment──────────────────────────────────────────────────────┐"
+    [12] fg=Some(Reset) bg=Some(Reset) mod=DIM "Backlog"
+    [19] fg=Some(Reset) bg=Some(Reset) mod=NONE " Settle the pi"
+    [33] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+    [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "█"
-│    DAN-15 Ba│ @                                                           │            █
+│    DAN-15 Backlog Coffee pairin││Symptoms                                              █
     [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "│   "
     [5] fg=Some(Reset) bg=Some(Reset) mod=DIM "DAN-15"
-    [12] fg=Some(Reset) bg=Some(Reset) mod=DIM "Ba"
-    [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [15] fg=Some(Reset) bg=Some(Reset) mod=NONE " @"
-    [17] fg=Some(Reset) bg=Some(Reset) mod=REVERSED " "
-    [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [12] fg=Some(Reset) bg=Some(Reset) mod=DIM "Backlog"
+    [19] fg=Some(Reset) bg=Some(Reset) mod=NONE " Coffee pairin"
+    [33] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+    [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [35] fg=Some(Cyan) bg=Some(Reset) mod=BOLD "Symptoms"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "█"
-│             │                                                             │            █
+│                                ││                                                      ║
     [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
-    [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "█"
-│             │                                                             │ps past     █
+    [33] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+    [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
+│                  ┌React─────────────────────────────────────────────┐n creeps past     ║
     [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
-    [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [77] fg=Some(Reset) bg=Some(Reset) mod=NONE "ps past     "
-    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "█"
-│             │                                                             │elts.       ║
+    [19] fg=Some(Yellow) bg=Some(Reset) mod=NONE "┌React─────────────────────────────────────────────┐"
+    [71] fg=Some(Reset) bg=Some(Reset) mod=NONE "n creeps past     "
+    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
+│                  │Current: 👀  1 🚀  1                                │eese melts.       ║
     [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
-    [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [77] fg=Some(Reset) bg=Some(Reset) mod=NONE "elts.       "
+    [19] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [20] fg=Some(Reset) bg=Some(Reset) mod=DIM "Current:"
+    [29] fg=Some(Yellow) bg=Some(Reset) mod=BOLD "👀"
+    [31] fg=Some(Yellow) bg=Some(Reset) mod=BOLD " 1"
+    [33] fg=Some(Reset) bg=Some(Reset) mod=NONE " 🚀  1                                "
+    [70] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [71] fg=Some(Reset) bg=Some(Reset) mod=NONE "eese melts.       "
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│             │                                                             │            ║
+└ 1 of 7 ──────────│Add:     👍    ❤️    🎉    😄    😕    👎               │                  ║
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "└ 1 of 7 ──────────"
+    [19] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [20] fg=Some(Reset) bg=Some(Reset) mod=DIM "Add:"
+    [29] fg=Some(Reset) bg=Some(Reset) mod=REVERSED "👍"
+    [30] fg=Some(Reset) bg=Some(Reset) mod=NONE "    ❤\u{fe0f}    🎉    😄    😕    👎               "
+    [70] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
+┌Recently viewed───│h/l move · j/k row · enter toggle · c custom · esc│                  ║
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "┌Recently viewed───"
+    [19] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [20] fg=Some(Reset) bg=Some(Reset) mod=DIM "h/l move · j/k row · enter toggle · c custom · esc"
+    [70] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
+│Issues you open la└──────────────────────────────────────────────────┘                  ║
     [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
-    [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Issues you open la"
+    [19] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└──────────────────────────────────────────────────┘"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│             │ ┌Mention───────────────────────────────┐                    │            ║
-    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
-    [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [16] fg=Some(Yellow) bg=Some(Reset) mod=NONE "┌"
-    [17] fg=Some(Yellow) bg=Some(Reset) mod=BOLD "Mention"
-    [24] fg=Some(Yellow) bg=Some(Reset) mod=NONE "───────────────────────────────┐"
-    [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+└────────────────────────────────┘│• Suspect the flue damper is sticking open            ║
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "└────────────────────────────────┘"
+    [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [35] fg=Some(Blue) bg=Some(Reset) mod=NONE "• "
+    [37] fg=Some(Reset) bg=Some(Reset) mod=NONE "Suspect the flue damper is sticking open            "
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-└ 1 of 7 ─────│ │@dan                                  │                    │            ║
-    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "└ 1 of 7 ─────"
-    [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [16] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [17] fg=Some(Blue) bg=Some(Reset) mod=BOLD | REVERSED "@dan"
-    [21] fg=Some(Reset) bg=Some(Reset) mod=BOLD | REVERSED "                                  "
-    [55] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+┌Saved Views─────────────────────┐│                                                      ║
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "┌Saved Views─────────────────────┐"
+    [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-┌Recently view│ │@sam                                  │                    │            ║
-    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "┌Recently view"
-    [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [16] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [17] fg=Some(Blue) bg=Some(Reset) mod=NONE "@sam"
-    [55] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│Issues you op│ │@alex                                 │                    │            ║
-    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
-    [1] fg=Some(Reset) bg=Some(Reset) mod=NONE "Issues you op"
-    [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [16] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [17] fg=Some(Blue) bg=Some(Reset) mod=NONE "@alex"
-    [55] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-└─────────────│ └──────────────────────────────────────┘                    │            ║
-    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "└─────────────"
-    [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [16] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└──────────────────────────────────────┘"
-    [76] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-┌Saved Views──└─────────────────────────────────────────────────────────────┘            ║
-    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "┌Saved Views──"
-    [14] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└─────────────────────────────────────────────────────────────┘"
-    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│⠋  Loading…                     ││[x] Swap the thermocouple                             ║
+│⠋  Loading…                     ││Checklist                                             ║
     [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "│⠋  Loading…"
     [33] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
+    [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [35] fg=Some(Blue) bg=Some(Reset) mod=BOLD "Checklist"
+    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
+└────────────────────────────────┘│                                                      ║
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "└────────────────────────────────┘"
+    [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
+┌Teams───────────────────────────┐│[x] Swap the thermocouple                             ║
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "┌Teams───────────────────────────┐"
     [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
     [35] fg=Some(Green) bg=Some(Reset) mod=NONE "[x] "
     [39] fg=Some(Reset) bg=Some(Reset) mod=NONE "Swap the thermocouple                             "
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-└────────────────────────────────┘│[ ] Inspect the flue damper                           ║
-    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "└────────────────────────────────┘"
-    [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [35] fg=Some(Reset) bg=Some(Reset) mod=DIM "[ ] "
-    [39] fg=Some(Reset) bg=Some(Reset) mod=NONE "Inspect the flue damper                           "
-    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-┌Teams───────────────────────────┐│[ ] Recalibrate the PID loop                          ║
-    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "┌Teams───────────────────────────┐"
-    [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
-    [35] fg=Some(Reset) bg=Some(Reset) mod=DIM "[ ] "
-    [39] fg=Some(Reset) bg=Some(Reset) mod=NONE "Recalibrate the PID loop                          "
-    [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "║"
-│⠋  Loading…                     ││                                                      ↓
+│⠋  Loading…                     ││[ ] Inspect the flue damper                           ↓
     [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "│⠋  Loading…"
     [33] fg=Some(Reset) bg=Some(Reset) mod=DIM "│"
     [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "│"
+    [35] fg=Some(Reset) bg=Some(Reset) mod=DIM "[ ] "
+    [39] fg=Some(Reset) bg=Some(Reset) mod=NONE "Inspect the flue damper                           "
     [89] fg=Some(Yellow) bg=Some(Reset) mod=NONE "↓"
 └────────────────────────────────┘└──────────────────────────────────────────────────────┘
     [0] fg=Some(Reset) bg=Some(Reset) mod=DIM "└────────────────────────────────┘"
     [34] fg=Some(Yellow) bg=Some(Reset) mod=NONE "└──────────────────────────────────────────────────────┘"
- C-s post   enter newline   ↑/↓/←/→ move   esc cancel                 Dan's Donuts · @dan
-    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM " C-s post   enter newline   ↑/↓/←/→ move   esc cancel"
+ h/l move   j/k row   enter toggle   c custom   esc cancel            Dan's Donuts · @dan
+    [0] fg=Some(Reset) bg=Some(Reset) mod=DIM " h/l move   j/k row   enter toggle   c custom   esc cancel"
     [70] fg=Some(Cyan) bg=Some(Reset) mod=NONE "Dan's Donuts · @dan "

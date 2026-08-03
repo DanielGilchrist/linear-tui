@@ -27,7 +27,7 @@ pub fn view_tabs(
     };
 
     if loading {
-        spans.push(Span::styled(format!("  {spinner}"), theme::ACCENT));
+        spans.push(Span::styled(format!("  {spinner}"), theme::accent()));
     }
 
     Line::from(spans)

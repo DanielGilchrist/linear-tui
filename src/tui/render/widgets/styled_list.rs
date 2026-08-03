@@ -63,9 +63,10 @@ impl<'a> StyledList<'a> {
 
 impl Widget for StyledList<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = self
-            .title_line
-            .unwrap_or_else(|| Line::from(Span::from(self.title.clone())));
+        let title = match self.title_line {
+            Some(line) => self.emphasis.blur_title(line),
+            None => Line::from(Span::styled(self.title.clone(), self.emphasis.title())),
+        };
 
         let position_text = self.position.and_then(|(selected, total)| {
             if total == 0 {

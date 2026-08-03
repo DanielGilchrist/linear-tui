@@ -25,7 +25,7 @@ pub fn view_items(
     for group in groups {
         if let Some(label) = &group.label {
             items.push(ListItem::new(Line::from(vec![
-                Span::styled(label.clone(), theme::GROUP_HEADER),
+                Span::styled(label.clone(), theme::group_header()),
                 Span::styled(format!("  {}", group.indices.len()), theme::DIM),
             ])));
         }
@@ -61,10 +61,10 @@ pub fn breakdown_line(groups: &[display::Group]) -> Line<'static> {
 
             spans.push(Span::styled(
                 format!("{} ", group.indices.len()),
-                theme::ACCENT,
+                theme::accent(),
             ));
 
-            spans.push(Span::styled(label.clone(), theme::MUTED));
+            spans.push(Span::styled(label.clone(), theme::DIM));
         }
     }
 
@@ -85,7 +85,7 @@ pub fn notification_items(notifications: &[NotificationItem]) -> Vec<ListItem<'s
             let indicator = if notification.is_read {
                 Span::raw("  ")
             } else {
-                Span::styled("● ", theme::PERSON)
+                Span::styled("● ", theme::person())
             };
             let title_style = if notification.is_read {
                 theme::DIM

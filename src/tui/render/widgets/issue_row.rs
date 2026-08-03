@@ -27,7 +27,7 @@ fn state_span(issue: &IssueSummary) -> Span<'static> {
 }
 
 fn assignee_span(assignee: &User) -> Span<'static> {
-    Span::styled(assignee.display_name.clone(), theme::PERSON)
+    Span::styled(assignee.display_name.clone(), theme::person())
 }
 
 fn label_chip(label: &Label) -> Span<'static> {

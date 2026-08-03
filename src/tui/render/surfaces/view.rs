@@ -29,11 +29,14 @@ pub fn render(
     let feed = feeds.get(&view.key());
 
     let block = Block::bordered()
-        .title(view_title(
-            view.name(),
-            view.mode().map(TeamMode::label),
-            feed_count(feed),
-            feed_truncated(feed),
+        .title(Span::styled(
+            view_title(
+                view.name(),
+                view.mode().map(TeamMode::label),
+                feed_count(feed),
+                feed_truncated(feed),
+            ),
+            emphasis.title(),
         ))
         .border_style(emphasis.border());
 
