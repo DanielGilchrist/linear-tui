@@ -25,11 +25,11 @@ pub(super) fn link_style(base: Style) -> Style {
 }
 
 pub(super) fn quote_style(base: Style) -> Style {
-    base.patch(theme::DIM)
+    base.patch(theme::dim())
 }
 
 pub(super) fn dim_style(base: Style) -> Style {
-    base.patch(theme::DIM)
+    base.patch(theme::dim())
 }
 
 pub(super) fn marker_style(base: Style) -> Style {
@@ -40,7 +40,7 @@ pub(super) fn task_marker(base: Style, checked: bool) -> Span<'static> {
     let (glyph, style) = if checked {
         ("[x] ", base.patch(theme::done()))
     } else {
-        ("[ ] ", base.patch(theme::DIM))
+        ("[ ] ", base.patch(theme::dim()))
     };
 
     Span::styled(glyph.to_string(), style)

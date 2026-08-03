@@ -26,7 +26,7 @@ pub fn view_items(
         if let Some(label) = &group.label {
             items.push(ListItem::new(Line::from(vec![
                 Span::styled(label.clone(), theme::group_header()),
-                Span::styled(format!("  {}", group.indices.len()), theme::DIM),
+                Span::styled(format!("  {}", group.indices.len()), theme::dim()),
             ])));
         }
 
@@ -56,7 +56,7 @@ pub fn breakdown_line(groups: &[display::Group]) -> Line<'static> {
     for group in groups {
         if let Some(label) = &group.label {
             if !spans.is_empty() {
-                spans.push(Span::styled("  ·  ", theme::DIM));
+                spans.push(Span::styled("  ·  ", theme::dim()));
             }
 
             spans.push(Span::styled(
@@ -64,7 +64,7 @@ pub fn breakdown_line(groups: &[display::Group]) -> Line<'static> {
                 theme::accent(),
             ));
 
-            spans.push(Span::styled(label.clone(), theme::DIM));
+            spans.push(Span::styled(label.clone(), theme::dim()));
         }
     }
 
@@ -74,7 +74,7 @@ pub fn breakdown_line(groups: &[display::Group]) -> Line<'static> {
 pub fn loading_more_row(spinner: Spinner) -> ListItem<'static> {
     ListItem::new(Line::from(Span::styled(
         format!("{spinner}  loading more…"),
-        theme::DIM,
+        theme::dim(),
     )))
 }
 
@@ -88,7 +88,7 @@ pub fn notification_items(notifications: &[NotificationItem]) -> Vec<ListItem<'s
                 Span::styled("● ", theme::person())
             };
             let title_style = if notification.is_read {
-                theme::DIM
+                theme::dim()
             } else {
                 theme::TITLE
             };

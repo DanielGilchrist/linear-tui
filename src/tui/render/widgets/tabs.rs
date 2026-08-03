@@ -43,13 +43,13 @@ fn full_strip(views: &[View], active: usize) -> Vec<Span<'static>> {
 
     for (index, view) in views.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled(SEPARATOR, theme::DIM));
+            spans.push(Span::styled(SEPARATOR, theme::dim()));
         }
 
         let style = if index == active {
             theme::TITLE
         } else {
-            theme::DIM
+            theme::dim()
         };
         spans.push(Span::styled(view.name.clone(), style));
     }
@@ -63,6 +63,6 @@ fn compact_strip(views: &[View], active: usize, budget: usize) -> Vec<Span<'stat
 
     vec![
         Span::styled(format::fit(&views[active].name, name_budget), theme::TITLE),
-        Span::styled(indicator, theme::DIM),
+        Span::styled(indicator, theme::dim()),
     ]
 }

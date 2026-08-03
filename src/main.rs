@@ -86,6 +86,10 @@ async fn run_tui(bootstrap: Option<Credential>) -> Result<()> {
 
     tui::render::theme::init(colour_mode());
 
+    if let Some(overrides) = theme_overrides()? {
+        tui::render::theme::init_overrides(overrides);
+    }
+
     let path = host_state_dir().ok_or_else(|| anyhow!("Could not resolve a state directory"))?;
     migrate_legacy_state_dir(&path);
 
@@ -150,6 +154,22 @@ fn colour_mode() -> ColourMode {
         Some(value) if !value.is_empty() => ColourMode::Monochrome,
         _ => ColourMode::Ansi,
     }
+}
+
+fn theme_overrides() -> Result<Option<linear_tui::tui::render::theme::Overrides>> {
+    use anyhow::Context;
+
+    let Some(path) = std::env::var_os("LINEAR_TUI_THEME").map(PathBuf::from) else {
+        return Ok(None);
+    };
+
+    let json = std::fs::read_to_string(&path)
+        .with_context(|| format!("Could not read theme file {}", path.display()))?;
+
+    let overrides = linear_tui::tui::render::theme::Overrides::parse(&json)
+        .with_context(|| format!("Could not parse theme file {}", path.display()))?;
+
+    Ok(Some(overrides))
 }
 
 async fn headless_render(args: RenderArgs) -> Result<()> {

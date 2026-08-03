@@ -82,7 +82,7 @@ impl Widget for StyledList<'_> {
             .border_style(self.emphasis.border());
 
         if let Some(pos) = position_text {
-            block = block.title_bottom(Span::styled(pos, theme::DIM));
+            block = block.title_bottom(Span::styled(pos, theme::dim()));
         }
 
         if let (true, Some(placeholder)) = (self.items.is_empty(), self.placeholder) {

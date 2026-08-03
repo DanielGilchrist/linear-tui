@@ -78,7 +78,7 @@ pub fn render_preview(
             Span::styled(team.name.clone(), theme::TEXT),
         ]),
         Line::from(""),
-        Line::from(Span::styled("modes", theme::DIM)),
+        Line::from(Span::styled("modes", theme::dim())),
     ];
 
     for mode in TeamModes::for_team(team).as_slice() {
@@ -90,8 +90,8 @@ pub fn render_preview(
         lines.push(Line::from(vec![
             Span::styled(format!("  {:<9}", mode.label()), theme::TEXT),
             match cached {
-                Some(count) => Span::styled(count.to_string(), theme::DIM),
-                None => Span::styled("–", theme::DIM),
+                Some(count) => Span::styled(count.to_string(), theme::dim()),
+                None => Span::styled("–", theme::dim()),
             },
         ]));
     }
@@ -100,7 +100,7 @@ pub fn render_preview(
 
     lines.push(Line::from(Span::styled(
         "enter to browse   ] [ to switch mode",
-        theme::DIM,
+        theme::dim(),
     )));
 
     text_panel(

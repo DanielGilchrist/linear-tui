@@ -30,7 +30,7 @@ pub fn reaction_chips(reactions: &[Reaction]) -> Option<Line<'static>> {
         let style = if mine {
             theme::reaction_mine()
         } else {
-            theme::REACTION
+            theme::reaction()
         };
 
         spans.push(Span::styled(
@@ -84,6 +84,6 @@ mod tests {
         assert_eq!(chips[0].0, "👍 2");
         assert_eq!(chips[0].1, theme::reaction_mine());
         assert_eq!(chips[1].0, "❤️ 1");
-        assert_eq!(chips[1].1, theme::REACTION);
+        assert_eq!(chips[1].1, theme::reaction());
     }
 }

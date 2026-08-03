@@ -30,7 +30,7 @@ pub fn render(labels: &mut Labels, spinner: Spinner, frame: &mut Frame, area: Re
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 format!("{} searching", spinner.glyph()),
-                theme::DIM,
+                theme::dim(),
             ))),
             list_area,
         );
@@ -52,12 +52,12 @@ pub fn render(labels: &mut Labels, spinner: Spinner, frame: &mut Frame, area: Re
 
 fn search_line(labels: &Labels) -> Line<'static> {
     let query = if labels.query.is_empty() {
-        Span::styled("type to search", theme::DIM)
+        Span::styled("type to search", theme::dim())
     } else {
         Span::styled(labels.query.clone(), theme::TEXT)
     };
 
-    Line::from(vec![Span::styled("search: ", theme::DIM), query])
+    Line::from(vec![Span::styled("search: ", theme::dim()), query])
 }
 
 fn row_item(labels: &Labels, label: &crate::api::Label) -> ListItem<'static> {

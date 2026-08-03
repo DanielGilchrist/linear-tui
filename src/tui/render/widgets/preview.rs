@@ -10,11 +10,11 @@ pub fn preview_text(issue: &IssueSummary) -> Text<'static> {
         lines.push(meta);
     }
 
-    lines.push(Line::from(Span::styled(issue.url.clone(), theme::DIM)));
+    lines.push(Line::from(Span::styled(issue.url.clone(), theme::dim())));
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "Press enter to load the description and comments",
-        theme::DIM,
+        theme::dim(),
     )));
 
     Text::from(lines)
@@ -22,7 +22,7 @@ pub fn preview_text(issue: &IssueSummary) -> Text<'static> {
 
 fn status_line(issue: &IssueSummary) -> Line<'static> {
     Line::from(vec![
-        Span::styled(issue.identifier.clone(), theme::DIM),
+        Span::styled(issue.identifier.clone(), theme::dim()),
         Span::raw("  "),
         Span::styled(
             issue.state.name.clone(),
@@ -76,7 +76,7 @@ pub fn notification_preview_text(notification: &NotificationItem) -> Text<'stati
         } else {
             "unread"
         },
-        theme::DIM,
+        theme::dim(),
     )));
 
     lines.push(Line::from(""));
@@ -84,7 +84,7 @@ pub fn notification_preview_text(notification: &NotificationItem) -> Text<'stati
     lines.extend(notification.issue_id.as_ref().map(|_| {
         Line::from(Span::styled(
             "Press enter to open the linked issue",
-            theme::DIM,
+            theme::dim(),
         ))
     }));
 

@@ -68,7 +68,7 @@ pub fn render(
 
 fn result_row(issue: &IssueSummary) -> ListItem<'static> {
     ListItem::new(Line::from(vec![
-        Span::styled(issue.identifier.clone(), theme::DIM),
+        Span::styled(issue.identifier.clone(), theme::dim()),
         Span::raw("  "),
         Span::styled(
             issue.title.clone().unwrap_or_else(|| "Untitled".into()),

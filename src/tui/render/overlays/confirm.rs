@@ -21,7 +21,7 @@ pub fn render(confirm: &Confirm, frame: &mut Frame, area: Rect) {
     let text = Text::from(vec![
         Line::from(confirm.message.clone()),
         Line::from(""),
-        Line::from(Span::styled("[y] yes    [n] no", theme::DIM)),
+        Line::from(Span::styled("[y] yes    [n] no", theme::dim())),
     ]);
 
     frame.render_widget(

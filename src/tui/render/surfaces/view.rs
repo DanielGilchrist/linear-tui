@@ -61,10 +61,10 @@ pub fn render(
 
     let header = Text::from(vec![
         Line::from(vec![
-            Span::styled("group ", theme::DIM),
+            Span::styled("group ", theme::dim()),
             Span::styled(view.display.group.label(), theme::TEXT),
             Span::raw("    "),
-            Span::styled("sort ", theme::DIM),
+            Span::styled("sort ", theme::dim()),
             Span::styled(view.display.sort.label(), theme::TEXT),
         ]),
         breakdown_line(&groups),

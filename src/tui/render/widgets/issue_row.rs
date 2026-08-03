@@ -38,7 +38,7 @@ fn issue_item(issue: &IssueSummary) -> Line<'static> {
     let mut spans = vec![
         theme::priority_glyph(issue.priority),
         Span::raw(" "),
-        Span::styled(issue.identifier.clone(), theme::DIM),
+        Span::styled(issue.identifier.clone(), theme::dim()),
         Span::raw(" "),
         state_span(issue),
         Span::raw(" "),
@@ -78,7 +78,7 @@ pub(super) fn issue_row(
 
     left.push(Span::styled(
         format!("{:<id_width$}", issue.identifier),
-        theme::DIM,
+        theme::dim(),
     ));
 
     left.push(Span::raw(" "));
@@ -104,7 +104,7 @@ pub(super) fn issue_row(
         }
     }
 
-    right.push(Span::styled(issue.updated_at.age_short(now), theme::DIM));
+    right.push(Span::styled(issue.updated_at.age_short(now), theme::dim()));
 
     let right_w: usize = right.iter().map(|span| span.width()).sum();
     let gap = 2;

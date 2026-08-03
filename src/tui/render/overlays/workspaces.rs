@@ -39,7 +39,7 @@ fn row_item(row: &WorkspaceRow) -> ListItem<'static> {
             Span::styled(if *active { "● " } else { "  " }, theme::accent()),
             Span::styled(name.clone(), theme::TEXT),
             Span::raw("  "),
-            Span::styled(detail.clone(), theme::DIM),
+            Span::styled(detail.clone(), theme::dim()),
         ]),
         WorkspaceRow::AddBrowser => {
             Line::from(Span::styled("+ Sign in with browser", theme::person()))

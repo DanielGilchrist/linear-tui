@@ -57,7 +57,7 @@ fn picker_row(item: &PickerItem) -> ListItem<'static> {
 
     if let Some(hint) = item.hint() {
         spans.push(Span::raw("  "));
-        spans.push(Span::styled(hint.to_string(), theme::DIM));
+        spans.push(Span::styled(hint.to_string(), theme::dim()));
     }
 
     ListItem::new(Line::from(spans))

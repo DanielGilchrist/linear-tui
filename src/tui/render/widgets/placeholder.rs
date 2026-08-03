@@ -19,11 +19,11 @@ pub fn placeholder(
         Some(CacheStatus::Failed(_)) => {
             Line::from(Span::styled(text.failed.to_string(), theme::error()))
         }
-        Some(CacheStatus::Ready) => Line::from(Span::styled(text.empty.to_string(), theme::DIM)),
+        Some(CacheStatus::Ready) => Line::from(Span::styled(text.empty.to_string(), theme::dim())),
         None | Some(CacheStatus::Idle | CacheStatus::Loading | CacheStatus::Revalidating) => {
             Line::from(Span::styled(
                 format!("{spinner}  {}", text.loading),
-                theme::DIM,
+                theme::dim(),
             ))
         }
     }
@@ -63,7 +63,7 @@ mod tests {
     fn ready_but_empty_shows_the_empty_text() {
         let line = placeholder(Some(CacheStatus::Ready), texts(), Spinner::default());
         assert_eq!(content(&line), "nothing here");
-        assert_eq!(line.spans[0].style, theme::DIM);
+        assert_eq!(line.spans[0].style, theme::dim());
     }
 
     #[test]

@@ -70,7 +70,7 @@ fn left_line(left: FooterLeft, width: usize) -> Line<'static> {
         }
         FooterLeft::Hint { text } => Line::from(Span::styled(
             format::fit(&format!(" {text}"), width),
-            theme::DIM,
+            theme::dim(),
         )),
     }
 }
@@ -85,13 +85,13 @@ fn find_bar(find: FindBar) -> Line<'static> {
             Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
             Span::styled(
                 format!("   {total} matches   enter select   esc cancel"),
-                theme::DIM,
+                theme::dim(),
             ),
         ]),
         FindBar::NoMatches { query } => Line::from(vec![
             label,
             Span::styled(format!(" no matches for '{query}'"), theme::error()),
-            Span::styled("   esc exit", theme::DIM),
+            Span::styled("   esc exit", theme::dim()),
         ]),
         FindBar::Matches {
             query,
@@ -100,7 +100,7 @@ fn find_bar(find: FindBar) -> Line<'static> {
         } => Line::from(vec![
             label,
             Span::styled(format!(" '{query}'  {position} of {total}"), theme::TEXT),
-            Span::styled("   n next   N prev   esc exit", theme::DIM),
+            Span::styled("   n next   N prev   esc exit", theme::dim()),
         ]),
     }
 }

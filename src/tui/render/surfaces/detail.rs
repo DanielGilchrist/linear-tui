@@ -135,7 +135,7 @@ pub fn detail_text(
     let mut lines: Vec<Line> = Vec::new();
 
     lines.push(Line::from(vec![
-        Span::styled(detail.identifier.clone(), theme::DIM),
+        Span::styled(detail.identifier.clone(), theme::dim()),
         Span::raw("  "),
         Span::styled(
             detail.state.name.clone(),
@@ -168,7 +168,7 @@ pub fn detail_text(
         lines.push(Line::from(meta));
     }
 
-    lines.push(Line::from(Span::styled(detail.url.clone(), theme::DIM)));
+    lines.push(Line::from(Span::styled(detail.url.clone(), theme::dim())));
     lines.push(Line::from(""));
 
     if !rendered.description.is_empty() {
@@ -223,7 +223,7 @@ fn append_comment(
     let mut header: Vec<Span<'static>> = Vec::new();
 
     if depth > 0 {
-        header.push(Span::styled(format!("{indent}└ "), theme::DIM));
+        header.push(Span::styled(format!("{indent}└ "), theme::dim()));
     }
 
     header.push(Span::styled(
@@ -233,7 +233,7 @@ fn append_comment(
 
     header.push(Span::styled(
         format!(" · {}", comment.created_at.humanise(now)),
-        theme::DIM,
+        theme::dim(),
     ));
 
     if highlighted {

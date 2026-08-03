@@ -61,7 +61,7 @@ pub fn render(reactions: &Reactions, frame: &mut Frame, area: Rect) {
     render_section(frame, rows[next], "Add:", reactions, Section::Add);
 
     frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(HINT, theme::DIM))),
+        Paragraph::new(Line::from(Span::styled(HINT, theme::dim()))),
         rows[rows.len() - 1],
     );
 }
@@ -89,7 +89,7 @@ fn render_section(
     let cells = Layout::horizontal(constraints).split(area);
 
     frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(label.to_string(), theme::DIM))),
+        Paragraph::new(Line::from(Span::styled(label.to_string(), theme::dim()))),
         cells[0],
     );
 
