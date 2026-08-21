@@ -1,10 +1,10 @@
 use ratatui::style::Style;
-use ratatui::text::Line;
 use ratatui::widgets::ListState;
 
-use super::cache::{Cache, CacheStatus, Remote};
+use super::cache::{Cache, CacheStatus, RefreshPolicy, Remote};
 use super::feed::{Feed, FeedKey, FeedStore};
 use super::markdown;
+use super::render::image::Loaded;
 use super::saved_views::SavedViewsPanel;
 use super::view::{View, ViewKind};
 use crate::api::{
@@ -12,13 +12,31 @@ use crate::api::{
     User,
 };
 
+const IMAGE_REFRESH: RefreshPolicy = RefreshPolicy::new(24 * 60 * 60, 7 * 24 * 60 * 60);
+
 #[derive(Default)]
 pub struct RenderedDetail {
-    pub description: Vec<Line<'static>>,
-    pub comment_bodies: Vec<Vec<Line<'static>>>,
+    pub description: markdown::Rendered,
+    pub comment_bodies: Vec<markdown::Rendered>,
 }
 
 impl RenderedDetail {
+    pub fn image_urls(&self) -> Vec<String> {
+        let mut urls: Vec<String> = Vec::new();
+
+        let blocks = std::iter::once(&self.description).chain(self.comment_bodies.iter());
+
+        for rendered in blocks {
+            for image in &rendered.images {
+                if !urls.contains(&image.url) {
+                    urls.push(image.url.clone());
+                }
+            }
+        }
+
+        urls
+    }
+
     pub fn render(detail: &IssueDetail) -> Self {
         let description = detail
             .description
@@ -84,7 +102,10 @@ pub struct WorkspaceData {
     pub recently_viewed: Vec<IssueSummary>,
     pub recent_state: ListState,
     pub teams: TeamsPanel,
+    images: ImageStore,
 }
+
+pub type ImageStore = Cache<String, Remote<Loaded>>;
 
 impl WorkspaceData {
     pub fn new() -> Self {
@@ -100,6 +121,7 @@ impl WorkspaceData {
             recently_viewed: Vec::new(),
             recent_state: ListState::default().with_selected(Some(0)),
             teams: TeamsPanel::new(),
+            images: ImageStore::default(),
         }
     }
 
@@ -138,6 +160,7 @@ impl WorkspaceData {
             recently_viewed: _,
             recent_state: _,
             teams,
+            images,
         } = self;
 
         session.cancel();
@@ -157,10 +180,46 @@ impl WorkspaceData {
         for members in members.values_mut() {
             members.cancel();
         }
+
+        for image in images.values_mut() {
+            image.cancel();
+        }
     }
 
     pub fn detail_markdown(&self) -> &RenderedDetail {
         &self.detail_markdown
+    }
+
+    pub fn images_in_flight(&self) -> bool {
+        self.images.iter().any(|(_, cell)| cell.in_flight())
+    }
+
+    pub fn image(&self, url: &str) -> Option<&Remote<Loaded>> {
+        self.images.get(&url.to_string())
+    }
+
+    pub fn set_image(&mut self, url: String, loaded: Loaded, now: Timestamp) {
+        self.images.get_or_default(&url).set(loaded, now);
+    }
+
+    pub fn begin_image(&mut self, url: &str, now: Timestamp) -> bool {
+        self.images
+            .get_or_default(&url.to_string())
+            .begin_access(now, &IMAGE_REFRESH)
+    }
+
+    pub fn fail_image(&mut self, url: &str, error: String) {
+        self.images.get_or_default(&url.to_string()).fail(error);
+    }
+
+    pub fn overlay_render_parts(&mut self) -> (&FeedStore, &mut ImageStore) {
+        (&self.feeds, &mut self.images)
+    }
+
+    pub fn detail_render_parts(
+        &mut self,
+    ) -> (&Remote<IssueDetail>, &RenderedDetail, &mut ImageStore) {
+        (&self.detail, &self.detail_markdown, &mut self.images)
     }
 }
 

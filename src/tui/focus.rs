@@ -271,6 +271,8 @@ pub enum Nav<'a> {
         at: &'a mut Cursor,
         len: usize,
         viewport: usize,
+        scroll: &'a mut usize,
+        scroll_max: usize,
     },
 }
 

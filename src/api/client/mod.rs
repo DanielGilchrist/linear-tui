@@ -258,6 +258,26 @@ impl LinearApi for Client {
         Ok(result.teams.nodes.into_iter().map(Team::from).collect())
     }
 
+    async fn image(&self, url: &str) -> ApiResult<Vec<u8>> {
+        let response = self
+            .http_client
+            .get(url)
+            .header("Authorization", self.credential.header_value())
+            .send()
+            .await?;
+
+        let status = response.status();
+
+        if !status.is_success() {
+            return Err(ApiError::Status {
+                status: status.as_u16(),
+                body: response.text().await.unwrap_or_default(),
+            });
+        }
+
+        Ok(response.bytes().await?.to_vec())
+    }
+
     async fn team_members(&self, team_id: &TeamId) -> ApiResult<Vec<User>> {
         let operation = TeamMembersQuery::build(TeamVariables {
             id: team_id.to_string(),

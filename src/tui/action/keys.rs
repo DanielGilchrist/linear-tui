@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use KeyCode::Char;
 
 use super::bindings::{
-    BROWSE, CONFIRM, CTRL, EDITOR, INPUT, LABELS, MENU, PICKER, REACTIONS, WORKSPACES,
+    BROWSE, CONFIRM, CTRL, EDITOR, IMAGE, INPUT, LABELS, MENU, PICKER, REACTIONS, WORKSPACES,
 };
 
 pub fn is_quit(key: &KeyEvent) -> bool {
@@ -56,6 +56,8 @@ pub enum Action {
     HistoryBack,
     HistoryForward,
     Workspaces,
+    ViewImage,
+    ToggleImages,
     Help,
 }
 
@@ -195,6 +197,19 @@ pub enum WorkspacesInput {
 impl WorkspacesInput {
     pub fn from_key(key: KeyEvent) -> Option<WorkspacesInput> {
         WORKSPACES.resolve(key)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageInput {
+    Next,
+    Prev,
+    Close,
+}
+
+impl ImageInput {
+    pub fn from_key(key: KeyEvent) -> Option<ImageInput> {
+        IMAGE.resolve(key)
     }
 }
 

@@ -14,6 +14,8 @@ pub const MY_WORK_MENU: &[Action] = &[
 pub const DETAIL_MENU: &[Action] = &[
     Action::Edit,
     Action::Comment,
+    Action::ToggleImages,
+    Action::ViewImage,
     Action::OpenInBrowser,
     Action::YankUrl,
     Action::Reload,

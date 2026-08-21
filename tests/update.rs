@@ -3598,6 +3598,310 @@ fn a_failed_comment_post_reopens_the_editor_with_the_draft() {
 }
 
 #[test]
+fn a_detail_with_an_image_requests_it_once() {
+    let mut app = list_app_with_issue();
+    let url = "https://uploads.linear.app/trace.png";
+
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("look\n\n![trace]({url})"));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+
+    let commands = effects(apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail.clone()),
+            reveal: Reveal::Top,
+        },
+    ));
+
+    let requested: Vec<&str> = commands
+        .iter()
+        .filter_map(|command| match command {
+            Effect::Api(ApiCommand::LoadImage { url }) => Some(url.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(requested, vec![url]);
+
+    let again = effects(apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    ));
+
+    assert!(
+        !again
+            .iter()
+            .any(|command| matches!(command, Effect::Api(ApiCommand::LoadImage { .. }))),
+        "a cell already in flight is not requested twice"
+    );
+}
+
+#[test]
+fn capital_i_opens_the_description_image_and_requests_it() {
+    let mut app = list_app_with_issue();
+    let url = "https://uploads.linear.app/trace.png";
+
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("look\n\n![trace]({url})"));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+
+    apply(
+        &mut app,
+        Message::Failed {
+            target: FailureTarget::Image {
+                url: url.to_string(),
+            },
+            error: RequestError::Other("boom".into()),
+        },
+    );
+
+    let opened = handle_key(&mut app, press(KeyCode::Char('I')));
+
+    assert!(matches!(app.overlay(), Overlay::Image(_)));
+    assert!(
+        matches!(opened, Some(Effect::Api(ApiCommand::LoadImage { url: u })) if u == url),
+        "opening the viewer retries a failed image"
+    );
+
+    handle_key(&mut app, press(KeyCode::Esc));
+
+    assert!(matches!(app.overlay(), Overlay::None));
+}
+
+#[test]
+fn t_toggles_an_image_between_collapsed_and_expanded() {
+    let mut app = list_app_with_issue();
+    let url = "https://uploads.linear.app/trace.png";
+
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("look\n\n![trace]({url})"));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+
+    assert!(
+        !app.expanded_images().contains(url),
+        "images start collapsed"
+    );
+
+    handle_key(&mut app, press(KeyCode::Char('t')));
+    assert!(app.expanded_images().contains(url), "t expands");
+
+    handle_key(&mut app, press(KeyCode::Char('t')));
+    assert!(!app.expanded_images().contains(url), "t again collapses");
+}
+
+#[test]
+fn expanding_an_image_is_forgotten_on_a_workspace_switch() {
+    let mut app = detail_app();
+    let url = "https://uploads.linear.app/trace.png";
+
+    app.toggle_images(&[url.to_string()]);
+    assert!(app.expanded_images().contains(url));
+
+    app.reset_workspace();
+
+    assert!(
+        app.expanded_images().is_empty(),
+        "expansion is workspace-scoped state"
+    );
+}
+
+fn tall_comment_app() -> App {
+    let mut app = list_app_with_issue();
+    let mut detail = sample_detail("i1", "DAN2-7");
+
+    detail.comments = vec![
+        linear_tui::api::Comment {
+            id: CommentId::from_raw("c1"),
+            parent_id: None,
+            author: Some("dan".into()),
+            is_mine: true,
+            body: (0..40)
+                .map(|n| format!("line {n}"))
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+            created_at: Default::default(),
+            reactions: Vec::new(),
+        },
+        linear_tui::api::Comment {
+            id: CommentId::from_raw("c2"),
+            parent_id: None,
+            author: Some("dan".into()),
+            is_mine: true,
+            body: "second".into(),
+            created_at: Default::default(),
+            reactions: Vec::new(),
+        },
+    ];
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+
+    app.ui.viewport = 10;
+    app.ui.comment_scroll_max = 30;
+    handle_key(&mut app, press(KeyCode::Char('m')));
+
+    app
+}
+
+#[test]
+fn j_scrolls_within_a_tall_comment_before_advancing() {
+    let mut app = tall_comment_app();
+
+    assert_eq!(app.comment_cursor(), Some(0));
+    assert_eq!(app.ui.comment_scroll, 0);
+
+    handle_key(&mut app, press(KeyCode::Char('j')));
+
+    assert_eq!(
+        app.comment_cursor(),
+        Some(0),
+        "a tall comment scrolls before the cursor moves"
+    );
+    assert!(app.ui.comment_scroll > 0);
+}
+
+#[test]
+fn j_advances_once_a_tall_comment_is_exhausted() {
+    let mut app = tall_comment_app();
+
+    app.ui.comment_scroll = app.ui.comment_scroll_max;
+
+    handle_key(&mut app, press(KeyCode::Char('j')));
+
+    assert_eq!(
+        app.comment_cursor(),
+        Some(1),
+        "the cursor advances at the end"
+    );
+    assert_eq!(app.ui.comment_scroll, 0, "a new comment starts at its top");
+}
+
+#[test]
+fn k_scrolls_back_up_within_a_comment() {
+    let mut app = tall_comment_app();
+
+    app.ui.comment_scroll = 8;
+
+    handle_key(&mut app, press(KeyCode::Char('k')));
+
+    assert_eq!(app.comment_cursor(), Some(0));
+    assert!(app.ui.comment_scroll < 8);
+}
+
+#[test]
+fn stepping_through_the_popover_fetches_each_image() {
+    let mut app = list_app_with_issue();
+    let first = "https://uploads.linear.app/one.png";
+    let second = "https://uploads.linear.app/two.png";
+
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("![one]({first})\n\n![two]({second})"));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+
+    handle_key(&mut app, press(KeyCode::Char('I')));
+    assert!(matches!(app.overlay(), Overlay::Image(_)));
+
+    app.workspace.cancel_in_flight();
+
+    let stepped = handle_key(&mut app, press(KeyCode::Char('j')));
+
+    match &stepped {
+        Some(Effect::Api(ApiCommand::LoadImage { url })) => assert_eq!(url, second),
+        other => panic!("stepping to the next image must request it, got {other:?}"),
+    }
+}
+
+#[test]
+fn capital_i_reports_when_there_is_no_image() {
+    let mut app = detail_app();
+
+    assert!(handle_key(&mut app, press(KeyCode::Char('I'))).is_none());
+    assert_eq!(app.ui.status, Some(Status::NoImages));
+    assert!(matches!(app.overlay(), Overlay::None));
+}
+
+#[test]
+fn a_failed_image_settles_its_cell() {
+    let mut app = list_app_with_issue();
+    let url = "https://uploads.linear.app/trace.png";
+
+    apply(
+        &mut app,
+        Message::Failed {
+            target: FailureTarget::Image {
+                url: url.to_string(),
+            },
+            error: RequestError::Other("boom".into()),
+        },
+    );
+
+    assert!(matches!(
+        app.workspace.image(url).map(Remote::status),
+        Some(CacheStatus::Failed(_))
+    ));
+}
+
+#[test]
 fn a_comment_rejected_with_a_401_reopens_the_editor_without_wedging_members() {
     let mut app = detail_app();
     let team = TeamId::from_raw("t_pizza");

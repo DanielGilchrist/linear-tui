@@ -15,7 +15,20 @@ const RULE_WIDTH: usize = 40;
 const PROFILE_PREFIX: &str = "https://linear.app/";
 const PROFILE_SEGMENT: &str = "/profiles/";
 
-pub fn render(input: &str, base: Style) -> Vec<Line<'static>> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImagePlacement {
+    pub url: String,
+    pub alt: String,
+    pub top: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Rendered {
+    pub lines: Vec<Line<'static>>,
+    pub images: Vec<ImagePlacement>,
+}
+
+pub fn render(input: &str, base: Style) -> Rendered {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
@@ -28,6 +41,10 @@ pub fn render(input: &str, base: Style) -> Vec<Line<'static>> {
     }
 
     writer.finish()
+}
+
+pub fn render_lines(input: &str, base: Style) -> Vec<Line<'static>> {
+    render(input, base).lines
 }
 
 struct ListCtx {
@@ -46,6 +63,8 @@ struct Writer {
     code_buf: Option<String>,
     table: Option<Table>,
     cell: Option<Vec<Span<'static>>>,
+    images: Vec<ImagePlacement>,
+    open_image: Option<(String, Vec<Span<'static>>)>,
 }
 
 impl Writer {
@@ -62,6 +81,8 @@ impl Writer {
             code_buf: None,
             table: None,
             cell: None,
+            images: Vec::new(),
+            open_image: None,
         }
     }
 
@@ -91,6 +112,10 @@ impl Writer {
     }
 
     fn target(&mut self) -> &mut Vec<Span<'static>> {
+        if let Some((_, alt)) = &mut self.open_image {
+            return alt;
+        }
+
         match &mut self.cell {
             Some(cell) => cell,
             None => &mut self.spans,
@@ -273,10 +298,8 @@ impl Writer {
                 self.push_style(self.current_style().add_modifier(Modifier::CROSSED_OUT))
             }
             Tag::Link { .. } => self.push_style(link_style(self.base)),
-            Tag::Image { .. } => {
-                self.open_line();
-                let glyph = Span::styled("🖼 ".to_string(), dim_style(self.base));
-                self.target().push(glyph);
+            Tag::Image { dest_url, .. } => {
+                self.open_image = Some((dest_url.to_string(), Vec::new()));
                 self.push_style(dim_style(self.base).add_modifier(Modifier::ITALIC));
             }
             Tag::Table(aligns) => {
@@ -328,7 +351,18 @@ impl Writer {
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link => {
                 self.pop_style()
             }
-            TagEnd::Image => self.pop_style(),
+            TagEnd::Image => {
+                self.pop_style();
+
+                if let Some((url, alt)) = self.open_image.take() {
+                    let alt = alt
+                        .iter()
+                        .map(|span| span.content.as_ref())
+                        .collect::<String>();
+
+                    self.reserve_image(url, alt);
+                }
+            }
             TagEnd::TableCell => {
                 if let Some(cell) = self.cell.take() {
                     if let Some(table) = &mut self.table {
@@ -361,12 +395,51 @@ impl Writer {
         }
     }
 
-    fn finish(mut self) -> Vec<Line<'static>> {
+    fn finish(mut self) -> Rendered {
         self.flush_line();
-        while self.lines.last().is_some_and(is_blank) {
+
+        let reserved = self
+            .images
+            .iter()
+            .map(|image| image.top + 1)
+            .max()
+            .unwrap_or(0);
+
+        while self.lines.len() > reserved && self.lines.last().is_some_and(is_blank) {
             self.lines.pop();
         }
-        self.lines
+
+        Rendered {
+            lines: self.lines,
+            images: self.images,
+        }
+    }
+
+    fn reserve_image(&mut self, url: String, alt: String) {
+        if self.line_open && self.spans.iter().all(|span| span.content.is_empty()) {
+            self.spans.clear();
+            self.line_open = false;
+        } else {
+            self.flush_line();
+        }
+
+        let top = self.lines.len();
+
+        let label = if alt.is_empty() {
+            "image".to_string()
+        } else {
+            alt.clone()
+        };
+
+        self.lines.push(Line::from(vec![
+            Span::styled(
+                format!("🖼 {label}"),
+                dim_style(self.base).add_modifier(Modifier::ITALIC),
+            ),
+            Span::styled("  t show   I open".to_string(), dim_style(self.base)),
+        ]));
+
+        self.images.push(ImagePlacement { url, alt, top });
     }
 }
 
@@ -388,7 +461,7 @@ mod tests {
     use ratatui::style::Color;
 
     fn lines(input: &str) -> Vec<String> {
-        render(input, Style::default())
+        render_lines(input, Style::default())
             .iter()
             .map(|line| {
                 line.spans
@@ -400,7 +473,7 @@ mod tests {
     }
 
     fn span_style(input: &str, needle: &str) -> Style {
-        render(input, Style::default())
+        render_lines(input, Style::default())
             .into_iter()
             .flat_map(|line| line.spans)
             .find(|span| span.content.contains(needle))
@@ -562,8 +635,43 @@ mod tests {
     }
 
     #[test]
-    fn images_render_alt_text_with_a_glyph() {
-        assert_eq!(lines("![a diagram](chart.png)"), vec!["🖼 a diagram"]);
+    fn images_reserve_rows_and_record_where_they_went() {
+        let rendered = render("![a diagram](chart.png)", Style::default());
+
+        assert_eq!(rendered.lines.len(), 1);
+        assert_eq!(
+            rendered.lines[0]
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>(),
+            "🖼 a diagram  t show   I open"
+        );
+        assert_eq!(
+            rendered.images,
+            vec![ImagePlacement {
+                url: "chart.png".into(),
+                alt: "a diagram".into(),
+                top: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn an_image_after_text_records_its_offset() {
+        let rendered = render("intro\n\n![shot](a.png)", Style::default());
+
+        let placement = &rendered.images[0];
+
+        assert_eq!(placement.top, 2);
+        assert_eq!(
+            rendered.lines[placement.top]
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>(),
+            "🖼 shot  t show   I open"
+        );
     }
 
     #[test]

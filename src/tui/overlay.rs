@@ -4,7 +4,7 @@ use ratatui::widgets::ListState;
 
 use super::action::{self, Action};
 use super::emoji::{self, PaletteEmoji};
-use super::focus::{Direction, Edge, Focus};
+use super::focus::{Cursor, Direction, Edge, Focus};
 use super::message::Effect;
 use crate::api::{
     CommentId, IssueId, Label, LabelId, Priority, Reaction, ReactionTarget, StateId, StateOption,
@@ -226,6 +226,33 @@ impl Labels {
 
     pub fn selected_ids(&self) -> Vec<LabelId> {
         self.selected.iter().map(|label| label.id.clone()).collect()
+    }
+}
+
+pub struct ImageView {
+    urls: Vec<String>,
+    at: Cursor,
+}
+
+impl ImageView {
+    pub fn open(urls: Vec<String>) -> Option<Self> {
+        let at = Cursor::new(0, urls.len())?;
+
+        Some(Self { urls, at })
+    }
+
+    pub fn url(&self) -> &str {
+        let index = self.at.index().min(self.urls.len() - 1);
+
+        &self.urls[index]
+    }
+
+    pub fn position(&self) -> (usize, usize) {
+        (self.at.index() + 1, self.urls.len())
+    }
+
+    pub fn step(&mut self, direction: Direction) {
+        self.at = self.at.stepped(self.urls.len(), direction);
     }
 }
 
@@ -1035,6 +1062,7 @@ pub enum Overlay {
     Reactions(Reactions),
     Workspaces(Workspaces),
     Labels(Labels),
+    Image(ImageView),
 }
 
 #[cfg(test)]

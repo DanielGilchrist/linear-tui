@@ -210,6 +210,21 @@ impl LinearApi for FixtureClient {
         ])
     }
 
+    async fn image(&self, _url: &str) -> ApiResult<Vec<u8>> {
+        let mut canvas = image::RgbImage::new(48, 24);
+
+        for (x, y, pixel) in canvas.enumerate_pixels_mut() {
+            *pixel = image::Rgb([(x * 5) as u8, (y * 10) as u8, 160]);
+        }
+
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(canvas)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .map_err(|error| crate::api::ApiError::GraphQl(vec![error.to_string()]))?;
+
+        Ok(png.into_inner())
+    }
+
     async fn team_members(&self, _team_id: &TeamId) -> ApiResult<Vec<User>> {
         Ok(vec![
             person("dan", true),

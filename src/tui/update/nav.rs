@@ -265,7 +265,8 @@ pub(super) fn jump_edge(app: &mut App, edge: Edge) -> Effects {
         | Overlay::Find(_)
         | Overlay::Reactions(_)
         | Overlay::Workspaces(_)
-        | Overlay::Labels(_) => {
+        | Overlay::Labels(_)
+        | Overlay::Image(_) => {
             app.jump_to_edge(edge);
             load_more_for_focus(app)
         }

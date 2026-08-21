@@ -3,7 +3,7 @@ use KeyCode::{BackTab, Backspace, Char, Down, Enter, Esc, Left, PageDown, PageUp
 
 use super::keymap::{Binding, Keymap};
 use super::keys::{
-    Action, ConfirmInput, EditorInput, InputInput, LabelsInput, MenuInput, PickerInput,
+    Action, ConfirmInput, EditorInput, ImageInput, InputInput, LabelsInput, MenuInput, PickerInput,
     ReactionInput, WorkspacesInput,
 };
 
@@ -123,6 +123,16 @@ pub const BROWSE: Keymap<Action> = Keymap {
             action: Action::Workspaces,
             keys: &[Char('w')],
             label: "workspaces",
+        },
+        Binding {
+            action: Action::ViewImage,
+            keys: &[Char('I')],
+            label: "image",
+        },
+        Binding {
+            action: Action::ToggleImages,
+            keys: &[Char('t')],
+            label: "thumbnail",
         },
         Binding {
             action: Action::Help,
@@ -303,6 +313,26 @@ pub const REACTIONS: Keymap<ReactionInput> = Keymap {
             action: ReactionInput::Cancel,
             keys: &[Esc],
             label: "cancel",
+        },
+    ],
+};
+
+pub const IMAGE: Keymap<ImageInput> = Keymap {
+    bindings: &[
+        Binding {
+            action: ImageInput::Next,
+            keys: &[Char('j'), Char('l'), Down, Right],
+            label: "next",
+        },
+        Binding {
+            action: ImageInput::Prev,
+            keys: &[Char('k'), Char('h'), Up, Left],
+            label: "prev",
+        },
+        Binding {
+            action: ImageInput::Close,
+            keys: &[Esc, Char('q'), Char('I')],
+            label: "close",
         },
     ],
 };

@@ -24,6 +24,10 @@ pub enum Message {
     TeamsLoaded {
         teams: Vec<Team>,
     },
+    ImageLoaded {
+        url: String,
+        image: Box<image::DynamicImage>,
+    },
     DetailLoaded {
         detail: Box<IssueDetail>,
         reveal: Reveal,
@@ -105,6 +109,7 @@ pub enum FailureTarget {
     Inbox,
     CustomViews,
     Teams,
+    Image { url: String },
     Detail,
     States { team_id: TeamId },
     Members { team_id: TeamId },
@@ -251,6 +256,9 @@ pub enum ApiCommand {
     },
     LoadCustomViews,
     LoadTeams,
+    LoadImage {
+        url: String,
+    },
     LoadDetail {
         target: IssueRef,
         reveal: Reveal,
@@ -329,6 +337,7 @@ impl ApiCommand {
             ApiCommand::LoadInboxFeed { .. } => FailureTarget::Inbox,
             ApiCommand::LoadCustomViews => FailureTarget::CustomViews,
             ApiCommand::LoadTeams => FailureTarget::Teams,
+            ApiCommand::LoadImage { url } => FailureTarget::Image { url: url.clone() },
             ApiCommand::LoadDetail { .. } => FailureTarget::Detail,
             ApiCommand::LoadStates { team_id } => FailureTarget::States {
                 team_id: team_id.clone(),

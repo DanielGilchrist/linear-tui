@@ -32,6 +32,7 @@ pub trait LinearApi: Send + Sync {
     async fn notifications(&self, after: Option<&Cursor>) -> ApiResult<Page<NotificationItem>>;
     async fn workflow_states(&self, team_id: &TeamId) -> ApiResult<Vec<StateOption>>;
     async fn teams(&self) -> ApiResult<Vec<Team>>;
+    async fn image(&self, url: &str) -> ApiResult<Vec<u8>>;
     async fn team_members(&self, team_id: &TeamId) -> ApiResult<Vec<User>>;
     async fn search_users(&self, term: &str) -> ApiResult<Vec<User>>;
     async fn search_labels(&self, term: &str) -> ApiResult<Vec<Label>>;

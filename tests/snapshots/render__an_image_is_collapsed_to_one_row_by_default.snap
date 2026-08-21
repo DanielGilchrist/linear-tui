@@ -1,0 +1,28 @@
+---
+source: tests/render.rs
+expression: "render_to_string(&mut app, 90, 24)"
+---
+┌Assigned to me 1/3──────────────┐┌DAN2-7────────────────────────────────────────────────┐
+│!!! DAN2-7 In Progress Wood-fire││DAN2-7  In Progress                                   ↑
+│!!! DAN-10 In Progress Sprinkle ││Wood-fired oven runs 40°C too hot on Friday nights    █
+│!!  DAN2-2 In Progress Delivery ││@dan  oven                                            █
+│!!! DAN2-3 Todo Add gluten-free ││https://linear.app/dans-donuts/issue/DAN2-7/wood-fired█
+│!!  DAN-13 Todo Introduce a mapl││-oven-runs-too-hot                                    █
+│!!  DAN2-5 Backlog Settle the pi││                                                      █
+│    DAN-15 Backlog Coffee pairin││Before the shot                                       █
+│                                ││                                                      █
+│                                ││🖼 oven trace  t show   I open                         █
+│                                ││                                                      █
+│                                ││After the shot                                        █
+│                                ││                                                      █
+└ 1 of 7 ────────────────────────┘│👀  1  🚀  1                                            ║
+┌Recently viewed─────────────────┐│                                                      ║
+│Issues you open land here       ││Comments (4)                                          ║
+└────────────────────────────────┘│                                                      ║
+┌Saved Views─────────────────────┐│dan · 11h ago                                         ║
+│⠋  Loading…                     ││  Swapped the thermocouple this morning. Readings so  ║
+└────────────────────────────────┘│far:                                                  ║
+┌Teams───────────────────────────┐│                                                      ║
+│⠋  Loading…                     ││  1. 6pm - 445°C                                      ↓
+└────────────────────────────────┘└──────────────────────────────────────────────────────┘
+ t thumbnail   j/k scroll   C-d/C-u page   e edit   c comment   m co… Dan's Donuts · @dan

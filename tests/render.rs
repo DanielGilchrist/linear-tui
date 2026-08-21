@@ -17,6 +17,10 @@ fn edit(app: &mut App, field: char) {
     handle_key(app, KeyEvent::new(KeyCode::Char(field), KeyModifiers::NONE));
 }
 
+fn expand_images(app: &mut App) {
+    handle_key(app, KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+}
+
 fn sign_in(app: &mut App) {
     app.session.upsert_account(Account {
         workspace_key: "ws".into(),
@@ -917,5 +921,212 @@ async fn only_label_chips_may_carry_raw_rgb() {
     assert!(
         !frame.contains("Rgb("),
         "a surface with no label chips must carry no raw colour"
+    );
+}
+
+#[tokio::test]
+async fn an_image_is_collapsed_to_one_row_by_default() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+
+    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    detail.description = Some(
+        "Before the shot\n\n![oven trace](https://uploads.linear.app/trace.png)\n\nAfter the shot"
+            .into(),
+    );
+    app.workspace.set_detail(detail, app.now);
+
+    insta::assert_snapshot!(render_to_string(&mut app, 90, 24));
+}
+
+#[tokio::test]
+async fn a_partly_visible_image_is_clipped_rather_than_hidden() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+
+    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    detail.description =
+        Some("Before the shot\n\n![oven trace](https://uploads.linear.app/trace.png)".into());
+    app.workspace.set_detail(detail, app.now);
+
+    expand_images(&mut app);
+
+    let roomy = render_to_string(&mut app, 90, 24);
+    let cramped = render_to_string(&mut app, 90, 15);
+
+    assert!(
+        roomy.contains("┌oven trace"),
+        "the box is drawn when it fits"
+    );
+    assert!(
+        cramped.contains("┌oven trace"),
+        "a box with room for a few rows is clipped, not hidden"
+    );
+}
+
+#[tokio::test]
+async fn a_sliver_of_an_image_still_renders() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+
+    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    detail.description =
+        Some("Before the shot\n\n![oven trace](https://uploads.linear.app/trace.png)".into());
+    app.workspace.set_detail(detail, app.now);
+
+    expand_images(&mut app);
+
+    let frame = render_to_string(&mut app, 90, 12);
+
+    assert!(
+        frame.contains("┌oven trace"),
+        "even a couple of rows renders rather than vanishing"
+    );
+}
+
+#[tokio::test]
+async fn a_loaded_image_draws_pixels_into_the_reserved_box() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+
+    let url = "https://uploads.linear.app/trace.png";
+    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    detail.description = Some(format!("Before the shot\n\n![oven trace]({url})"));
+    app.workspace.set_detail(detail, app.now);
+
+    expand_images(&mut app);
+
+    let placeholder = render_to_string(&mut app, 90, 24);
+    assert!(
+        placeholder.contains("┌oven trace"),
+        "an unloaded image shows the reserved box"
+    );
+
+    let bytes = client.image(url).await.unwrap();
+    let decoded = linear_tui::tui::render::image::decode(&bytes).expect("the fixture png decodes");
+    apply(
+        &mut app,
+        Message::ImageLoaded {
+            url: url.to_string(),
+            image: Box::new(decoded),
+        },
+    );
+
+    let drawn = render_to_string(&mut app, 90, 24);
+
+    assert!(
+        !drawn.contains("┌oven trace"),
+        "a loaded image replaces the placeholder box"
+    );
+    assert!(
+        drawn.contains('\u{2580}'),
+        "halfblocks paint the reserved rows, got:\n{drawn}"
+    );
+}
+
+#[tokio::test]
+async fn scrolling_past_an_image_does_not_re_encode_it() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+
+    let url = "https://uploads.linear.app/trace.png";
+    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    detail.description = Some(format!(
+        "{}\n\n![oven trace]({url})\n\n{}",
+        "filler ".repeat(40),
+        "tail ".repeat(80)
+    ));
+    app.workspace.set_detail(detail, app.now);
+
+    let bytes = client.image(url).await.unwrap();
+    let decoded = linear_tui::tui::render::image::decode(&bytes).expect("the fixture png decodes");
+    apply(
+        &mut app,
+        Message::ImageLoaded {
+            url: url.to_string(),
+            image: Box::new(decoded),
+        },
+    );
+
+    expand_images(&mut app);
+    render_to_string(&mut app, 90, 20);
+    let after_first = app
+        .workspace
+        .image(url)
+        .and_then(Remote::value)
+        .map(|loaded| loaded.encodes())
+        .expect("the image is loaded");
+
+    for _ in 0..12 {
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        );
+        render_to_string(&mut app, 90, 20);
+    }
+
+    let after_scrolling = app
+        .workspace
+        .image(url)
+        .and_then(Remote::value)
+        .map(|loaded| loaded.encodes())
+        .expect("the image is still loaded");
+
+    assert_eq!(
+        after_scrolling,
+        after_first,
+        "clipping must not re-encode: scrolling re-encoded {} extra times",
+        after_scrolling - after_first
+    );
+}
+
+#[tokio::test]
+async fn an_image_scrolled_half_off_the_top_still_encodes_once() {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await;
+
+    let url = "https://uploads.linear.app/trace.png";
+    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    detail.description = Some(format!(
+        "{}\n\n![oven trace]({url})\n\n{}",
+        "filler ".repeat(30),
+        "tail ".repeat(120)
+    ));
+    app.workspace.set_detail(detail, app.now);
+
+    let bytes = client.image(url).await.unwrap();
+    let decoded = linear_tui::tui::render::image::decode(&bytes).expect("the fixture png decodes");
+    apply(
+        &mut app,
+        Message::ImageLoaded {
+            url: url.to_string(),
+            image: Box::new(decoded),
+        },
+    );
+
+    let encodes = |app: &App| {
+        app.workspace
+            .image(url)
+            .and_then(Remote::value)
+            .map(|loaded| loaded.encodes())
+            .expect("the image is loaded")
+    };
+
+    expand_images(&mut app);
+    render_to_string(&mut app, 90, 20);
+    let baseline = encodes(&app);
+
+    for _ in 0..30 {
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        );
+        render_to_string(&mut app, 90, 20);
+    }
+
+    assert_eq!(
+        encodes(&app),
+        baseline,
+        "slicing must hold the encode stable while the image scrolls off the top"
     );
 }

@@ -3,9 +3,10 @@ use ratatui::widgets::ListState;
 
 use super::feed::{force_feed, load_more, reload};
 use super::issue::{
-    clear_recent, enter_comments, open_assign_picker, open_comment_input, open_delete_comment,
-    open_edit_editor, open_in_browser, open_issue, open_labels, open_priority_picker,
-    open_reactions, open_reply_editor, open_status_picker, toggle_reaction, yank_url,
+    access_view_image, clear_recent, enter_comments, open_assign_picker, open_comment_input,
+    open_delete_comment, open_edit_editor, open_image_view, open_in_browser, open_issue,
+    open_labels, open_priority_picker, open_reactions, open_reply_editor, open_status_picker,
+    toggle_images, toggle_reaction, yank_url,
 };
 use super::nav::{
     ascend, cycle_panel, cycle_view, cycle_view_group, cycle_view_sort, descend, history_step,
@@ -15,17 +16,17 @@ use crate::api::Credential;
 use crate::api::IssueRef;
 use crate::api::IssueUpdate;
 use crate::tui::action::{
-    self, Action, ConfirmInput, EditorInput, InputInput, LabelsInput, MenuInput, PickerInput,
-    ReactionInput, WorkspacesInput,
+    self, Action, ConfirmInput, EditorInput, ImageInput, InputInput, LabelsInput, MenuInput,
+    PickerInput, ReactionInput, WorkspacesInput,
 };
 use crate::tui::app::App;
 use crate::tui::feed::FeedKey;
 use crate::tui::focus::{navigate_list, select_edge, DetailView, Direction, Edge, Focus, Origin};
 use crate::tui::message::{ApiCommand, Commands, Effect, Effects, RuntimeCommand};
 use crate::tui::overlay::{
-    AssignOptions, Compose, Confirm, Editor, Find, Input, InputPurpose, LabelResults, Labels, Menu,
-    ModalOverlay, Overlay, Picker, PickerAction, PickerKind, Prefix, PrefixUnder, Reactions,
-    Search, SearchPhase, WorkspaceRow, Workspaces,
+    AssignOptions, Compose, Confirm, Editor, Find, ImageView, Input, InputPurpose, LabelResults,
+    Labels, Menu, ModalOverlay, Overlay, Picker, PickerAction, PickerKind, Prefix, PrefixUnder,
+    Reactions, Search, SearchPhase, WorkspaceRow, Workspaces,
 };
 use crate::tui::status::Status;
 
@@ -648,6 +649,29 @@ pub(super) fn apply_reactions(app: &mut App, mut reactions: Reactions, key: KeyE
     }
 }
 
+pub(super) fn apply_image(app: &mut App, mut view: ImageView, key: KeyEvent) -> Outcome {
+    let stepped = match ImageInput::from_key(key) {
+        Some(ImageInput::Next) => {
+            view.step(Direction::Next);
+            true
+        }
+        Some(ImageInput::Prev) => {
+            view.step(Direction::Prev);
+            true
+        }
+        Some(ImageInput::Close) => return Outcome::close(),
+        None => false,
+    };
+
+    if !stepped {
+        return Outcome::set(Overlay::Image(view));
+    }
+
+    let commands = access_view_image(app, &view);
+
+    Outcome::with(Overlay::Image(view), commands)
+}
+
 pub(super) fn apply_labels(mut labels: Labels, key: KeyEvent) -> Outcome {
     match LabelsInput::from_key(key) {
         Some(LabelsInput::Cancel) => Outcome::set_reporting(Overlay::None, Status::Cancelled),
@@ -833,6 +857,8 @@ pub(super) fn apply_action(app: &mut App, action: Action) -> Effects {
             open_menu(app);
             Effects::default()
         }
+        Action::ViewImage => open_image_view(app).write(app),
+        Action::ToggleImages => toggle_images(app).write(app),
         Action::Workspaces => {
             super::open_workspaces(app);
             Effects::default()

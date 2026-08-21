@@ -11,8 +11,8 @@ use crate::tui::cache::{RefreshPolicy, Remote};
 use crate::tui::focus::{DetailFocus, DetailView, Focus, Origin, Reveal};
 use crate::tui::message::{ApiCommand, Effect, Effects, PlatformCommand, StoreCommand};
 use crate::tui::overlay::{
-    AssignOptions, Compose, Confirm, Editor, Labels, Overlay, Picker, PickerItem, PickerKind,
-    Reactions,
+    AssignOptions, Compose, Confirm, Editor, ImageView, Labels, Overlay, Picker, PickerItem,
+    PickerKind, Reactions,
 };
 use crate::tui::status::Status;
 
@@ -86,6 +86,78 @@ pub(super) fn open_edit_editor(app: &mut App) -> Report {
         Some(&body),
     )
     .into()
+}
+
+pub(super) fn toggle_images(app: &mut App) -> Report {
+    let urls = focused_image_urls(app);
+
+    if urls.is_empty() {
+        return Report::status(Status::NoImages);
+    }
+
+    if !app.toggle_images(&urls) {
+        return Effects::default().into();
+    }
+
+    let effects = urls
+        .into_iter()
+        .filter(|url| app.workspace.begin_image(url, app.now))
+        .map(|url| Effect::Api(ApiCommand::LoadImage { url }))
+        .collect::<Effects>();
+
+    effects.into()
+}
+
+pub(super) fn open_image_view(app: &mut App) -> Report {
+    let urls = focused_image_urls(app);
+
+    match ImageView::open(urls) {
+        Some(view) => {
+            let effects = access_view_image(app, &view);
+            app.set_overlay(Overlay::Image(view));
+
+            effects.into()
+        }
+        None => Report::status(Status::NoImages),
+    }
+}
+
+pub(super) fn access_view_image(app: &mut App, view: &ImageView) -> Effects {
+    let url = view.url().to_string();
+
+    Effects::when(
+        app.workspace.begin_image(&url, app.now),
+        Effect::Api(ApiCommand::LoadImage { url }),
+    )
+}
+
+fn focused_image_urls(app: &App) -> Vec<String> {
+    let rendered = app.workspace.detail_markdown();
+
+    match app.comment_cursor() {
+        Some(index) => rendered
+            .comment_bodies
+            .get(index)
+            .map(|body| urls_of(std::iter::once(body)))
+            .unwrap_or_default(),
+        None => {
+            urls_of(std::iter::once(&rendered.description).chain(rendered.comment_bodies.iter()))
+        }
+    }
+}
+
+fn urls_of<'a>(bodies: impl Iterator<Item = &'a crate::tui::markdown::Rendered>) -> Vec<String> {
+    let mut urls: Vec<String> = Vec::new();
+
+    for body in bodies {
+        for image in &body.images {
+            if !urls.contains(&image.url) {
+                urls.push(image.url.clone());
+            }
+        }
+    }
+
+    urls
 }
 
 pub(super) fn open_reactions(app: &mut App) -> Effects {

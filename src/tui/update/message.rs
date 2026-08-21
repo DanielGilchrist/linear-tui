@@ -1,5 +1,6 @@
 use super::feed::{
-    access_feed, feed_keep_id, reconcile_feed, resolve, revalidate_focus, selected_view_key,
+    access_detail_images, access_feed, feed_keep_id, reconcile_feed, resolve, revalidate_focus,
+    selected_view_key,
 };
 use super::issue::{
     fill_picker, found_users, newest_comment_index, open_editor, place_editor, status_items,
@@ -39,6 +40,10 @@ enum Transition {
     },
     CustomViewsLoaded(Vec<crate::api::SavedView>),
     TeamsLoaded(Vec<crate::api::Team>),
+    ImageLoaded {
+        url: String,
+        image: Box<image::DynamicImage>,
+    },
     DetailLoaded {
         detail: Box<IssueDetail>,
         reveal: Reveal,
@@ -121,6 +126,7 @@ fn reduce(app: &App, msg: Message) -> Transition {
         }
         Message::CustomViewsLoaded(views) => Transition::CustomViewsLoaded(views),
         Message::TeamsLoaded { teams } => Transition::TeamsLoaded(teams),
+        Message::ImageLoaded { url, image } => Transition::ImageLoaded { url, image },
         Message::DetailLoaded { detail, reveal } => {
             let focused = app
                 .focus()
@@ -273,6 +279,12 @@ fn commit(app: &mut App, transition: Transition) -> Commands {
                 .map(|key| access_feed(app, key))
                 .unwrap_or_default()
                 .into()
+        }
+        Transition::ImageLoaded { url, image } => {
+            let loaded = crate::tui::render::image::load(*image);
+            app.workspace.set_image(url, loaded, app.now);
+
+            Commands::default()
         }
         Transition::TeamsLoaded(mut teams) => {
             teams.sort_by(|a, b| a.key.cmp(&b.key));
@@ -469,9 +481,12 @@ fn commit_detail(
 
     app.record_recent(summary);
 
-    Commands::from(Effect::Store(StoreCommand::SaveRecent(
+    let mut effects = access_detail_images(app);
+    effects.push(Effect::Store(StoreCommand::SaveRecent(
         app.workspace.recently_viewed.clone(),
-    )))
+    )));
+
+    effects.into()
 }
 
 fn revealed_view(
@@ -511,6 +526,7 @@ fn commit_failure(app: &mut App, target: FailureTarget, error: RequestError) -> 
         FailureTarget::Inbox => app.workspace.inbox.fail(error.clone()),
         FailureTarget::CustomViews => app.workspace.saved_views.views.fail(error.clone()),
         FailureTarget::Teams => app.workspace.teams.teams.fail(error.clone()),
+        FailureTarget::Image { url } => app.workspace.fail_image(&url, error.clone()),
         FailureTarget::Detail => app.workspace.fail_detail(error.clone()),
         FailureTarget::States { team_id } => {
             app.workspace

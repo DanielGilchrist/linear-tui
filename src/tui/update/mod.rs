@@ -18,9 +18,9 @@ pub use feed::{initial_commands, restore_feeds};
 pub use message::apply;
 
 use input::{
-    apply_action, apply_confirm, apply_editor, apply_find, apply_input, apply_labels, apply_menu,
-    apply_outcome, apply_picker, apply_prefix, apply_reactions, apply_search, apply_workspaces,
-    resolve_browse,
+    apply_action, apply_confirm, apply_editor, apply_find, apply_image, apply_input, apply_labels,
+    apply_menu, apply_outcome, apply_picker, apply_prefix, apply_reactions, apply_search,
+    apply_workspaces, resolve_browse,
 };
 
 pub fn open_workspaces(app: &mut App) {
@@ -67,6 +67,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Commands {
         Overlay::Reactions(reactions) => apply_reactions(app, reactions, key),
         Overlay::Labels(labels) => apply_labels(labels, key),
         Overlay::Workspaces(workspaces) => apply_workspaces(app, workspaces, key),
+        Overlay::Image(view) => apply_image(app, view, key),
         Overlay::None => {
             return resolve_browse(app, key)
                 .map(|action| apply_action(app, action))

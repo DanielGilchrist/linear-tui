@@ -391,6 +391,19 @@ fn dispatch_api(conn: &Connection, lane: Lane, tx: &Tx, command: ApiCommand) {
                 Ok(views) => Message::CustomViewsLoaded(views),
                 Err(error) => failed(on_failure, &error),
             }),
+            ApiCommand::LoadImage { url } => Some(match api.image(&url).await {
+                Ok(bytes) => match crate::tui::render::image::decode(&bytes) {
+                    Some(image) => Message::ImageLoaded {
+                        url,
+                        image: Box::new(image),
+                    },
+                    None => Message::Failed {
+                        target: FailureTarget::Image { url },
+                        error: RequestError::Other("unsupported image format".to_string()),
+                    },
+                },
+                Err(error) => failed(on_failure, &error),
+            }),
             ApiCommand::LoadTeams => Some(match api.teams().await {
                 Ok(teams) => Message::TeamsLoaded { teams },
                 Err(error) => failed(on_failure, &error),
