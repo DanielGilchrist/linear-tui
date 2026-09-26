@@ -201,10 +201,10 @@ impl WorkspaceData {
     pub fn take_encode_requests(&mut self) -> Vec<EncodeImage> {
         self.images
             .iter_mut()
-            .filter_map(|(url, cell)| {
-                let request = cell.value_mut()?.take_request()?;
+            .flat_map(|(url, cell)| {
+                let requests = cell.value_mut().map(Loaded::take_requests);
 
-                Some(EncodeImage {
+                requests.into_iter().flatten().map(|request| EncodeImage {
                     url: url.clone(),
                     size: request.size,
                     source: request.source,

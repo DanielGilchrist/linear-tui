@@ -194,7 +194,7 @@ pub(super) fn reselect_view(app: &mut App, keep: Option<IssueId>) {
             let issues = app.view_issues()?;
             app.view_ordered()
                 .iter()
-                .position(|&index| issues[index].id == id)
+                .position(|&index| issues.get(index).is_some_and(|issue| issue.id == id))
         })
         .unwrap_or(0);
 

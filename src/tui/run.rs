@@ -595,12 +595,15 @@ mod tests {
     use crate::tui::feed::Feed;
     use tempfile::TempDir;
 
-    fn offline_runtime() -> (Runtime, UnboundedReceiver<(Lane, Message)>, TempDir) {
+    type TestResult<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
+    type Harness = (Runtime, UnboundedReceiver<(Lane, Message)>, TempDir);
+
+    fn offline_runtime() -> TestResult<Harness> {
         runtime_with(Platform::inert())
     }
 
-    fn runtime_with(platform: Platform) -> (Runtime, UnboundedReceiver<(Lane, Message)>, TempDir) {
-        let dir = tempfile::tempdir().expect("a temporary state directory");
+    fn runtime_with(platform: Platform) -> TestResult<Harness> {
+        let dir = tempfile::tempdir()?;
         let (tx, rx) = mpsc::unbounded_channel();
         let make_client: ClientFactory =
             Arc::new(|_| Arc::new(FixtureClient::sample()) as Arc<dyn LinearApi>);
@@ -614,20 +617,18 @@ mod tests {
             state: StateDir::at(dir.path().into()),
         };
 
-        (rt, rx, dir)
+        Ok((rt, rx, dir))
     }
 
-    fn connected_runtime(
-        namespace: &str,
-    ) -> (Runtime, UnboundedReceiver<(Lane, Message)>, TempDir) {
-        let (mut rt, rx, dir) = offline_runtime();
+    fn connected_runtime(namespace: &str) -> TestResult<Harness> {
+        let (mut rt, rx, dir) = offline_runtime()?;
 
         rt.conn = Some(Connection {
             api: Arc::new(FixtureClient::sample()),
             namespace: namespace.to_string(),
         });
 
-        (rt, rx, dir)
+        Ok((rt, rx, dir))
     }
 
     fn account(workspace_key: &str) -> Account {
@@ -675,8 +676,8 @@ mod tests {
     }
 
     #[test]
-    fn an_offline_load_settles_the_cell_instead_of_vanishing() {
-        let (mut rt, mut rx, _dir) = offline_runtime();
+    fn an_offline_load_settles_the_cell_instead_of_vanishing() -> TestResult {
+        let (mut rt, mut rx, _dir) = offline_runtime()?;
 
         run_effect(&mut rt, Effect::Api(ApiCommand::LoadCustomViews));
 
@@ -684,13 +685,20 @@ mod tests {
             Ok((_, Message::Failed { target, .. })) => {
                 assert!(matches!(target, FailureTarget::CustomViews));
             }
-            other => panic!("expected an offline failure that settles the cell, got {other:?}"),
+            other => {
+                return Err(format!(
+                    "expected an offline failure that settles the cell, got {other:?}"
+                )
+                .into())
+            }
         }
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn a_platform_effect_runs_without_a_connection() {
-        let (mut rt, mut rx, _dir) = offline_runtime();
+    async fn a_platform_effect_runs_without_a_connection() -> TestResult {
+        let (mut rt, mut rx, _dir) = offline_runtime()?;
 
         run_effect(
             &mut rt,
@@ -703,27 +711,31 @@ mod tests {
             rx.try_recv().is_err(),
             "a platform effect dispatches instead of settling as not connected"
         );
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn an_account_added_after_a_generation_bump_still_lands() {
-        let (mut rt, mut rx, _dir) = offline_runtime();
+    async fn an_account_added_after_a_generation_bump_still_lands() -> TestResult {
+        let (mut rt, mut rx, _dir) = offline_runtime()?;
 
         add_account(&rt, Credential::PersonalKey("k".into()));
         rt.generation = rt.generation.next();
 
-        let (lane, message) = rx.recv().await.expect("an account reply");
+        let (lane, message) = rx.recv().await.ok_or("an account reply")?;
 
         assert!(matches!(message, Message::AccountAdded { .. }));
         assert!(
             !is_stale(lane, rt.generation),
             "an account fact is not connection-scoped, so a bump cannot drop it"
         );
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn a_platform_failure_lands_after_a_generation_bump() {
-        let (mut rt, mut rx, _dir) = runtime_with(Platform::broken());
+    async fn a_platform_failure_lands_after_a_generation_bump() -> TestResult {
+        let (mut rt, mut rx, _dir) = runtime_with(Platform::broken())?;
 
         run_effect(
             &mut rt,
@@ -731,7 +743,7 @@ mod tests {
         );
         rt.generation = rt.generation.next();
 
-        let (lane, message) = rx.recv().await.expect("a platform failure");
+        let (lane, message) = rx.recv().await.ok_or("a platform failure")?;
 
         assert!(matches!(
             message,
@@ -744,13 +756,15 @@ mod tests {
             !is_stale(lane, rt.generation),
             "a host fact is invalidated by no retargeting, so a bump cannot drop it"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn a_workspace_reply_from_before_a_switch_is_dropped() {
-        let (mut rt, _rx, _dir) = offline_runtime();
+    fn a_workspace_reply_from_before_a_switch_is_dropped() -> TestResult {
+        let (mut rt, _rx, _dir) = offline_runtime()?;
         let mut app = App::new();
-        let key = app.active_feed_key().expect("an active feed");
+        let key = app.active_feed_key().ok_or("an active feed")?;
         let before_switch = rt.lane();
 
         deliver(&mut rt, &mut app, before_switch, feed_reply(&key, "i1"));
@@ -774,11 +788,13 @@ mod tests {
             app.workspace.feeds.get(&key).is_none(),
             "a reply for the superseded connection must not write the new workspace"
         );
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn reconnect_bumps_the_generation_so_pre_reconnect_replies_drop() {
-        let (mut rt, _rx, _dir) = offline_runtime();
+    async fn reconnect_bumps_the_generation_so_pre_reconnect_replies_drop() -> TestResult {
+        let (mut rt, _rx, _dir) = offline_runtime()?;
         let mut app = App::new();
 
         app.session.upsert_account(account("ws"));
@@ -793,19 +809,21 @@ mod tests {
             is_stale(before_reconnect, rt.generation),
             "reconnect retargets the connection, so replies for the old one must drop"
         );
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn switching_workspaces_clears_the_previous_workspace_state() {
+    async fn switching_workspaces_clears_the_previous_workspace_state() -> TestResult {
         let outgoing = account("a");
-        let (mut rt, _rx, _dir) = connected_runtime(&outgoing.namespace());
+        let (mut rt, _rx, _dir) = connected_runtime(&outgoing.namespace())?;
         let mut app = App::new();
 
         app.session.upsert_account(outgoing);
         app.session.upsert_account(account("b"));
         assert!(app.session.activate("a"));
 
-        let key = app.active_feed_key().expect("an active feed");
+        let key = app.active_feed_key().ok_or("an active feed")?;
         app.workspace.feeds.insert(
             key.clone(),
             Feed::ready(Page::single(vec![issue("i1")]), app.now),
@@ -823,34 +841,38 @@ mod tests {
             "the previous workspace's rows must not survive the switch"
         );
         assert_eq!(app.session.active_workspace(), Some("b"));
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn switching_workspaces_saves_the_outgoing_feed_cache() {
+    async fn switching_workspaces_saves_the_outgoing_feed_cache() -> TestResult {
         let outgoing = account("outgoing");
         let namespace = outgoing.namespace();
-        let (mut rt, _rx, _dir) = connected_runtime(&namespace);
+        let (mut rt, _rx, _dir) = connected_runtime(&namespace)?;
         let mut app = App::new();
 
         app.session.upsert_account(outgoing);
         app.session.upsert_account(account("incoming"));
         assert!(app.session.activate("outgoing"));
 
-        let key = app.active_feed_key().expect("an active feed");
+        let key = app.active_feed_key().ok_or("an active feed")?;
         app.workspace
             .feeds
             .insert(key, Feed::ready(Page::single(vec![issue("i1")]), app.now));
 
         switch_workspace(&mut rt, &mut app, account("incoming"));
 
-        let saved =
-            crate::store::load_feeds(&rt.state, &namespace).expect("the outgoing cache is written");
+        let saved = crate::store::load_feeds(&rt.state, &namespace)
+            .ok_or("the outgoing cache is written")?;
         assert_eq!(saved.issues.len(), 1);
+
+        Ok(())
     }
 
     #[test]
-    fn switching_to_an_unknown_workspace_is_a_no_op() {
-        let (mut rt, _rx, _dir) = offline_runtime();
+    fn switching_to_an_unknown_workspace_is_a_no_op() -> TestResult {
+        let (mut rt, _rx, _dir) = offline_runtime()?;
         let mut app = App::new();
 
         app.session.upsert_account(Account {
@@ -871,11 +893,13 @@ mod tests {
         assert_eq!(rt.generation, Generation::START);
         assert!(rt.conn.is_none());
         assert_eq!(app.session.active_workspace(), Some("ws"));
+
+        Ok(())
     }
 
     #[test]
-    fn an_offline_store_effect_settles_as_a_failure() {
-        let (mut rt, mut rx, _dir) = offline_runtime();
+    fn an_offline_store_effect_settles_as_a_failure() -> TestResult {
+        let (mut rt, mut rx, _dir) = offline_runtime()?;
 
         run_effect(&mut rt, Effect::Store(StoreCommand::ClearRecent));
 
@@ -883,7 +907,13 @@ mod tests {
             Ok((_, Message::Failed { target, .. })) => {
                 assert!(matches!(target, FailureTarget::Ephemeral));
             }
-            other => panic!("expected an offline store effect to settle, got {other:?}"),
+            other => {
+                return Err(
+                    format!("expected an offline store effect to settle, got {other:?}").into(),
+                )
+            }
         }
+
+        Ok(())
     }
 }

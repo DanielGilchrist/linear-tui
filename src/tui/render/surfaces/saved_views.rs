@@ -90,16 +90,17 @@ pub fn render_preview(
     };
 
     let groups = display::arrange(issues, GroupBy::Status, SortBy::Manual);
-    let rows = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).split(inner);
+    let [breakdown_area, list_area] =
+        Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).areas(inner);
 
     frame.render_widget(
         Paragraph::new(Text::from(vec![breakdown_line(&groups), Line::from("")])),
-        rows[0],
+        breakdown_area,
     );
 
     let id_width = id_column_width(issues);
-    let width = rows[1].width as usize;
+    let width = list_area.width as usize;
     let (items, _) = view_items(issues, &groups, GroupBy::Status, None, id_width, width, now);
 
-    frame.render_widget(List::new(items), rows[1]);
+    frame.render_widget(List::new(items), list_area);
 }

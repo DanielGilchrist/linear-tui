@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock};
 
 use image::imageops::FilterType;
@@ -54,12 +55,14 @@ pub struct EncodeRequest {
     pub source: Arc<DynamicImage>,
 }
 
+const KEPT_SIZES: usize = 4;
+
 pub struct Loaded {
     source: Arc<DynamicImage>,
-    encoded: Option<Encoded>,
-    wanted: Option<Size>,
-    pending: Option<Size>,
-    failed: Option<Size>,
+    encoded: VecDeque<Encoded>,
+    wanted: Vec<Size>,
+    pending: Vec<Size>,
+    failed: Vec<Size>,
     encodes: usize,
     pub width: u32,
     pub height: u32,
@@ -70,10 +73,10 @@ pub fn load(source: DynamicImage) -> Loaded {
 
     Loaded {
         source: Arc::new(source),
-        encoded: None,
-        wanted: None,
-        pending: None,
-        failed: None,
+        encoded: VecDeque::new(),
+        wanted: Vec::new(),
+        pending: Vec::new(),
+        failed: Vec::new(),
         encodes: 0,
         width,
         height,
@@ -82,54 +85,68 @@ pub fn load(source: DynamicImage) -> Loaded {
 
 impl Loaded {
     pub fn sliced(&mut self, size: Size) -> Option<&SlicedProtocol> {
-        match &self.encoded {
-            Some(encoded) if encoded.size == size => Some(&encoded.sliced),
-            _ => {
-                self.wanted = Some(size);
+        let used = self
+            .encoded
+            .iter()
+            .position(|encoded| encoded.size == size)
+            .and_then(|index| self.encoded.remove(index));
 
-                None
+        let Some(used) = used else {
+            if !self.wanted.contains(&size) {
+                self.wanted.push(size);
             }
-        }
+
+            return None;
+        };
+
+        self.encoded.push_back(used);
+
+        self.encoded.back().map(|encoded| &encoded.sliced)
     }
 
-    pub fn take_request(&mut self) -> Option<EncodeRequest> {
-        let size = self.wanted.take()?;
+    pub fn take_requests(&mut self) -> Vec<EncodeRequest> {
+        let mut requests = Vec::new();
 
-        if self.pending == Some(size) || self.failed == Some(size) {
-            return None;
+        for size in std::mem::take(&mut self.wanted) {
+            if self.pending.contains(&size) || self.failed.contains(&size) {
+                continue;
+            }
+
+            self.pending.push(size);
+            requests.push(EncodeRequest {
+                size,
+                source: Arc::clone(&self.source),
+            });
         }
 
-        self.pending = Some(size);
-
-        Some(EncodeRequest {
-            size,
-            source: Arc::clone(&self.source),
-        })
+        requests
     }
 
     pub fn set_encoded(&mut self, encoded: Encoded) {
-        if self.pending == Some(encoded.size) {
-            self.pending = None;
-        }
-
-        self.encoded = Some(encoded);
+        self.pending.retain(|size| *size != encoded.size);
+        self.encoded.retain(|kept| kept.size != encoded.size);
+        self.encoded.push_back(encoded);
         self.encodes += 1;
+
+        while self.encoded.len() > KEPT_SIZES {
+            self.encoded.pop_front();
+        }
     }
 
     pub fn encode_failed(&mut self, size: Size) {
-        if self.pending == Some(size) {
-            self.pending = None;
-        }
+        self.pending.retain(|pending| *pending != size);
 
-        self.failed = Some(size);
+        if !self.failed.contains(&size) {
+            self.failed.push(size);
+        }
     }
 
     pub fn failed_at(&self, size: Size) -> bool {
-        self.failed == Some(size)
+        self.failed.contains(&size)
     }
 
     pub fn is_encoding(&self) -> bool {
-        self.pending.is_some()
+        !self.pending.is_empty()
     }
 
     pub fn encodes(&self) -> usize {
@@ -167,6 +184,31 @@ mod tests {
 
         assert_eq!(scaled.width(), MAX_EDGE);
         assert_eq!(scaled.height(), MAX_EDGE * 3 / 4);
+    }
+
+    #[test]
+    fn the_least_recently_drawn_size_is_evicted_first() -> Result<(), &'static str> {
+        let source = DynamicImage::ImageRgb8(image::RgbImage::new(48, 24));
+        let mut loaded = load(source.clone());
+        let oldest = Size::new(4, 4);
+        let second = Size::new(8, 4);
+        let newest = Size::new(64, 4);
+
+        for width in 1..=KEPT_SIZES as u16 {
+            loaded.set_encoded(encode(&source, Size::new(width * 4, 4)).ok_or("encodes")?);
+        }
+
+        assert!(
+            loaded.sliced(oldest).is_some(),
+            "drawing refreshes the oldest"
+        );
+
+        loaded.set_encoded(encode(&source, newest).ok_or("encodes")?);
+
+        assert!(loaded.sliced(oldest).is_some(), "a recent size survives");
+        assert!(loaded.sliced(second).is_none(), "the stalest size goes");
+
+        Ok(())
     }
 
     #[test]

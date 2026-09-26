@@ -267,9 +267,9 @@ pub(super) fn find_step(app: &mut App, direction: Direction) -> Report {
 
     let matches = app.focused_matches(&query);
 
-    if matches.is_empty() {
+    let (Some(&first), Some(&last)) = (matches.first(), matches.last()) else {
         return Effects::default().into();
-    }
+    };
 
     let current = app.focused_selection().unwrap_or(0);
 
@@ -278,13 +278,13 @@ pub(super) fn find_step(app: &mut App, direction: Direction) -> Report {
             .iter()
             .find(|&&i| i > current)
             .copied()
-            .unwrap_or(matches[0]),
+            .unwrap_or(first),
         Direction::Prev => matches
             .iter()
             .rev()
             .find(|&&i| i < current)
             .copied()
-            .unwrap_or(matches[matches.len() - 1]),
+            .unwrap_or(last),
     };
 
     app.reveal_focused(Some(target));

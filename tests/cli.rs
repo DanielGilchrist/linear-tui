@@ -1,7 +1,9 @@
 use std::process::Command;
 
+type TestResult = Result<(), Box<dyn std::error::Error>>;
+
 #[test]
-fn headless_detail_render_includes_the_cached_markdown_bodies() {
+fn headless_detail_render_includes_the_cached_markdown_bodies() -> TestResult {
     let output = Command::new(env!("CARGO_BIN_EXE_linear-tui"))
         .args([
             "render",
@@ -14,8 +16,7 @@ fn headless_detail_render_includes_the_cached_markdown_bodies() {
             "--height",
             "40",
         ])
-        .output()
-        .expect("run the headless render subcommand");
+        .output()?;
 
     assert!(
         output.status.success(),
@@ -37,4 +38,6 @@ fn headless_detail_render_includes_the_cached_markdown_bodies() {
         stdout.contains("🚀"),
         "detail render should include the issue's reaction chips, got:\n{stdout}"
     );
+
+    Ok(())
 }

@@ -33,8 +33,8 @@ pub async fn login(platform: Platform) -> Result<Credential> {
             format!("could not start the local login server on port {REDIRECT_PORT}")
         })?;
 
-    let verifier = random_token(32);
-    let state = random_token(16);
+    let verifier = random_token(32)?;
+    let state = random_token(16)?;
     let url = authorize_url(&code_challenge(&verifier), &state)?;
     let opener = url.clone();
 
@@ -130,7 +130,10 @@ async fn await_code(listener: &TcpListener, expected_state: &str) -> Result<Stri
 async fn read_request_target(stream: &mut TcpStream) -> Result<String> {
     let mut buffer = [0u8; 4096];
     let read = stream.read(&mut buffer).await?;
-    let request = String::from_utf8_lossy(&buffer[..read]);
+    let received = buffer
+        .get(..read)
+        .ok_or_else(|| anyhow!("callback request overran its buffer"))?;
+    let request = String::from_utf8_lossy(received);
 
     request
         .lines()
@@ -210,10 +213,12 @@ fn code_challenge(verifier: &str) -> String {
     base64url(Sha256::digest(verifier.as_bytes()).as_slice())
 }
 
-fn random_token(bytes: usize) -> String {
+fn random_token(bytes: usize) -> Result<String> {
     let mut buffer = vec![0u8; bytes];
-    getrandom::fill(&mut buffer).expect("operating system RNG");
-    base64url(&buffer)
+    getrandom::fill(&mut buffer)
+        .map_err(|error| anyhow!("the operating system RNG failed: {error}"))?;
+
+    Ok(base64url(&buffer))
 }
 
 fn base64url(input: &[u8]) -> String {
@@ -222,17 +227,19 @@ fn base64url(input: &[u8]) -> String {
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
 
     for chunk in input.chunks(3) {
-        let bytes = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let packed = (u32::from(bytes[0]) << 16) | (u32::from(bytes[1]) << 8) | u32::from(bytes[2]);
-
-        for index in 0..=chunk.len() {
-            let sextet = (packed >> (18 - index * 6)) & 0b11_1111;
-            out.push(ALPHABET[sextet as usize] as char);
+        let mut bytes = [0u8; 3];
+        for (slot, byte) in bytes.iter_mut().zip(chunk) {
+            *slot = *byte;
         }
+        let [first, second, third] = bytes;
+        let packed = u32::from_be_bytes([0, first, second, third]);
+
+        out.extend(
+            (0..=chunk.len())
+                .map(|index| (packed >> (18 - index * 6)) & 0b11_1111)
+                .filter_map(|sextet| ALPHABET.get(sextet as usize))
+                .map(|&symbol| char::from(symbol)),
+        );
     }
 
     out

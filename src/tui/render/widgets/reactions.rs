@@ -65,14 +65,14 @@ mod tests {
     }
 
     #[test]
-    fn groups_by_emoji_name_with_counts_and_mine_highlight() {
+    fn groups_by_emoji_name_with_counts_and_mine_highlight() -> Result<(), &'static str> {
         let reactions = vec![
             reaction("+1", true),
             reaction("+1", false),
             reaction("heart", false),
         ];
 
-        let line = reaction_chips(&reactions).expect("chips");
+        let line = reaction_chips(&reactions).ok_or("no chips")?;
         let chips: Vec<(&str, ratatui::style::Style)> = line
             .spans
             .iter()
@@ -80,10 +80,14 @@ mod tests {
             .map(|span| (span.content.as_ref(), span.style))
             .collect();
 
-        assert_eq!(chips.len(), 2);
-        assert_eq!(chips[0].0, "👍 2");
-        assert_eq!(chips[0].1, theme::reaction_mine());
-        assert_eq!(chips[1].0, "❤️ 1");
-        assert_eq!(chips[1].1, theme::reaction());
+        assert_eq!(
+            chips,
+            vec![
+                ("👍 2", theme::reaction_mine()),
+                ("❤️ 1", theme::reaction()),
+            ]
+        );
+
+        Ok(())
     }
 }

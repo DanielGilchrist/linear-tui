@@ -44,13 +44,10 @@ pub fn detail_line_texts(
 }
 
 pub fn render(app: &mut App, frame: &mut Frame) {
-    let chunks = Layout::default()
+    let [body, footer] = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
-        .split(frame.area());
-
-    let body = chunks[0];
-    let footer = chunks[1];
+        .areas(frame.area());
 
     match app.ui.zoom {
         Zoom::Full => render_zoomed(app, frame, body),

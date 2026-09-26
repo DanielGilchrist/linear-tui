@@ -1,10 +1,11 @@
+use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 
 use ratatui::widgets::ListState;
 
 use super::action::{self, Action};
 use super::emoji::{self, PaletteEmoji};
-use super::focus::{Cursor, Direction, Edge, Focus};
+use super::focus::{Direction, Edge, Focus};
 use super::message::Effect;
 use crate::api::{
     CommentId, IssueId, Label, LabelId, Priority, Reaction, ReactionTarget, StateId, StateOption,
@@ -230,29 +231,52 @@ impl Labels {
 }
 
 pub struct ImageView {
-    urls: Vec<String>,
-    at: Cursor,
+    current: String,
+    following: VecDeque<String>,
+    index: usize,
 }
 
 impl ImageView {
     pub fn open(urls: Vec<String>) -> Option<Self> {
-        let at = Cursor::new(0, urls.len())?;
+        let mut following = VecDeque::from(urls);
+        let current = following.pop_front()?;
 
-        Some(Self { urls, at })
+        Some(Self {
+            current,
+            following,
+            index: 0,
+        })
     }
 
     pub fn url(&self) -> &str {
-        let index = self.at.index().min(self.urls.len() - 1);
-
-        &self.urls[index]
+        &self.current
     }
 
     pub fn position(&self) -> (usize, usize) {
-        (self.at.index() + 1, self.urls.len())
+        (self.index + 1, self.len().get())
+    }
+
+    fn len(&self) -> NonZeroUsize {
+        NonZeroUsize::MIN.saturating_add(self.following.len())
     }
 
     pub fn step(&mut self, direction: Direction) {
-        self.at = self.at.stepped(self.urls.len(), direction);
+        match direction {
+            Direction::Next => {
+                if let Some(next) = self.following.pop_front() {
+                    let previous = std::mem::replace(&mut self.current, next);
+                    self.following.push_back(previous);
+                }
+            }
+            Direction::Prev => {
+                if let Some(previous) = self.following.pop_back() {
+                    let next = std::mem::replace(&mut self.current, previous);
+                    self.following.push_front(next);
+                }
+            }
+        }
+
+        self.index = direction.wrap(self.index, self.len());
     }
 }
 
@@ -333,15 +357,16 @@ impl Menu {
             .map(|(index, _)| index)
             .collect();
 
-        let Some(len) = NonZeroUsize::new(items.len()) else {
+        let (Some(&first), Some(len)) = (items.first(), NonZeroUsize::new(items.len())) else {
             return;
         };
 
-        let current = self.state.selected().unwrap_or(items[0]);
+        let current = self.state.selected().unwrap_or(first);
         let position = items.iter().position(|&i| i == current).unwrap_or(0);
 
-        self.state
-            .select(Some(items[direction.wrap(position, len)]));
+        if let Some(&target) = items.get(direction.wrap(position, len)) {
+            self.state.select(Some(target));
+        }
     }
 
     pub fn jump_section(&mut self, direction: Direction) {
@@ -359,10 +384,17 @@ impl Menu {
 
         let current = self.state.selected().unwrap_or(0);
         let section = headers.iter().rposition(|&h| h <= current).unwrap_or(0);
-        let target = direction.wrap(section, len);
+        let Some(&header) = headers.get(direction.wrap(section, len)) else {
+            return;
+        };
 
-        let first_item = (headers[target] + 1..self.rows.len())
-            .find(|&index| matches!(self.rows[index], MenuRow::Item { .. }));
+        let first_item = self
+            .rows
+            .iter()
+            .enumerate()
+            .skip(header + 1)
+            .find(|(_, row)| matches!(row, MenuRow::Item { .. }))
+            .map(|(index, _)| index);
         if let Some(index) = first_item {
             self.state.select(Some(index));
         }
@@ -782,8 +814,8 @@ impl Editor {
             .map(|line| line.chars().map(Cell::Char).collect())
             .collect();
 
-        editor.row = editor.lines.len() - 1;
-        editor.col = editor.lines[editor.row].len();
+        editor.row = editor.lines.len().saturating_sub(1);
+        editor.col = editor.line_len(editor.row);
         editor.settle();
 
         editor
@@ -794,12 +826,13 @@ impl Editor {
             self.lines.push(Vec::new());
         }
 
-        self.row = self.row.min(self.lines.len() - 1);
-        self.col = self.col.min(self.lines[self.row].len());
+        let last_row = self.lines.len().saturating_sub(1);
+        self.row = self.row.min(last_row);
+        self.col = self.col.min(self.line_len(self.row));
 
         if let Some(mention) = &mut self.mention {
-            mention.anchor.row = mention.anchor.row.min(self.lines.len() - 1);
-            let anchor_line = self.lines[mention.anchor.row].len();
+            mention.anchor.row = mention.anchor.row.min(last_row);
+            let anchor_line = self.lines.get(mention.anchor.row).map_or(0, Vec::len);
             mention.anchor.col = if mention.anchor.row == self.row {
                 mention.anchor.col.min(self.col)
             } else {
@@ -844,42 +877,52 @@ impl Editor {
     }
 
     fn line_len(&self, row: usize) -> usize {
-        self.lines[row].len()
+        self.lines.get(row).map_or(0, Vec::len)
+    }
+
+    fn insert_cell(&mut self, cell: Cell) {
+        if let Some(line) = self.lines.get_mut(self.row) {
+            line.insert(self.col, cell);
+            self.col += 1;
+        }
+        self.settle();
     }
 
     pub fn insert_char(&mut self, c: char) {
-        self.lines[self.row].insert(self.col, Cell::Char(c));
-        self.col += 1;
-        self.settle();
+        self.insert_cell(Cell::Char(c));
     }
 
     fn insert_mention(&mut self, display: String, url: String) {
-        self.lines[self.row].insert(self.col, Cell::Mention(Mention { display, url }));
-        self.col += 1;
-        self.settle();
+        self.insert_cell(Cell::Mention(Mention { display, url }));
     }
 
     pub fn newline(&mut self) {
         self.close_mention();
 
-        let tail = self.lines[self.row].split_off(self.col);
+        if let Some(line) = self.lines.get_mut(self.row) {
+            let tail = line.split_off(self.col);
 
-        self.lines.insert(self.row + 1, tail);
-        self.row += 1;
-        self.col = 0;
+            self.lines.insert(self.row + 1, tail);
+            self.row += 1;
+            self.col = 0;
+        }
         self.settle();
     }
 
     pub fn backspace(&mut self) {
         if self.col > 0 {
-            self.col -= 1;
-            self.lines[self.row].remove(self.col);
-        } else if self.row > 0 {
+            if let Some(line) = self.lines.get_mut(self.row) {
+                self.col -= 1;
+                line.remove(self.col);
+            }
+        } else if let Some(previous_row) = self.row.checked_sub(1) {
             let current = self.lines.remove(self.row);
 
-            self.row -= 1;
-            self.col = self.line_len(self.row);
-            self.lines[self.row].extend(current);
+            self.row = previous_row;
+            self.col = self.line_len(previous_row);
+            if let Some(previous) = self.lines.get_mut(previous_row) {
+                previous.extend(current);
+            }
         }
         self.settle();
     }
@@ -928,7 +971,7 @@ impl Editor {
         match self
             .col
             .checked_sub(1)
-            .and_then(|i| self.lines[self.row].get(i))
+            .and_then(|i| self.lines.get(self.row)?.get(i))
         {
             None => true,
             Some(Cell::Char(c)) => c.is_whitespace(),
@@ -1025,7 +1068,11 @@ impl Editor {
             return;
         };
 
-        self.lines[mention.anchor.row].drain(mention.anchor.col..self.col);
+        let Some(line) = self.lines.get_mut(mention.anchor.row) else {
+            return;
+        };
+
+        line.drain(mention.anchor.col..self.col);
         self.col = mention.anchor.col;
         self.settle();
         self.insert_mention(display, url);
@@ -1100,7 +1147,8 @@ mod tests {
     }
 
     #[test]
-    fn accept_mention_after_a_cross_row_move_is_a_no_op() {
+    fn accept_mention_after_a_cross_row_move_is_a_no_op() -> Result<(), Box<dyn std::error::Error>>
+    {
         let mut editor = editor_with_member();
         editor.insert_char('h');
         editor.open_mention();
@@ -1112,8 +1160,13 @@ mod tests {
 
         editor.accept_mention();
 
-        assert_eq!(editor.lines[0].len(), 3, "the anchored row is untouched");
-        assert!(editor.lines[1].is_empty());
+        let [anchored, next] = editor.lines.as_slice() else {
+            return Err(format!("expected two rows, got {}", editor.lines.len()).into());
+        };
+        assert_eq!(anchored.len(), 3, "the anchored row is untouched");
+        assert!(next.is_empty());
+
+        Ok(())
     }
 
     #[test]

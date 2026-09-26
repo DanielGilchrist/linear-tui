@@ -412,13 +412,14 @@ mod tests {
     }
 
     #[test]
-    fn overrides_parse_from_json() {
-        let overrides =
-            Overrides::parse(r##"{"accent": "#ff9e64", "selection_bg": "darkgrey"}"##).unwrap();
+    fn overrides_parse_from_json() -> Result<(), OverridesError> {
+        let overrides = Overrides::parse(r##"{"accent": "#ff9e64", "selection_bg": "darkgrey"}"##)?;
 
         assert_eq!(overrides.accent, Some(Color::Rgb(255, 158, 100)));
         assert_eq!(overrides.selection_bg, Some(Color::DarkGray));
         assert_eq!(overrides.dim, None);
+
+        Ok(())
     }
 
     #[test]

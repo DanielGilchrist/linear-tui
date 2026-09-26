@@ -266,7 +266,7 @@ mod tests {
     const DAY: i64 = 24 * 60 * 60;
 
     #[test]
-    fn humanise_changes_exactly_at_next_change() {
+    fn humanise_changes_exactly_at_next_change() -> Result<(), Box<dyn std::error::Error>> {
         let stamp = Timestamp::from_epoch(0);
         let ages = [
             0,
@@ -286,7 +286,7 @@ mod tests {
             let now = Timestamp::from_epoch(age);
             let due = stamp
                 .next_change(now)
-                .unwrap_or_else(|| panic!("age {age} should still change"));
+                .ok_or_else(|| format!("age {age} should still change"))?;
             let boundary = due.seconds_since(stamp);
 
             let just_before = Timestamp::from_epoch(boundary - 1);
@@ -303,6 +303,8 @@ mod tests {
                 "age {age}: display should flip at the boundary"
             );
         }
+
+        Ok(())
     }
 
     #[test]

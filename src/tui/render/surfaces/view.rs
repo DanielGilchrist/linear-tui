@@ -56,8 +56,8 @@ pub fn render(
     };
 
     let groups = view.display.arrange(issues);
-    let rows =
-        Layout::vertical([Constraint::Length(VIEW_HEADER_ROWS), Constraint::Min(1)]).split(inner);
+    let [header_area, list_area] =
+        Layout::vertical([Constraint::Length(VIEW_HEADER_ROWS), Constraint::Min(1)]).areas(inner);
 
     let header = Text::from(vec![
         Line::from(vec![
@@ -70,10 +70,10 @@ pub fn render(
         breakdown_line(&groups),
     ]);
 
-    frame.render_widget(Paragraph::new(header), rows[0]);
+    frame.render_widget(Paragraph::new(header), header_area);
 
     let id_width = id_column_width(issues);
-    let width = rows[1].width as usize;
+    let width = list_area.width as usize;
     let (mut items, selected_row) = view_items(
         issues,
         &groups,
@@ -94,7 +94,7 @@ pub fn render(
         .highlight_style(emphasis.highlight())
         .scroll_padding(1);
 
-    frame.render_stateful_widget(list, rows[1], &mut view.layout);
+    frame.render_stateful_widget(list, list_area, &mut view.layout);
 
-    Viewport(rows[1].height as usize)
+    Viewport(list_area.height as usize)
 }

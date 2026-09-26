@@ -43,26 +43,22 @@ pub fn render(reactions: &Reactions, frame: &mut Frame, area: Rect) {
         .iter()
         .any(|choice| choice.in_section(Section::Current));
 
-    let mut constraints = Vec::new();
-    if has_current {
-        constraints.push(Constraint::Length(1));
-    }
-    constraints.push(Constraint::Length(1));
-    constraints.push(Constraint::Length(1));
-    constraints.push(Constraint::Length(1));
+    let (add_row, hint_row) = if has_current {
+        let [current_row, add_row, _, hint_row] =
+            Layout::vertical([Constraint::Length(1); 4]).areas(inner);
+        render_section(frame, current_row, "Current:", reactions, Section::Current);
 
-    let rows = Layout::vertical(constraints).split(inner);
+        (add_row, hint_row)
+    } else {
+        let [add_row, _, hint_row] = Layout::vertical([Constraint::Length(1); 3]).areas(inner);
 
-    let mut next = 0;
-    if has_current {
-        render_section(frame, rows[next], "Current:", reactions, Section::Current);
-        next += 1;
-    }
-    render_section(frame, rows[next], "Add:", reactions, Section::Add);
+        (add_row, hint_row)
+    };
+    render_section(frame, add_row, "Add:", reactions, Section::Add);
 
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(HINT, theme::dim()))),
-        rows[rows.len() - 1],
+        hint_row,
     );
 }
 
@@ -87,13 +83,16 @@ fn render_section(
         items.len(),
     ));
     let cells = Layout::horizontal(constraints).split(area);
+    let Some((label_cell, item_cells)) = cells.split_first() else {
+        return;
+    };
 
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(label.to_string(), theme::dim()))),
-        cells[0],
+        *label_cell,
     );
 
-    for (slot, (flat, choice)) in items.iter().enumerate() {
+    for ((flat, choice), cell) in items.iter().zip(item_cells) {
         let text = match section {
             Section::Current => format!("{} {}", choice.glyph, choice.count),
             Section::Add => choice.glyph.clone(),
@@ -108,9 +107,6 @@ fn render_section(
             style = style.add_modifier(Modifier::REVERSED);
         }
 
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(text, style))),
-            cells[slot + 1],
-        );
+        frame.render_widget(Paragraph::new(Line::from(Span::styled(text, style))), *cell);
     }
 }

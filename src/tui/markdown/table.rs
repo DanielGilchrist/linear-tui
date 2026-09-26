@@ -49,8 +49,8 @@ impl Table {
 
         let mut widths = vec![0usize; cols];
         for row in std::iter::once(&self.header).chain(self.body.iter()) {
-            for (index, cell) in row.iter().enumerate() {
-                widths[index] = widths[index].max(cell_width(cell));
+            for (width, cell) in widths.iter_mut().zip(row) {
+                *width = (*width).max(cell_width(cell));
             }
         }
 

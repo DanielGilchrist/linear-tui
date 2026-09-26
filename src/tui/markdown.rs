@@ -460,6 +460,8 @@ mod tests {
     use super::*;
     use ratatui::style::Color;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     fn lines(input: &str) -> Vec<String> {
         render_lines(input, Style::default())
             .iter()
@@ -472,13 +474,13 @@ mod tests {
             .collect()
     }
 
-    fn span_style(input: &str, needle: &str) -> Style {
+    fn span_style(input: &str, needle: &str) -> Result<Style, String> {
         render_lines(input, Style::default())
             .into_iter()
             .flat_map(|line| line.spans)
             .find(|span| span.content.contains(needle))
-            .unwrap_or_else(|| panic!("no span containing {needle:?}"))
-            .style
+            .map(|span| span.style)
+            .ok_or_else(|| format!("no span containing {needle:?}"))
     }
 
     #[test]
@@ -534,24 +536,30 @@ mod tests {
     }
 
     #[test]
-    fn strong_text_is_bold() {
-        assert!(span_style("**loud**", "loud")
+    fn strong_text_is_bold() -> TestResult {
+        assert!(span_style("**loud**", "loud")?
             .add_modifier
             .contains(Modifier::BOLD));
+
+        Ok(())
     }
 
     #[test]
-    fn emphasis_text_is_italic() {
-        assert!(span_style("*soft*", "soft")
+    fn emphasis_text_is_italic() -> TestResult {
+        assert!(span_style("*soft*", "soft")?
             .add_modifier
             .contains(Modifier::ITALIC));
+
+        Ok(())
     }
 
     #[test]
-    fn headings_are_bold() {
-        assert!(span_style("# Title", "Title")
+    fn headings_are_bold() -> TestResult {
+        assert!(span_style("# Title", "Title")?
             .add_modifier
             .contains(Modifier::BOLD));
+
+        Ok(())
     }
 
     #[test]
@@ -581,33 +589,41 @@ mod tests {
     }
 
     #[test]
-    fn inline_code_keeps_its_text_and_is_styled() {
+    fn inline_code_keeps_its_text_and_is_styled() -> TestResult {
         assert_eq!(lines("run `cargo test` now"), vec!["run cargo test now"]);
         assert_eq!(
-            span_style("run `cargo test` now", "cargo test").fg,
+            span_style("run `cargo test` now", "cargo test")?.fg,
             Some(Color::Green)
         );
+
+        Ok(())
     }
 
     #[test]
-    fn strikethrough_is_crossed_out() {
-        assert!(span_style("~~gone~~", "gone")
+    fn strikethrough_is_crossed_out() -> TestResult {
+        assert!(span_style("~~gone~~", "gone")?
             .add_modifier
             .contains(Modifier::CROSSED_OUT));
+
+        Ok(())
     }
 
     #[test]
-    fn nested_emphasis_applies_both_modifiers() {
-        let style = span_style("***loud***", "loud");
+    fn nested_emphasis_applies_both_modifiers() -> TestResult {
+        let style = span_style("***loud***", "loud")?;
         assert!(style.add_modifier.contains(Modifier::BOLD));
         assert!(style.add_modifier.contains(Modifier::ITALIC));
+
+        Ok(())
     }
 
     #[test]
-    fn heading_levels_get_distinct_colours() {
-        assert_eq!(span_style("# One", "One").fg, Some(Color::Reset));
-        assert_eq!(span_style("## Two", "Two").fg, Some(Color::Cyan));
-        assert_eq!(span_style("### Three", "Three").fg, Some(Color::Blue));
+    fn heading_levels_get_distinct_colours() -> TestResult {
+        assert_eq!(span_style("# One", "One")?.fg, Some(Color::Reset));
+        assert_eq!(span_style("## Two", "Two")?.fg, Some(Color::Cyan));
+        assert_eq!(span_style("### Three", "Three")?.fg, Some(Color::Blue));
+
+        Ok(())
     }
 
     #[test]
@@ -635,12 +651,15 @@ mod tests {
     }
 
     #[test]
-    fn images_reserve_rows_and_record_where_they_went() {
+    fn images_reserve_rows_and_record_where_they_went() -> TestResult {
         let rendered = render("![a diagram](chart.png)", Style::default());
 
         assert_eq!(rendered.lines.len(), 1);
         assert_eq!(
-            rendered.lines[0]
+            rendered
+                .lines
+                .first()
+                .ok_or("no lines")?
                 .spans
                 .iter()
                 .map(|span| span.content.as_ref())
@@ -655,51 +674,73 @@ mod tests {
                 top: 0,
             }]
         );
+
+        Ok(())
     }
 
     #[test]
-    fn an_image_after_text_records_its_offset() {
+    fn an_image_after_text_records_its_offset() -> TestResult {
         let rendered = render("intro\n\n![shot](a.png)", Style::default());
 
-        let placement = &rendered.images[0];
+        let placement = rendered.images.first().ok_or("no image placements")?;
 
         assert_eq!(placement.top, 2);
         assert_eq!(
-            rendered.lines[placement.top]
+            rendered
+                .lines
+                .get(placement.top)
+                .ok_or("no line at the image's offset")?
                 .spans
                 .iter()
                 .map(|span| span.content.as_ref())
                 .collect::<String>(),
             "🖼 shot  t show   I open"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn tables_render_headers_a_separator_and_rows() {
+    fn tables_render_headers_a_separator_and_rows() -> TestResult {
         let out = lines("| A | B |\n| - | - |\n| 1 | 2 |");
-        assert_eq!(out[0], "A │ B");
-        assert_eq!(out[1], "─".repeat(5));
-        assert_eq!(out[2], "1 │ 2");
-        assert!(span_style("| A | B |\n| - | - |\n| 1 | 2 |", "A")
+        let [header, separator, row, ..] = out.as_slice() else {
+            return Err(format!("expected at least three lines, got {out:?}").into());
+        };
+        assert_eq!(header, "A │ B");
+        assert_eq!(*separator, "─".repeat(5));
+        assert_eq!(row, "1 │ 2");
+        assert!(span_style("| A | B |\n| - | - |\n| 1 | 2 |", "A")?
             .add_modifier
             .contains(Modifier::BOLD));
+
+        Ok(())
     }
 
     #[test]
-    fn tables_pad_cells_so_columns_line_up() {
+    fn tables_pad_cells_so_columns_line_up() -> TestResult {
         let out = lines("| Time | Target |\n| - | - |\n| 6pm | 430C |\n| 7pm | 12345C |");
-        assert_eq!(out[0], "Time │ Target");
-        assert_eq!(out[1], "─".repeat(4 + 6 + 3));
-        assert_eq!(out[2], "6pm  │ 430C");
-        assert_eq!(out[3], "7pm  │ 12345C");
+        let [header, separator, first, second, ..] = out.as_slice() else {
+            return Err(format!("expected at least four lines, got {out:?}").into());
+        };
+        assert_eq!(header, "Time │ Target");
+        assert_eq!(*separator, "─".repeat(4 + 6 + 3));
+        assert_eq!(first, "6pm  │ 430C");
+        assert_eq!(second, "7pm  │ 12345C");
+
+        Ok(())
     }
 
     #[test]
-    fn table_columns_right_align_when_marked() {
+    fn table_columns_right_align_when_marked() -> TestResult {
         let out = lines("| N |\n| --: |\n| 5 |\n| 4321 |");
-        assert_eq!(out[0], "   N");
-        assert_eq!(out[2], "   5");
-        assert_eq!(out[3], "4321");
+        let [header, _, first, second, ..] = out.as_slice() else {
+            return Err(format!("expected at least four lines, got {out:?}").into());
+        };
+        assert_eq!(header, "   N");
+        assert_eq!(first, "   5");
+        assert_eq!(second, "4321");
+
+        Ok(())
     }
 
     #[test]

@@ -103,24 +103,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legacy_bare_string_oauth_still_deserialises() {
-        let credential: Credential = serde_json::from_str(r#"{"OAuth":"legacy-token"}"#).unwrap();
+    fn legacy_bare_string_oauth_still_deserialises() -> Result<(), Box<dyn std::error::Error>> {
+        let credential: Credential = serde_json::from_str(r#"{"OAuth":"legacy-token"}"#)?;
         match credential {
             Credential::OAuth(token) => {
                 assert_eq!(token.access_token, "legacy-token");
                 assert_eq!(token.refresh_token, None);
                 assert_eq!(token.expires_at, None);
             }
-            other => panic!("expected OAuth, got {other:?}"),
+            other => return Err(format!("expected OAuth, got {other:?}").into()),
         }
+
+        Ok(())
     }
 
     #[test]
-    fn full_oauth_token_round_trips() {
+    fn full_oauth_token_round_trips() -> Result<(), Box<dyn std::error::Error>> {
         let token = OAuthToken::new("access".into(), Some("refresh".into()), Some(1_000));
-        let json = serde_json::to_string(&Credential::OAuth(token.clone())).unwrap();
-        let back: Credential = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&Credential::OAuth(token.clone()))?;
+        let back: Credential = serde_json::from_str(&json)?;
         assert_eq!(back, Credential::OAuth(token));
+
+        Ok(())
     }
 
     #[test]

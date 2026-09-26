@@ -17,7 +17,7 @@ pub struct View {
 }
 
 #[derive(Debug, Clone)]
-pub struct Views(Vec<View>);
+pub struct Views([View; 3]);
 
 impl Views {
     pub fn defaults() -> Self {
@@ -25,9 +25,9 @@ impl Views {
     }
 
     pub fn active(&self, state: &ListState) -> &View {
-        let index = state.selected().unwrap_or(0).min(self.0.len() - 1);
+        let [.., last] = &self.0;
 
-        &self.0[index]
+        self.0.get(state.selected().unwrap_or(0)).unwrap_or(last)
     }
 
     pub fn as_slice(&self) -> &[View] {
@@ -40,8 +40,8 @@ impl Views {
 }
 
 impl View {
-    pub fn defaults() -> Vec<View> {
-        vec![
+    pub fn defaults() -> [View; 3] {
+        [
             View {
                 name: "Assigned to me".into(),
                 kind: ViewKind::Issues(IssueFilter::assigned_to_me()),
