@@ -28,6 +28,11 @@ pub enum Message {
         url: String,
         image: Box<image::DynamicImage>,
     },
+    ImageEncoded {
+        url: String,
+        size: ratatui::layout::Size,
+        encoded: Option<Box<crate::tui::render::image::Encoded>>,
+    },
     DetailLoaded {
         detail: Box<IssueDetail>,
         reveal: Reveal,
@@ -132,6 +137,14 @@ pub enum Effect {
     Api(ApiCommand),
     Store(StoreCommand),
     Platform(PlatformCommand),
+    Encode(EncodeImage),
+}
+
+#[derive(Debug, Clone)]
+pub struct EncodeImage {
+    pub url: String,
+    pub size: ratatui::layout::Size,
+    pub source: std::sync::Arc<image::DynamicImage>,
 }
 
 #[derive(Debug, Clone, Default)]

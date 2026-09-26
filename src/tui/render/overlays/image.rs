@@ -34,9 +34,13 @@ pub fn render(
     frame.render_widget(block, area);
 
     let cell = images.get_or_default(&view.url().to_string());
-    let status = cell.status();
-
     let size = Size::new(inner.width, inner.height);
+    let status = match cell.value() {
+        Some(loaded) if loaded.failed_at(size) => {
+            CacheStatus::Failed("Could not render this image".to_string())
+        }
+        _ => cell.status(),
+    };
 
     match cell.value_mut().and_then(|loaded| loaded.sliced(size)) {
         Some(sliced) => {

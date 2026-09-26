@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use image::imageops::FilterType;
 use image::DynamicImage;
@@ -32,9 +32,34 @@ fn downscale(image: DynamicImage) -> DynamicImage {
     image.resize(MAX_EDGE, MAX_EDGE, FilterType::Triangle)
 }
 
+pub struct Encoded {
+    size: Size,
+    sliced: SlicedProtocol,
+}
+
+impl std::fmt::Debug for Encoded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Encoded").field("size", &self.size).finish()
+    }
+}
+
+pub fn encode(source: &DynamicImage, size: Size) -> Option<Encoded> {
+    let sliced = SlicedProtocol::new(picker(), source.clone(), Some(size)).ok()?;
+
+    Some(Encoded { size, sliced })
+}
+
+pub struct EncodeRequest {
+    pub size: Size,
+    pub source: Arc<DynamicImage>,
+}
+
 pub struct Loaded {
-    source: DynamicImage,
-    sliced: Option<(Size, SlicedProtocol)>,
+    source: Arc<DynamicImage>,
+    encoded: Option<Encoded>,
+    wanted: Option<Size>,
+    pending: Option<Size>,
+    failed: Option<Size>,
     encodes: usize,
     pub width: u32,
     pub height: u32,
@@ -44,8 +69,11 @@ pub fn load(source: DynamicImage) -> Loaded {
     let (width, height) = (source.width(), source.height());
 
     Loaded {
-        source,
-        sliced: None,
+        source: Arc::new(source),
+        encoded: None,
+        wanted: None,
+        pending: None,
+        failed: None,
         encodes: 0,
         width,
         height,
@@ -54,19 +82,54 @@ pub fn load(source: DynamicImage) -> Loaded {
 
 impl Loaded {
     pub fn sliced(&mut self, size: Size) -> Option<&SlicedProtocol> {
-        let stale = self
-            .sliced
-            .as_ref()
-            .is_none_or(|(encoded, _)| encoded != &size);
+        match &self.encoded {
+            Some(encoded) if encoded.size == size => Some(&encoded.sliced),
+            _ => {
+                self.wanted = Some(size);
 
-        if stale {
-            let sliced = SlicedProtocol::new(picker(), self.source.clone(), Some(size)).ok()?;
+                None
+            }
+        }
+    }
 
-            self.sliced = Some((size, sliced));
-            self.encodes += 1;
+    pub fn take_request(&mut self) -> Option<EncodeRequest> {
+        let size = self.wanted.take()?;
+
+        if self.pending == Some(size) || self.failed == Some(size) {
+            return None;
         }
 
-        self.sliced.as_ref().map(|(_, sliced)| sliced)
+        self.pending = Some(size);
+
+        Some(EncodeRequest {
+            size,
+            source: Arc::clone(&self.source),
+        })
+    }
+
+    pub fn set_encoded(&mut self, encoded: Encoded) {
+        if self.pending == Some(encoded.size) {
+            self.pending = None;
+        }
+
+        self.encoded = Some(encoded);
+        self.encodes += 1;
+    }
+
+    pub fn encode_failed(&mut self, size: Size) {
+        if self.pending == Some(size) {
+            self.pending = None;
+        }
+
+        self.failed = Some(size);
+    }
+
+    pub fn failed_at(&self, size: Size) -> bool {
+        self.failed == Some(size)
+    }
+
+    pub fn is_encoding(&self) -> bool {
+        self.pending.is_some()
     }
 
     pub fn encodes(&self) -> usize {

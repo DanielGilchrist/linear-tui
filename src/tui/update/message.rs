@@ -44,6 +44,11 @@ enum Transition {
         url: String,
         image: Box<image::DynamicImage>,
     },
+    ImageEncoded {
+        url: String,
+        size: ratatui::layout::Size,
+        encoded: Option<Box<crate::tui::render::image::Encoded>>,
+    },
     DetailLoaded {
         detail: Box<IssueDetail>,
         reveal: Reveal,
@@ -127,6 +132,9 @@ fn reduce(app: &App, msg: Message) -> Transition {
         Message::CustomViewsLoaded(views) => Transition::CustomViewsLoaded(views),
         Message::TeamsLoaded { teams } => Transition::TeamsLoaded(teams),
         Message::ImageLoaded { url, image } => Transition::ImageLoaded { url, image },
+        Message::ImageEncoded { url, size, encoded } => {
+            Transition::ImageEncoded { url, size, encoded }
+        }
         Message::DetailLoaded { detail, reveal } => {
             let focused = app
                 .focus()
@@ -283,6 +291,12 @@ fn commit(app: &mut App, transition: Transition) -> Commands {
         Transition::ImageLoaded { url, image } => {
             let loaded = crate::tui::render::image::load(*image);
             app.workspace.set_image(url, loaded, app.now);
+
+            Commands::default()
+        }
+        Transition::ImageEncoded { url, size, encoded } => {
+            app.workspace
+                .settle_encode(&url, size, encoded.map(|encoded| *encoded));
 
             Commands::default()
         }

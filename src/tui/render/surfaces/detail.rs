@@ -108,7 +108,12 @@ fn render_image(
 
     let natural = Size::new(spot.visible.width, placed.rows as u16);
     let cell = images.get_or_default(&placed.image.url);
-    let status = cell.status();
+    let status = match cell.value() {
+        Some(loaded) if loaded.failed_at(natural) => {
+            CacheStatus::Failed("Could not render this image".to_string())
+        }
+        _ => cell.status(),
+    };
 
     match cell.value_mut().and_then(|loaded| loaded.sliced(natural)) {
         Some(sliced) => {

@@ -79,6 +79,15 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Commands {
     apply_outcome(app, outcome)
 }
 
+pub fn after_render(app: &mut App) -> Commands {
+    app.workspace
+        .take_encode_requests()
+        .into_iter()
+        .map(Effect::Encode)
+        .collect::<Effects>()
+        .into()
+}
+
 pub fn tick(app: &mut App, now: Timestamp) -> Redraw {
     let timestamp_due = earliest_time_refresh(app).is_some_and(|due| now >= due);
 

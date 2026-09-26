@@ -1,10 +1,12 @@
+use ratatui::layout::Size;
 use ratatui::style::Style;
 use ratatui::widgets::ListState;
 
 use super::cache::{Cache, CacheStatus, RefreshPolicy, Remote};
 use super::feed::{Feed, FeedKey, FeedStore};
 use super::markdown;
-use super::render::image::Loaded;
+use super::message::EncodeImage;
+use super::render::image::{Encoded, Loaded};
 use super::saved_views::SavedViewsPanel;
 use super::view::{View, ViewKind};
 use crate::api::{
@@ -191,7 +193,39 @@ impl WorkspaceData {
     }
 
     pub fn images_in_flight(&self) -> bool {
-        self.images.iter().any(|(_, cell)| cell.in_flight())
+        self.images
+            .iter()
+            .any(|(_, cell)| cell.in_flight() || cell.value().is_some_and(Loaded::is_encoding))
+    }
+
+    pub fn take_encode_requests(&mut self) -> Vec<EncodeImage> {
+        self.images
+            .iter_mut()
+            .filter_map(|(url, cell)| {
+                let request = cell.value_mut()?.take_request()?;
+
+                Some(EncodeImage {
+                    url: url.clone(),
+                    size: request.size,
+                    source: request.source,
+                })
+            })
+            .collect()
+    }
+
+    pub fn settle_encode(&mut self, url: &str, size: Size, encoded: Option<Encoded>) {
+        let Some(loaded) = self
+            .images
+            .get_mut(&url.to_string())
+            .and_then(Remote::value_mut)
+        else {
+            return;
+        };
+
+        match encoded {
+            Some(encoded) => loaded.set_encoded(encoded),
+            None => loaded.encode_failed(size),
+        }
     }
 
     pub fn image(&self, url: &str) -> Option<&Remote<Loaded>> {

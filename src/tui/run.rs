@@ -12,8 +12,8 @@ use super::app::App;
 use super::event::{Event, Generation, Lane, Redraw};
 use super::feed::FeedKey;
 use super::message::{
-    ApiCommand, Commands, Effect, FailureTarget, Message, PlatformCommand, RequestError,
-    RuntimeCommand, StoreCommand,
+    ApiCommand, Commands, Effect, EncodeImage, FailureTarget, Message, PlatformCommand,
+    RequestError, RuntimeCommand, StoreCommand,
 };
 use super::platform::Platform;
 use super::{render, update};
@@ -96,6 +96,8 @@ pub async fn run(
     }
 
     draw(terminal, app)?;
+    let encodes = update::after_render(app);
+    run_commands(&mut rt, app, encodes);
 
     loop {
         match next_event(&mut events, &mut rx, &mut ticker).await {
@@ -129,6 +131,8 @@ pub async fn run(
         }
 
         draw(terminal, app)?;
+        let encodes = update::after_render(app);
+        run_commands(&mut rt, app, encodes);
     }
 
     Ok(())
@@ -196,6 +200,7 @@ fn run_effect(rt: &mut Runtime, effect: Effect) {
             None => settle_disconnected_store(rt),
         },
         Effect::Platform(command) => dispatch_platform(rt.platform, &rt.tx, command),
+        Effect::Encode(request) => dispatch_encode(rt.lane(), &rt.tx, request),
     }
 }
 
@@ -532,6 +537,28 @@ fn dispatch_store(state: &StateDir, namespace: &str, tx: &Tx, lane: Lane, comman
         if let Some(message) = message {
             let _ = tx.send((lane, message));
         }
+    });
+}
+
+fn dispatch_encode(lane: Lane, tx: &Tx, request: EncodeImage) {
+    let tx = tx.clone();
+
+    tokio::spawn(async move {
+        let EncodeImage { url, size, source } = request;
+        let encoded =
+            tokio::task::spawn_blocking(move || crate::tui::render::image::encode(&source, size))
+                .await
+                .ok()
+                .flatten();
+
+        let _ = tx.send((
+            lane,
+            Message::ImageEncoded {
+                url,
+                size,
+                encoded: encoded.map(Box::new),
+            },
+        ));
     });
 }
 
