@@ -8,11 +8,12 @@ use ratatui::{
 
 use crate::tui::focus::Scroll;
 
-pub fn text_area(area: Rect) -> (u16, usize) {
-    (
-        area.width.saturating_sub(2),
-        area.height.saturating_sub(2) as usize,
-    )
+pub fn text_area(area: Rect) -> (u16, u16) {
+    (area.width.saturating_sub(2), area.height.saturating_sub(2))
+}
+
+pub fn saturating_u16(value: usize) -> u16 {
+    u16::try_from(value).unwrap_or(u16::MAX)
 }
 
 pub fn wrapped_rows(lines: &[Line<'_>], width: u16) -> usize {
@@ -28,7 +29,7 @@ pub fn wrapped_rows(lines: &[Line<'_>], width: u16) -> usize {
 pub fn max_scroll(content: &Text<'_>, area: Rect) -> usize {
     let (width, height) = text_area(area);
 
-    wrapped_rows(&content.lines, width).saturating_sub(height)
+    wrapped_rows(&content.lines, width).saturating_sub(usize::from(height))
 }
 
 pub struct ScrollableText<'a> {
@@ -62,7 +63,9 @@ impl<'a> ScrollableText<'a> {
     pub fn render(self, frame: &mut Frame, area: Rect) -> usize {
         let (text_width, text_height) = text_area(area);
         let paragraph = Paragraph::new(self.content).wrap(Wrap { trim: false });
-        let max_scroll = paragraph.line_count(text_width).saturating_sub(text_height);
+        let max_scroll = paragraph
+            .line_count(text_width)
+            .saturating_sub(usize::from(text_height));
         let row = self.scroll.resolve(max_scroll);
 
         let mut block = Block::bordered().border_style(self.border);
@@ -71,7 +74,10 @@ impl<'a> ScrollableText<'a> {
             block = block.title(title);
         }
 
-        frame.render_widget(paragraph.block(block).scroll((row as u16, 0)), area);
+        frame.render_widget(
+            paragraph.block(block).scroll((saturating_u16(row), 0)),
+            area,
+        );
 
         let mut scroll_state = ScrollbarState::default()
             .content_length(max_scroll)

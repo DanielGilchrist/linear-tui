@@ -127,12 +127,12 @@ pub const BROWSE: Keymap<Action> = Keymap {
         Binding {
             action: Action::ViewImage,
             keys: &[Char('I')],
-            label: "image",
+            label: "open",
         },
         Binding {
             action: Action::ToggleImages,
             keys: &[Char('t')],
-            label: "thumbnail",
+            label: "show/hide",
         },
         Binding {
             action: Action::Help,

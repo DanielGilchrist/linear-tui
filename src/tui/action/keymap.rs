@@ -26,6 +26,16 @@ impl<A: Copy + PartialEq> Keymap<A> {
             .map(|key| key_symbol(*key))
     }
 
+    fn every_key(&self, action: A) -> Option<String> {
+        let binding = self
+            .bindings
+            .iter()
+            .find(|binding| binding.action == action)?;
+        let keys: Vec<String> = binding.keys.iter().copied().map(key_symbol).collect();
+
+        (!keys.is_empty()).then(|| keys.join("/"))
+    }
+
     fn label(&self, action: A) -> Option<&'static str> {
         self.bindings
             .iter()
@@ -69,6 +79,20 @@ impl<A: Copy + PartialEq> Keymap<A> {
                 Hint::Bound(action) => {
                     Some(format!("{} {}", self.hint(*action)?, self.label(*action)?))
                 }
+                Hint::Pair {
+                    forward,
+                    back,
+                    label,
+                } => Some(format!(
+                    "{}/{} {label}",
+                    self.hint(*forward)?,
+                    self.hint(*back)?
+                )),
+                Hint::Every(action) => Some(format!(
+                    "{} {}",
+                    self.every_key(*action)?,
+                    self.label(*action)?
+                )),
                 Hint::Literal { keys, label } => Some(format!("{keys} {label}")),
             })
             .collect();
@@ -78,6 +102,12 @@ impl<A: Copy + PartialEq> Keymap<A> {
 
 pub enum Hint<A: 'static> {
     Bound(A),
+    Pair {
+        forward: A,
+        back: A,
+        label: &'static str,
+    },
+    Every(A),
     Literal {
         keys: &'static str,
         label: &'static str,

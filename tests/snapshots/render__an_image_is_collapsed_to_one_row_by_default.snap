@@ -11,7 +11,7 @@ expression: "render_to_string(&mut app, 90, 24)"
 │!!  DAN2-5 Backlog Settle the pi││                                                      █
 │    DAN-15 Backlog Coffee pairin││Before the shot                                       █
 │                                ││                                                      █
-│                                ││🖼 oven trace  t show   I open                         █
+│                                ││🖼 oven trace                                          █
 │                                ││                                                      █
 │                                ││After the shot                                        █
 │                                ││                                                      █
@@ -25,4 +25,4 @@ expression: "render_to_string(&mut app, 90, 24)"
 ┌Teams───────────────────────────┐│                                                      ║
 │⠋  Loading…                     ││  1. 6pm - 445°C                                      ↓
 └────────────────────────────────┘└──────────────────────────────────────────────────────┘
- t thumbnail   j/k scroll   C-d/C-u page   e edit   c comment   m co… Dan's Donuts · @dan
+ t show/hide   j/k scroll   C-d/C-u page   e edit   c comment   m co… Dan's Donuts · @dan

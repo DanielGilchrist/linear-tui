@@ -4,7 +4,7 @@ use super::action::ConfirmInput;
 use super::app::App;
 use super::event::Redraw;
 use super::focus::Reveal;
-use super::message::{ApiCommand, Commands, Effect, Effects};
+use super::message::{ApiCommand, Commands, Effect, Effects, ImageCommand};
 use super::overlay::{Overlay, Workspaces};
 use crate::api::Timestamp;
 
@@ -31,11 +31,19 @@ pub fn open_workspaces(app: &mut App) {
 }
 
 pub fn reconnect(app: &mut App) -> Effects {
+    let loading_images = app.workspace.loading_images();
+
     app.workspace.cancel_in_flight();
     app.cancel_overlay_in_flight();
 
     let mut effects = initial_commands(app);
     effects.extend(feed::revalidate_focus(app));
+
+    for url in loading_images {
+        if app.workspace.begin_image(&url, app.now) {
+            effects.push(Effect::Image(ImageCommand::Fetch { url }));
+        }
+    }
 
     if let Some(target) = app.focus().detail().map(|detail| detail.issue.clone()) {
         app.workspace.begin_detail();
@@ -80,10 +88,12 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Commands {
 }
 
 pub fn after_render(app: &mut App) -> Commands {
-    app.workspace
-        .take_encode_requests()
+    let drawn = std::mem::take(&mut app.ui.drawn_images);
+
+    drawn
         .into_iter()
-        .map(Effect::Encode)
+        .filter_map(|drawn| app.workspace.claim_encode(&drawn))
+        .map(|request| Effect::Image(ImageCommand::Encode(request)))
         .collect::<Effects>()
         .into()
 }

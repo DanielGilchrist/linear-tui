@@ -7,18 +7,19 @@ use ratatui::{
 use ratatui_image::sliced::{SignedPosition, SlicedImage};
 
 use super::super::theme::{self, Emphasis};
-use crate::tui::cache::CacheStatus;
+use crate::tui::cache::Remote;
 use crate::tui::overlay::ImageView;
+use crate::tui::render::image::{self, DrawnImage, Shown};
 use crate::tui::spinner::Spinner;
 use crate::tui::workspace::ImageStore;
 
 pub fn render(
     view: &ImageView,
-    images: &mut ImageStore,
+    images: &ImageStore,
     spinner: Spinner,
     frame: &mut Frame,
     area: Rect,
-) {
+) -> Option<DrawnImage> {
     let (position, total) = view.position();
     let title = if total > 1 {
         format!(" {} · {position} of {total} ", view.url())
@@ -33,29 +34,27 @@ pub fn render(
 
     frame.render_widget(block, area);
 
-    let cell = images.get_or_default(&view.url().to_string());
     let size = Size::new(inner.width, inner.height);
-    let status = match cell.value() {
-        Some(loaded) if loaded.failed_at(size) => {
-            CacheStatus::Failed("Could not render this image".to_string())
-        }
-        _ => cell.status(),
-    };
+    let cell = images.get(view.url());
+    let state = image::shown(cell, size);
 
-    match cell.value_mut().and_then(|loaded| loaded.sliced(size)) {
-        Some(sliced) => {
+    match &state {
+        Shown::Drawn(encoded) => {
             frame.render_widget(
-                SlicedImage::new(sliced, SignedPosition::from((0, 0))),
+                SlicedImage::new(encoded.sliced(), SignedPosition::from((0, 0))),
                 inner,
             );
         }
-        None => {
-            let text = match status {
-                CacheStatus::Failed(error) => error,
-                _ => format!("{spinner}  Loading image…"),
-            };
-
-            frame.render_widget(Paragraph::new(Span::styled(text, theme::dim())), inner);
+        Shown::Placeholder(placeholder) => {
+            frame.render_widget(
+                Paragraph::new(Span::styled(placeholder.message(spinner), theme::dim())),
+                inner,
+            );
         }
     }
+
+    cell.and_then(Remote::value).map(|_| DrawnImage {
+        url: view.url().clone(),
+        size,
+    })
 }

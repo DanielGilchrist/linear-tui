@@ -4,7 +4,9 @@ use linear_tui::api::{
     CommentId, Cursor, IssueId, IssueRef, IssueSummary, Label, LabelId, Page, Reaction, ReactionId,
     ReactionTarget, Rgb, StateId, Team, TeamId, Timestamp, UserId, ViewId,
 };
-use linear_tui::api::{Credential, IssueUpdate, LinearApi, OAuthToken, Priority};
+use linear_tui::api::{
+    Credential, ImageFetchError, ImageUrl, IssueUpdate, LinearApi, OAuthToken, Priority,
+};
 use linear_tui::store::Account;
 use linear_tui::tui::app::{App, AuthState, RECENT_CAP};
 use linear_tui::tui::cache::{CacheStatus, Remote};
@@ -12,14 +14,19 @@ use linear_tui::tui::event::Redraw;
 use linear_tui::tui::feed::{Feed, FeedKey, FeedRequest};
 use linear_tui::tui::focus::{DetailFocus, DetailView, Focus, LeftPanel, Origin, Reveal, Scroll};
 use linear_tui::tui::message::{
-    ApiCommand, Commands, Effect, Effects, FailureTarget, Message, PlatformCommand, RequestError,
-    RuntimeCommand, StoreCommand,
+    ApiCommand, Commands, Effect, Effects, FailureTarget, ImageCommand, ImageFailure, Message,
+    PlatformCommand, RequestError, RuntimeCommand, StoreCommand,
 };
 use linear_tui::tui::overlay::{Compose, InputPurpose, Overlay, PickerKind};
 use linear_tui::tui::render_to_string;
 use linear_tui::tui::status::Status;
 use linear_tui::tui::update::{apply as apply_all, handle_key as handle_key_all, tick};
 use linear_tui::tui::view::ViewKind;
+
+fn upload(path: &str) -> TestResult<ImageUrl> {
+    ImageUrl::parse(&format!("https://uploads.linear.app/{path}"))
+        .ok_or_else(|| format!("{path} is not a valid upload url").into())
+}
 
 fn press(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
@@ -1707,6 +1714,47 @@ fn reconnect_reissues_a_loading_detail() {
         "a focused detail must be re-requested after the cancel that dropped it"
     );
     assert!(app.workspace.detail().in_flight());
+}
+
+#[test]
+fn reconnect_reissues_a_loading_image() -> TestResult {
+    let mut app = list_app_with_issue();
+    let url = upload("trace.png")?;
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("look\n\n![trace]({url})"));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
+
+    let commands = linear_tui::tui::update::reconnect(&mut app);
+
+    assert!(
+        commands.iter().any(|command| matches!(
+            command,
+            Effect::Image(ImageCommand::Fetch { url: requested }) if *requested == url
+        )),
+        "an image in flight when the reconnect cancelled it must be requested again"
+    );
+    assert!(
+        app.workspace
+            .image(&url)
+            .is_some_and(|cell| cell.in_flight()),
+        "the cell is loading again rather than stuck as not loaded"
+    );
+
+    Ok(())
 }
 
 #[test]
@@ -3979,9 +4027,9 @@ fn a_failed_comment_post_reopens_the_editor_with_the_draft() -> TestResult {
 }
 
 #[test]
-fn a_detail_with_an_image_requests_it_once() -> TestResult {
+fn opening_an_issue_fetches_no_image_until_asked() -> TestResult {
     let mut app = list_app_with_issue();
-    let url = "https://uploads.linear.app/trace.png";
+    let url = upload("trace.png")?;
 
     let mut detail = sample_detail("i1", "DAN2-7");
     detail.description = Some(format!("look\n\n![trace]({url})"));
@@ -3993,7 +4041,7 @@ fn a_detail_with_an_image_requests_it_once() -> TestResult {
         summary: None,
     });
 
-    let commands = effects(apply_all(
+    let opened = effects(apply_all(
         &mut app,
         Message::DetailLoaded {
             detail: Box::new(detail.clone()),
@@ -4001,15 +4049,19 @@ fn a_detail_with_an_image_requests_it_once() -> TestResult {
         },
     ))?;
 
-    let requested: Vec<&str> = commands
-        .iter()
-        .filter_map(|command| match command {
-            Effect::Api(ApiCommand::LoadImage { url }) => Some(url.as_str()),
-            _ => None,
-        })
-        .collect();
+    assert!(
+        !opened
+            .iter()
+            .any(|command| matches!(command, Effect::Image(ImageCommand::Fetch { .. }))),
+        "a collapsed image costs nothing until t or I"
+    );
 
-    assert_eq!(requested, vec![url]);
+    let shown = handle_key(&mut app, press(KeyCode::Char('t')))?;
+
+    assert!(
+        matches!(&shown, Some(Effect::Image(ImageCommand::Fetch { url: requested })) if *requested == url),
+        "t fetches the image it shows, got {shown:?}"
+    );
 
     let again = effects(apply_all(
         &mut app,
@@ -4022,7 +4074,7 @@ fn a_detail_with_an_image_requests_it_once() -> TestResult {
     assert!(
         !again
             .iter()
-            .any(|command| matches!(command, Effect::Api(ApiCommand::LoadImage { .. }))),
+            .any(|command| matches!(command, Effect::Image(ImageCommand::Fetch { .. }))),
         "a cell already in flight is not requested twice"
     );
 
@@ -4032,7 +4084,7 @@ fn a_detail_with_an_image_requests_it_once() -> TestResult {
 #[test]
 fn capital_i_opens_the_description_image_and_requests_it() -> TestResult {
     let mut app = list_app_with_issue();
-    let url = "https://uploads.linear.app/trace.png";
+    let url = upload("trace.png")?;
 
     let mut detail = sample_detail("i1", "DAN2-7");
     detail.description = Some(format!("look\n\n![trace]({url})"));
@@ -4050,22 +4102,29 @@ fn capital_i_opens_the_description_image_and_requests_it() -> TestResult {
             reveal: Reveal::Top,
         },
     );
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
 
     apply(
         &mut app,
-        Message::Failed {
-            target: FailureTarget::Image {
-                url: url.to_string(),
-            },
-            error: RequestError::Other("boom".into()),
+        Message::ImageFailed {
+            url: url.clone(),
+            reason: ImageFailure::Undecodable,
         },
     )?;
+
+    assert!(
+        matches!(
+            app.workspace.image(&url).map(Remote::status),
+            Some(CacheStatus::Failed(_))
+        ),
+        "the failure must land on a real cell for the retry to mean anything"
+    );
 
     let opened = handle_key(&mut app, press(KeyCode::Char('I')))?;
 
     assert!(matches!(app.overlay(), Overlay::Image(_)));
     assert!(
-        matches!(opened, Some(Effect::Api(ApiCommand::LoadImage { url: u })) if u == url),
+        matches!(opened, Some(Effect::Image(ImageCommand::Fetch { url: u })) if u == url),
         "opening the viewer retries a failed image"
     );
 
@@ -4079,7 +4138,7 @@ fn capital_i_opens_the_description_image_and_requests_it() -> TestResult {
 #[test]
 fn t_toggles_an_image_between_collapsed_and_expanded() -> TestResult {
     let mut app = list_app_with_issue();
-    let url = "https://uploads.linear.app/trace.png";
+    let url = upload("trace.png")?;
 
     let mut detail = sample_detail("i1", "DAN2-7");
     detail.description = Some(format!("look\n\n![trace]({url})"));
@@ -4099,33 +4158,38 @@ fn t_toggles_an_image_between_collapsed_and_expanded() -> TestResult {
     );
 
     assert!(
-        !app.expanded_images().contains(url),
+        !app.workspace.expanded_images().contains(&url),
         "images start collapsed"
     );
 
     handle_key(&mut app, press(KeyCode::Char('t')))?;
-    assert!(app.expanded_images().contains(url), "t expands");
+    assert!(app.workspace.expanded_images().contains(&url), "t expands");
 
     handle_key(&mut app, press(KeyCode::Char('t')))?;
-    assert!(!app.expanded_images().contains(url), "t again collapses");
+    assert!(
+        !app.workspace.expanded_images().contains(&url),
+        "t again collapses"
+    );
 
     Ok(())
 }
 
 #[test]
-fn expanding_an_image_is_forgotten_on_a_workspace_switch() {
+fn expanding_an_image_is_forgotten_on_a_workspace_switch() -> TestResult {
     let mut app = detail_app();
-    let url = "https://uploads.linear.app/trace.png";
+    let url = upload("trace.png")?;
 
-    app.toggle_images(&[url.to_string()]);
-    assert!(app.expanded_images().contains(url));
+    app.workspace.toggle_images(std::slice::from_ref(&url));
+    assert!(app.workspace.expanded_images().contains(&url));
 
     app.reset_workspace();
 
     assert!(
-        app.expanded_images().is_empty(),
+        app.workspace.expanded_images().is_empty(),
         "expansion is workspace-scoped state"
     );
+
+    Ok(())
 }
 
 fn tall_comment_app() -> TestResult<App> {
@@ -4231,8 +4295,8 @@ fn k_scrolls_back_up_within_a_comment() -> TestResult {
 #[test]
 fn stepping_through_the_popover_fetches_each_image() -> TestResult {
     let mut app = list_app_with_issue();
-    let first = "https://uploads.linear.app/one.png";
-    let second = "https://uploads.linear.app/two.png";
+    let first = upload("one.png")?;
+    let second = upload("two.png")?;
 
     let mut detail = sample_detail("i1", "DAN2-7");
     detail.description = Some(format!("![one]({first})\n\n![two]({second})"));
@@ -4259,7 +4323,7 @@ fn stepping_through_the_popover_fetches_each_image() -> TestResult {
     let stepped = handle_key(&mut app, press(KeyCode::Char('j')))?;
 
     match &stepped {
-        Some(Effect::Api(ApiCommand::LoadImage { url })) => assert_eq!(url, second),
+        Some(Effect::Image(ImageCommand::Fetch { url })) => assert_eq!(*url, second),
         other => {
             return Err(format!("stepping to the next image must request it, got {other:?}").into())
         }
@@ -4282,22 +4346,231 @@ fn capital_i_reports_when_there_is_no_image() -> TestResult {
 #[test]
 fn a_failed_image_settles_its_cell() -> TestResult {
     let mut app = list_app_with_issue();
-    let url = "https://uploads.linear.app/trace.png";
+    let url = upload("trace.png")?;
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("look\n\n![trace]({url})"));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
 
     apply(
         &mut app,
-        Message::Failed {
-            target: FailureTarget::Image {
-                url: url.to_string(),
-            },
-            error: RequestError::Other("boom".into()),
+        Message::ImageFailed {
+            url: url.clone(),
+            reason: ImageFailure::Undecodable,
         },
     )?;
 
     assert!(matches!(
-        app.workspace.image(url).map(Remote::status),
+        app.workspace.image(&url).map(Remote::status),
         Some(CacheStatus::Failed(_))
     ));
+
+    Ok(())
+}
+
+#[test]
+fn a_forbidden_image_never_signs_the_viewer_out() -> TestResult {
+    let mut app = signed_in();
+    let url = upload("trace.png")?;
+
+    assert_eq!(app.session.auth(), AuthState::Authenticated);
+
+    let reply = apply_all(
+        &mut app,
+        Message::ImageFailed {
+            url,
+            reason: ImageFailure::Fetch(ImageFetchError::Status(403)),
+        },
+    );
+
+    assert!(reply.is_empty(), "no token refresh either, got {reply:?}");
+    assert_eq!(
+        app.session.auth(),
+        AuthState::Authenticated,
+        "an image host's 403 must not expire the session"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn t_in_reading_mode_shows_only_the_description_images() -> TestResult {
+    let mut app = list_app_with_issue();
+    let described = upload("described.png")?;
+    let commented = upload("commented.png")?;
+
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("look\n\n![shot]({described})"));
+    detail.comments = vec![linear_tui::api::Comment {
+        id: CommentId::from_raw("c1"),
+        parent_id: None,
+        author: Some("dan".into()),
+        is_mine: true,
+        body: format!("![later]({commented})"),
+        created_at: Default::default(),
+        reactions: Vec::new(),
+    }];
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
+
+    assert!(app.workspace.expanded_images().contains(&described));
+    assert!(
+        !app.workspace.expanded_images().contains(&commented),
+        "comment images wait for that comment to be selected"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn opening_another_issue_frees_the_previous_issues_images() -> TestResult {
+    let mut app = list_app_with_issue();
+    let url = upload("trace.png")?;
+
+    let mut first = sample_detail("i1", "DAN2-7");
+    first.description = Some(format!("look\n\n![trace]({url})"));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(first),
+            reveal: Reveal::Top,
+        },
+    );
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
+
+    assert!(app.workspace.image(&url).is_some());
+
+    app.workspace
+        .set_detail(sample_detail("i2", "DAN2-8"), app.now);
+
+    assert!(
+        app.workspace.image(&url).is_none(),
+        "only the open issue's images stay in memory"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn expansion_does_not_follow_a_url_into_another_issue() -> TestResult {
+    let mut app = list_app_with_issue();
+    let url = upload("pixel.gif")?;
+    let mut first = sample_detail("i1", "DAN2-7");
+    first.description = Some(format!("![shot]({url})"));
+    let mut second = sample_detail("i2", "DAN2-8");
+    second.description = Some("nothing to see".into());
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(first.clone()),
+            reveal: Reveal::Top,
+        },
+    );
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
+
+    assert!(app.workspace.expanded_images().contains(&url));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i2")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(second),
+            reveal: Reveal::Top,
+        },
+    );
+
+    assert!(
+        !app.workspace.expanded_images().contains(&url),
+        "leaving the issue forgets the consent"
+    );
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    let reopened = effects(apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(first),
+            reveal: Reveal::Top,
+        },
+    ))?;
+
+    assert!(
+        !reopened
+            .iter()
+            .any(|command| matches!(command, Effect::Image(ImageCommand::Fetch { .. }))),
+        "coming back fetches nothing without a keypress"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn a_reply_for_an_image_nobody_asked_for_is_dropped() -> TestResult {
+    let mut app = list_app_with_issue();
+    let url = upload("stray.png")?;
+
+    apply(
+        &mut app,
+        Message::ImageFailed {
+            url: url.clone(),
+            reason: ImageFailure::Undecodable,
+        },
+    )?;
+
+    assert!(
+        app.workspace.image(&url).is_none(),
+        "a late or foreign reply must not grow the cache"
+    );
 
     Ok(())
 }

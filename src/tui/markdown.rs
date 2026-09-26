@@ -2,6 +2,8 @@ mod style;
 mod table;
 
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+
+use crate::api::{ImageOrigin, ImageUrl};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
@@ -17,7 +19,7 @@ const PROFILE_SEGMENT: &str = "/profiles/";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImagePlacement {
-    pub url: String,
+    pub url: ImageUrl,
     pub alt: String,
     pub top: usize,
 }
@@ -430,16 +432,30 @@ impl Writer {
         } else {
             alt.clone()
         };
+        let parsed = ImageUrl::parse(&url);
+        let hint = match &parsed {
+            Some(url) => image_source(url),
+            None => "  unsupported link".to_string(),
+        };
 
         self.lines.push(Line::from(vec![
             Span::styled(
                 format!("🖼 {label}"),
                 dim_style(self.base).add_modifier(Modifier::ITALIC),
             ),
-            Span::styled("  t show   I open".to_string(), dim_style(self.base)),
+            Span::styled(hint, dim_style(self.base)),
         ]));
 
-        self.images.push(ImagePlacement { url, alt, top });
+        if let Some(url) = parsed {
+            self.images.push(ImagePlacement { url, alt, top });
+        }
+    }
+}
+
+fn image_source(url: &ImageUrl) -> String {
+    match (url.origin(), url.url().host_str()) {
+        (ImageOrigin::External, Some(host)) => format!("  from {host}"),
+        (ImageOrigin::External, None) | (ImageOrigin::LinearUpload, _) => String::new(),
     }
 }
 
@@ -652,7 +668,10 @@ mod tests {
 
     #[test]
     fn images_reserve_rows_and_record_where_they_went() -> TestResult {
-        let rendered = render("![a diagram](chart.png)", Style::default());
+        let rendered = render(
+            "![a diagram](https://uploads.linear.app/chart.png)",
+            Style::default(),
+        );
 
         assert_eq!(rendered.lines.len(), 1);
         assert_eq!(
@@ -664,12 +683,13 @@ mod tests {
                 .iter()
                 .map(|span| span.content.as_ref())
                 .collect::<String>(),
-            "🖼 a diagram  t show   I open"
+            "🖼 a diagram"
         );
         assert_eq!(
             rendered.images,
             vec![ImagePlacement {
-                url: "chart.png".into(),
+                url: ImageUrl::parse("https://uploads.linear.app/chart.png")
+                    .ok_or("a valid upload url")?,
                 alt: "a diagram".into(),
                 top: 0,
             }]
@@ -680,7 +700,10 @@ mod tests {
 
     #[test]
     fn an_image_after_text_records_its_offset() -> TestResult {
-        let rendered = render("intro\n\n![shot](a.png)", Style::default());
+        let rendered = render(
+            "intro\n\n![shot](https://uploads.linear.app/a.png)",
+            Style::default(),
+        );
 
         let placement = rendered.images.first().ok_or("no image placements")?;
 
@@ -694,7 +717,52 @@ mod tests {
                 .iter()
                 .map(|span| span.content.as_ref())
                 .collect::<String>(),
-            "🖼 shot  t show   I open"
+            "🖼 shot"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn an_external_image_names_its_host() -> TestResult {
+        let text = |rendered: &Rendered| -> Result<String, &'static str> {
+            Ok(rendered
+                .lines
+                .first()
+                .ok_or("no lines")?
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect())
+        };
+
+        let external = render("![pixel](https://tracker.example/p.gif)", Style::default());
+        let upload = render(
+            "![shot](https://uploads.linear.app/a.png)",
+            Style::default(),
+        );
+
+        assert_eq!(text(&external)?, "🖼 pixel  from tracker.example");
+        assert_eq!(text(&upload)?, "🖼 shot");
+
+        Ok(())
+    }
+
+    #[test]
+    fn an_unsupported_image_link_is_labelled_and_never_placed() -> TestResult {
+        let rendered = render("![shot](file:///etc/passwd)", Style::default());
+
+        assert!(rendered.images.is_empty(), "nothing can fetch it");
+        assert_eq!(
+            rendered
+                .lines
+                .first()
+                .ok_or("no lines")?
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>(),
+            "🖼 shot  unsupported link"
         );
 
         Ok(())

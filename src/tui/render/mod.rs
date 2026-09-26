@@ -15,6 +15,7 @@ use super::spinner::Spinner;
 use super::view::{ViewKind, Views};
 use super::workspace::{ImageStore, WorkspaceData};
 use crate::api::{IssueDetail, IssueSummary, Timestamp};
+use image::DrawnImage;
 
 pub mod image;
 
@@ -65,7 +66,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     let spinner = app.ui.spinner;
     let (feeds, images) = app.workspace.overlay_render_parts();
 
-    render_overlay(
+    let drawn = render_overlay(
         &mut overlay,
         feeds,
         images,
@@ -76,6 +77,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         frame,
     );
     app.set_overlay(overlay);
+    app.ui.drawn_images.extend(drawn);
 }
 
 fn render_zoomed(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -102,10 +104,10 @@ struct OverlayProps {
 fn render_overlay(
     overlay: &mut Overlay,
     feeds: &FeedStore,
-    images: &mut ImageStore,
+    images: &ImageStore,
     props: OverlayProps,
     frame: &mut Frame,
-) {
+) -> Option<DrawnImage> {
     use ratatui::widgets::Clear;
 
     let frame_area = frame.area();
@@ -164,11 +166,19 @@ fn render_overlay(
             overlays::workspaces::render(workspaces, frame, area);
         }
         Overlay::Image(view) => {
-            frame.render_widget(Clear, frame_area);
-            overlays::image::render(view, images, spinner, frame, frame_area);
+            let area = Rect {
+                height: frame_area.height.saturating_sub(1),
+                ..frame_area
+            };
+
+            frame.render_widget(Clear, area);
+
+            return overlays::image::render(view, images, spinner, frame, area);
         }
         Overlay::Find(_) | Overlay::None => {}
     }
+
+    None
 }
 
 fn render_picker(picker: &mut Picker, in_flight: bool, spinner: Spinner, frame: &mut Frame) {
@@ -319,7 +329,7 @@ fn render_panel(
         }
     }
 
-    Viewport((rect.height as usize).saturating_sub(2))
+    Viewport(usize::from(rect.height).saturating_sub(2))
 }
 
 fn render_view_surface(
@@ -334,7 +344,7 @@ fn render_view_surface(
 
     match view {
         Some(view) => surfaces::view::render(frame, area, feeds, view, spinner, emphasis, now),
-        None => Viewport((area.height as usize).saturating_sub(2)),
+        None => Viewport(usize::from(area.height).saturating_sub(2)),
     }
 }
 
@@ -353,15 +363,17 @@ fn render_detail_pane(
         views,
         view_state,
         list_state,
+        comment_scroll,
         ..
-    } = &app.ui;
-    let expanded = &app.ui.expanded_images;
-    let comment_scroll = app.ui.comment_scroll;
+    } = &mut app.ui;
+    let (views, view_state, list_state) = (&*views, &*view_state, &*list_state);
+    let expanded = app.workspace.expanded_images();
+    let comment_scroll = *comment_scroll;
 
     let measured = surfaces::detail::render_pane(
         frame,
         area,
-        &mut app.workspace,
+        &app.workspace,
         spinner,
         |workspace| work_preview(workspace, views, view_state, list_state),
         surfaces::detail::ReadingProps {
@@ -377,8 +389,9 @@ fn render_detail_pane(
 
     app.ui.detail_scroll_max = measured.scroll_max;
     app.ui.comment_scroll_max = measured.comment_scroll_max;
+    app.ui.drawn_images.extend(measured.drawn_images);
 
-    Viewport((area.height as usize).saturating_sub(2))
+    Viewport(usize::from(area.height).saturating_sub(2))
 }
 
 fn render_my_work_right(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -433,7 +446,7 @@ fn render_left(app: &mut App, frame: &mut Frame, area: Rect) {
                 Constraint::Min(5)
             } else {
                 let rows = app.panel(panel).len.clamp(1, COLLAPSED_PEEK);
-                Constraint::Length(rows as u16 + 2)
+                Constraint::Length(widgets::saturating_u16(rows).saturating_add(2))
             }
         })
         .collect();

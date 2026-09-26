@@ -4,10 +4,10 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::api::model::{
-    Comment, CommentId, Cursor, IssueDetail, IssueFilter, IssueId, IssueRef, IssueSummary,
-    IssueUpdate, Label, LabelId, NotificationItem, Page, Priority, Reaction, ReactionId,
-    ReactionTarget, Rgb, SavedView, Session, StateId, StateOption, StateType, Team, TeamId, User,
-    UserId, ViewId, WorkflowState,
+    Comment, CommentId, Cursor, ImageFetchError, ImageUrl, IssueDetail, IssueFilter, IssueId,
+    IssueRef, IssueSummary, IssueUpdate, Label, LabelId, NotificationItem, Page, Priority,
+    Reaction, ReactionId, ReactionTarget, Rgb, SavedView, Session, StateId, StateOption, StateType,
+    Team, TeamId, User, UserId, ViewId, WorkflowState,
 };
 use crate::api::{ApiResult, LinearApi};
 
@@ -210,7 +210,7 @@ impl LinearApi for FixtureClient {
         ])
     }
 
-    async fn image(&self, _url: &str) -> ApiResult<Vec<u8>> {
+    async fn image(&self, _url: &ImageUrl) -> Result<Vec<u8>, ImageFetchError> {
         let mut canvas = image::RgbImage::new(48, 24);
 
         for (x, y, pixel) in canvas.enumerate_pixels_mut() {
@@ -220,7 +220,7 @@ impl LinearApi for FixtureClient {
         let mut png = std::io::Cursor::new(Vec::new());
         image::DynamicImage::ImageRgb8(canvas)
             .write_to(&mut png, image::ImageFormat::Png)
-            .map_err(|error| crate::api::ApiError::GraphQl(vec![error.to_string()]))?;
+            .map_err(|error| ImageFetchError::Transport(error.to_string()))?;
 
         Ok(png.into_inner())
     }

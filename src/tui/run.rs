@@ -7,18 +7,20 @@ use crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
 use futures::StreamExt;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::Semaphore;
 
 use super::app::App;
 use super::event::{Event, Generation, Lane, Redraw};
 use super::feed::FeedKey;
 use super::message::{
-    ApiCommand, Commands, Effect, EncodeImage, FailureTarget, Message, PlatformCommand,
-    RequestError, RuntimeCommand, StoreCommand,
+    ApiCommand, Commands, Effect, EncodeImage, FailureTarget, ImageCommand, ImageFailure, Message,
+    PlatformCommand, RequestError, RuntimeCommand, StoreCommand,
 };
 use super::platform::Platform;
 use super::{render, update};
-use crate::api::{Credential, LinearApi, Timestamp};
+use crate::api::{Credential, ImageUrl, LinearApi, Timestamp};
 use crate::store::{Account, StateDir};
+use crate::tui::render::image::EncodeFailure;
 
 pub type ClientFactory = Arc<dyn Fn(Credential) -> Arc<dyn LinearApi> + Send + Sync>;
 
@@ -36,7 +38,13 @@ struct Runtime {
     tx: Tx,
     platform: Platform,
     state: StateDir,
+    image_fetches: Arc<Semaphore>,
+    image_encodes: Arc<Semaphore>,
 }
+
+const IMAGE_FETCHES: usize = 2;
+
+const IMAGE_ENCODES: usize = 2;
 
 impl Runtime {
     fn lane(&self) -> Lane {
@@ -76,6 +84,8 @@ pub async fn run(
         tx,
         platform,
         state,
+        image_fetches: Arc::new(Semaphore::new(IMAGE_FETCHES)),
+        image_encodes: Arc::new(Semaphore::new(IMAGE_ENCODES)),
     };
 
     match (&rt.conn, bootstrap) {
@@ -200,7 +210,7 @@ fn run_effect(rt: &mut Runtime, effect: Effect) {
             None => settle_disconnected_store(rt),
         },
         Effect::Platform(command) => dispatch_platform(rt.platform, &rt.tx, command),
-        Effect::Encode(request) => dispatch_encode(rt.lane(), &rt.tx, request),
+        Effect::Image(command) => dispatch_image(rt, command),
     }
 }
 
@@ -405,19 +415,6 @@ fn dispatch_api(conn: &Connection, lane: Lane, tx: &Tx, command: ApiCommand) {
                 Ok(views) => Message::CustomViewsLoaded(views),
                 Err(error) => failed(on_failure, &error),
             }),
-            ApiCommand::LoadImage { url } => Some(match api.image(&url).await {
-                Ok(bytes) => match crate::tui::render::image::decode(&bytes) {
-                    Some(image) => Message::ImageLoaded {
-                        url,
-                        image: Box::new(image),
-                    },
-                    None => Message::Failed {
-                        target: FailureTarget::Image { url },
-                        error: RequestError::Other("unsupported image format".to_string()),
-                    },
-                },
-                Err(error) => failed(on_failure, &error),
-            }),
             ApiCommand::LoadTeams => Some(match api.teams().await {
                 Ok(teams) => Message::TeamsLoaded { teams },
                 Err(error) => failed(on_failure, &error),
@@ -540,26 +537,88 @@ fn dispatch_store(state: &StateDir, namespace: &str, tx: &Tx, lane: Lane, comman
     });
 }
 
-fn dispatch_encode(lane: Lane, tx: &Tx, request: EncodeImage) {
-    let tx = tx.clone();
+fn dispatch_image(rt: &Runtime, command: ImageCommand) {
+    let tx = rt.tx.clone();
 
-    tokio::spawn(async move {
-        let EncodeImage { url, size, source } = request;
-        let encoded =
-            tokio::task::spawn_blocking(move || crate::tui::render::image::encode(&source, size))
-                .await
-                .ok()
-                .flatten();
+    match command {
+        ImageCommand::Fetch { url } => {
+            let lane = rt.lane();
+            let Some(conn) = &rt.conn else {
+                let reason = ImageFailure::Offline;
+                let _ = tx.send((lane, Message::ImageFailed { url, reason }));
 
-        let _ = tx.send((
-            lane,
-            Message::ImageEncoded {
+                return;
+            };
+            let api = Arc::clone(&conn.api);
+            let permits = Arc::clone(&rt.image_fetches);
+
+            tokio::spawn(async move {
+                let message = match permits.acquire_owned().await {
+                    Ok(_permit) => fetch_image(api.as_ref(), url).await,
+                    Err(_) => Message::ImageFailed {
+                        url,
+                        reason: ImageFailure::WorkerStopped,
+                    },
+                };
+
+                let _ = tx.send((lane, message));
+            });
+        }
+        ImageCommand::Encode(EncodeImage { url, request }) => {
+            let permits = Arc::clone(&rt.image_encodes);
+            let size = request.size;
+
+            tokio::spawn(async move {
+                let encoded = match permits.acquire_owned().await {
+                    Ok(_permit) => tokio::task::spawn_blocking(move || {
+                        crate::tui::render::image::encode(&request.source, request.size)
+                    })
+                    .await
+                    .unwrap_or(Err(EncodeFailure::WorkerStopped)),
+                    Err(_) => Err(EncodeFailure::WorkerStopped),
+                };
+
+                let _ = tx.send((
+                    Lane::Host,
+                    Message::ImageEncoded {
+                        url,
+                        size,
+                        encoded: encoded.map(Box::new),
+                    },
+                ));
+            });
+        }
+    }
+}
+
+async fn fetch_image(api: &dyn LinearApi, url: ImageUrl) -> Message {
+    let bytes = match api.image(&url).await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return Message::ImageFailed {
                 url,
-                size,
-                encoded: encoded.map(Box::new),
-            },
-        ));
-    });
+                reason: ImageFailure::Fetch(error),
+            };
+        }
+    };
+
+    let decoded =
+        tokio::task::spawn_blocking(move || crate::tui::render::image::decode(&bytes)).await;
+
+    match decoded {
+        Ok(Some(image)) => Message::ImageLoaded {
+            url,
+            image: Box::new(image),
+        },
+        Ok(None) => Message::ImageFailed {
+            url,
+            reason: ImageFailure::Undecodable,
+        },
+        Err(_) => Message::ImageFailed {
+            url,
+            reason: ImageFailure::WorkerStopped,
+        },
+    }
 }
 
 fn dispatch_platform(platform: Platform, tx: &Tx, command: PlatformCommand) {
@@ -615,6 +674,8 @@ mod tests {
             tx,
             platform,
             state: StateDir::at(dir.path().into()),
+            image_fetches: Arc::new(Semaphore::new(IMAGE_FETCHES)),
+            image_encodes: Arc::new(Semaphore::new(IMAGE_ENCODES)),
         };
 
         Ok((rt, rx, dir))

@@ -1,6 +1,5 @@
 use super::feed::{
-    access_detail_images, access_feed, feed_keep_id, reconcile_feed, resolve, revalidate_focus,
-    selected_view_key,
+    access_feed, feed_keep_id, reconcile_feed, resolve, revalidate_focus, selected_view_key,
 };
 use super::issue::{
     fill_picker, found_users, newest_comment_index, open_editor, place_editor, status_items,
@@ -41,13 +40,20 @@ enum Transition {
     CustomViewsLoaded(Vec<crate::api::SavedView>),
     TeamsLoaded(Vec<crate::api::Team>),
     ImageLoaded {
-        url: String,
+        url: crate::api::ImageUrl,
         image: Box<image::DynamicImage>,
     },
+    ImageFailed {
+        url: crate::api::ImageUrl,
+        reason: crate::tui::message::ImageFailure,
+    },
     ImageEncoded {
-        url: String,
+        url: crate::api::ImageUrl,
         size: ratatui::layout::Size,
-        encoded: Option<Box<crate::tui::render::image::Encoded>>,
+        encoded: Result<
+            Box<crate::tui::render::image::Encoded>,
+            crate::tui::render::image::EncodeFailure,
+        >,
     },
     DetailLoaded {
         detail: Box<IssueDetail>,
@@ -132,6 +138,7 @@ fn reduce(app: &App, msg: Message) -> Transition {
         Message::CustomViewsLoaded(views) => Transition::CustomViewsLoaded(views),
         Message::TeamsLoaded { teams } => Transition::TeamsLoaded(teams),
         Message::ImageLoaded { url, image } => Transition::ImageLoaded { url, image },
+        Message::ImageFailed { url, reason } => Transition::ImageFailed { url, reason },
         Message::ImageEncoded { url, size, encoded } => {
             Transition::ImageEncoded { url, size, encoded }
         }
@@ -290,7 +297,12 @@ fn commit(app: &mut App, transition: Transition) -> Commands {
         }
         Transition::ImageLoaded { url, image } => {
             let loaded = crate::tui::render::image::load(*image);
-            app.workspace.set_image(url, loaded, app.now);
+            app.workspace.set_image(&url, loaded, app.now);
+
+            Commands::default()
+        }
+        Transition::ImageFailed { url, reason } => {
+            app.workspace.fail_image(&url, reason.to_string());
 
             Commands::default()
         }
@@ -495,7 +507,7 @@ fn commit_detail(
 
     app.record_recent(summary);
 
-    let mut effects = access_detail_images(app);
+    let mut effects = Effects::default();
     effects.push(Effect::Store(StoreCommand::SaveRecent(
         app.workspace.recently_viewed.clone(),
     )));
@@ -540,7 +552,6 @@ fn commit_failure(app: &mut App, target: FailureTarget, error: RequestError) -> 
         FailureTarget::Inbox => app.workspace.inbox.fail(error.clone()),
         FailureTarget::CustomViews => app.workspace.saved_views.views.fail(error.clone()),
         FailureTarget::Teams => app.workspace.teams.teams.fail(error.clone()),
-        FailureTarget::Image { url } => app.workspace.fail_image(&url, error.clone()),
         FailureTarget::Detail => app.workspace.fail_detail(error.clone()),
         FailureTarget::States { team_id } => {
             app.workspace

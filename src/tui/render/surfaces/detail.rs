@@ -8,17 +8,21 @@ use ratatui::{
 
 use super::super::theme::{self, Emphasis};
 use super::super::widgets::{
-    max_scroll, notification_preview_text, preview_text, reaction_chips, text_area, text_panel,
-    wrapped_rows, ScrollableText,
+    max_scroll, notification_preview_text, preview_text, reaction_chips, saturating_u16, text_area,
+    text_panel, wrapped_rows, ScrollableText,
 };
-use crate::api::{IssueDetail, IssueSummary, NotificationItem, ThreadedComment, Timestamp};
-use crate::tui::cache::{CacheStatus, Phase, Remote};
+use crate::api::{
+    ImageUrl, IssueDetail, IssueSummary, NotificationItem, ThreadedComment, Timestamp,
+};
+use crate::tui::cache::{Phase, Remote};
 use crate::tui::focus::Scroll;
 use crate::tui::markdown::{ImagePlacement, Rendered};
+use crate::tui::render::image::{self, DrawnImage, Placeholder, Shown};
 use crate::tui::spinner::Spinner;
 use crate::tui::workspace::{ImageStore, RenderedDetail, WorkspaceData};
 use ratatui_image::sliced::{SignedPosition, SlicedImage};
 use std::collections::HashSet;
+use std::num::NonZeroU16;
 
 pub enum Preview<'a> {
     Issue(Option<&'a IssueSummary>),
@@ -30,7 +34,7 @@ pub struct ReadingProps<'a> {
     pub selected: Option<usize>,
     pub scroll: Scroll,
     pub emphasis: Emphasis,
-    pub expanded: &'a HashSet<String>,
+    pub expanded: &'a HashSet<ImageUrl>,
     pub comment_scroll: usize,
     pub spinner: Spinner,
 }
@@ -39,6 +43,7 @@ pub struct ReadingProps<'a> {
 pub struct Measured {
     pub scroll_max: usize,
     pub comment_scroll_max: usize,
+    pub drawn_images: Vec<DrawnImage>,
 }
 
 pub fn render_reading(
@@ -46,7 +51,7 @@ pub fn render_reading(
     area: Rect,
     detail: &IssueDetail,
     rendered: &RenderedDetail,
-    images: &mut ImageStore,
+    images: &ImageStore,
     props: ReadingProps<'_>,
 ) -> Measured {
     let ReadingProps {
@@ -62,7 +67,7 @@ pub fn render_reading(
     let (sizing_width, sizing_height) = text_area(area);
     let sizing = Sizing {
         width: sizing_width,
-        max_rows: sizing_height.saturating_sub(1).max(1) as u16,
+        max_rows: NonZeroU16::new(sizing_height.saturating_sub(1)).unwrap_or(NonZeroU16::MIN),
         images,
         expanded,
     };
@@ -71,7 +76,7 @@ pub fn render_reading(
 
     let comment_scroll_max = selected
         .and_then(|index| body.comment_rows(index))
-        .map(|rows| rows.saturating_sub(sizing_height))
+        .map(|rows| rows.saturating_sub(usize::from(sizing_height)))
         .unwrap_or(0);
     let within = comment_scroll.min(comment_scroll_max);
 
@@ -87,13 +92,15 @@ pub fn render_reading(
         .border_style(emphasis.border())
         .render(frame, area);
 
-    for (placed, spot) in overlays {
-        render_image(frame, spot, &placed, images, spinner);
-    }
+    let drawn_images = overlays
+        .into_iter()
+        .filter_map(|(placed, spot)| render_image(frame, spot, &placed, images, spinner))
+        .collect();
 
     Measured {
         scroll_max,
         comment_scroll_max,
+        drawn_images,
     }
 }
 
@@ -101,35 +108,37 @@ fn render_image(
     frame: &mut Frame,
     spot: ImageSpot,
     placed: &Placed,
-    images: &mut ImageStore,
+    images: &ImageStore,
     spinner: Spinner,
-) {
+) -> Option<DrawnImage> {
     frame.render_widget(Clear, spot.visible);
 
-    let natural = Size::new(spot.visible.width, placed.rows as u16);
-    let cell = images.get_or_default(&placed.image.url);
-    let status = match cell.value() {
-        Some(loaded) if loaded.failed_at(natural) => {
-            CacheStatus::Failed("Could not render this image".to_string())
-        }
-        _ => cell.status(),
-    };
+    let natural = Size::new(spot.visible.width, placed.rows);
+    let cell = images.get(&placed.image.url);
+    let state = image::shown(cell, natural);
 
-    match cell.value_mut().and_then(|loaded| loaded.sliced(natural)) {
-        Some(sliced) => {
+    match &state {
+        Shown::Drawn(encoded) => {
             let position = SignedPosition::from((0, spot.offset));
 
-            frame.render_widget(SlicedImage::new(sliced, position), spot.visible);
+            frame.render_widget(SlicedImage::new(encoded.sliced(), position), spot.visible);
         }
-        None => render_image_pending(frame, spot.visible, &placed.image, status, spinner),
+        Shown::Placeholder(placeholder) => {
+            render_image_pending(frame, spot.visible, &placed.image, placeholder, spinner);
+        }
     }
+
+    cell.and_then(Remote::value).map(|_| DrawnImage {
+        url: placed.image.url.clone(),
+        size: natural,
+    })
 }
 
 fn render_image_pending(
     frame: &mut Frame,
     rect: Rect,
     placement: &ImagePlacement,
-    status: CacheStatus,
+    placeholder: &Placeholder,
     spinner: Spinner,
 ) {
     let label = if placement.alt.is_empty() {
@@ -145,12 +154,16 @@ fn render_image_pending(
 
     frame.render_widget(block, rect);
 
-    let (text, style) = match status {
-        CacheStatus::Failed(error) => (error, theme::error()),
-        _ => (format!("{spinner}  Loading image…"), theme::dim()),
+    let style = if placeholder.is_failure() {
+        theme::error()
+    } else {
+        theme::dim()
     };
 
-    frame.render_widget(Paragraph::new(Span::styled(text, style)), inner);
+    frame.render_widget(
+        Paragraph::new(Span::styled(placeholder.message(spinner), style)),
+        inner,
+    );
 }
 
 #[derive(Clone, Copy)]
@@ -175,7 +188,10 @@ fn image_overlays(body: &DetailBody, area: Rect, scroll: Scroll) -> Vec<(Placed,
             let lines = &body.text.lines;
             let before = lines.get(..placed.top)?;
             let top = wrapped_rows(before, width);
-            let rows = wrapped_rows(lines.get(placed.top..placed.top + placed.rows)?, width);
+            let rows = wrapped_rows(
+                lines.get(placed.top..placed.top.saturating_add(usize::from(placed.rows)))?,
+                width,
+            );
 
             let hidden_above = row.saturating_sub(top);
 
@@ -184,24 +200,28 @@ fn image_overlays(body: &DetailBody, area: Rect, scroll: Scroll) -> Vec<(Placed,
             }
 
             let visible_top = top.saturating_sub(row);
-            let visible_rows = (rows - hidden_above).min(height.saturating_sub(visible_top));
+            let visible_rows =
+                (rows - hidden_above).min(usize::from(height).saturating_sub(visible_top));
 
             if visible_rows == 0 {
                 return None;
             }
 
-            let indent = (placed.indent as u16).saturating_mul(2);
+            let indent = saturating_u16(placed.indent).saturating_mul(2);
+            let visible_top = saturating_u16(visible_top);
+            let visible_rows = saturating_u16(visible_rows);
+            let hidden_above = i16::try_from(hidden_above).unwrap_or(i16::MAX);
 
             Some((
                 placed.clone(),
                 ImageSpot {
                     visible: Rect {
-                        x: area.x + 1 + indent,
-                        y: area.y + 1 + visible_top as u16,
+                        x: area.x.saturating_add(1).saturating_add(indent),
+                        y: area.y.saturating_add(1).saturating_add(visible_top),
                         width: width.saturating_sub(indent),
-                        height: visible_rows as u16,
+                        height: visible_rows,
                     },
-                    offset: -(hidden_above as i16),
+                    offset: hidden_above.saturating_neg(),
                 },
             ))
         })
@@ -211,7 +231,7 @@ fn image_overlays(body: &DetailBody, area: Rect, scroll: Scroll) -> Vec<(Placed,
 pub fn render_pane(
     frame: &mut Frame,
     area: Rect,
-    workspace: &mut WorkspaceData,
+    workspace: &WorkspaceData,
     spinner: Spinner,
     preview_of: impl FnOnce(&WorkspaceData) -> Preview<'_>,
     props: ReadingProps<'_>,
@@ -258,13 +278,13 @@ pub fn render_work_preview(frame: &mut Frame, area: Rect, preview: Preview, emph
     text_panel(frame, area, &title, text, emphasis);
 }
 
-pub const PLACEHOLDER_ROWS: usize = 6;
+pub const PLACEHOLDER_ROWS: u16 = 6;
 
 #[derive(Clone)]
 pub struct Placed {
     pub image: ImagePlacement,
     pub top: usize,
-    pub rows: usize,
+    pub rows: u16,
     pub indent: usize,
     pub expanded: bool,
 }
@@ -311,9 +331,9 @@ impl DetailBody {
 
 pub struct Sizing<'a> {
     pub width: u16,
-    pub max_rows: u16,
+    pub max_rows: NonZeroU16,
     pub images: &'a ImageStore,
-    pub expanded: &'a HashSet<String>,
+    pub expanded: &'a HashSet<ImageUrl>,
 }
 
 pub fn detail_text(
@@ -452,20 +472,20 @@ fn append_rendered(
     }
 }
 
-fn image_rows(url: &str, indent: usize, sizing: Option<&Sizing<'_>>) -> usize {
+fn image_rows(url: &ImageUrl, indent: usize, sizing: Option<&Sizing<'_>>) -> u16 {
     let Some(sizing) = sizing.filter(|sizing| sizing.expanded.contains(url)) else {
         return 1;
     };
 
     let width = sizing
         .width
-        .saturating_sub((indent as u16).saturating_mul(2));
+        .saturating_sub(saturating_u16(indent).saturating_mul(2));
 
     sizing
         .images
-        .get(&url.to_string())
+        .get(url)
         .and_then(Remote::value)
-        .map(|loaded| loaded.rows_for(width, sizing.max_rows) as usize)
+        .map(|loaded| loaded.rows_for(width, sizing.max_rows))
         .unwrap_or(PLACEHOLDER_ROWS)
 }
 

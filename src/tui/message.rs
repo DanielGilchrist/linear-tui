@@ -25,13 +25,20 @@ pub enum Message {
         teams: Vec<Team>,
     },
     ImageLoaded {
-        url: String,
+        url: crate::api::ImageUrl,
         image: Box<image::DynamicImage>,
     },
+    ImageFailed {
+        url: crate::api::ImageUrl,
+        reason: ImageFailure,
+    },
     ImageEncoded {
-        url: String,
+        url: crate::api::ImageUrl,
         size: ratatui::layout::Size,
-        encoded: Option<Box<crate::tui::render::image::Encoded>>,
+        encoded: Result<
+            Box<crate::tui::render::image::Encoded>,
+            crate::tui::render::image::EncodeFailure,
+        >,
     },
     DetailLoaded {
         detail: Box<IssueDetail>,
@@ -114,7 +121,6 @@ pub enum FailureTarget {
     Inbox,
     CustomViews,
     Teams,
-    Image { url: String },
     Detail,
     States { team_id: TeamId },
     Members { team_id: TeamId },
@@ -137,14 +143,31 @@ pub enum Effect {
     Api(ApiCommand),
     Store(StoreCommand),
     Platform(PlatformCommand),
+    Image(ImageCommand),
+}
+
+#[derive(Debug, Clone)]
+pub enum ImageCommand {
+    Fetch { url: crate::api::ImageUrl },
     Encode(EncodeImage),
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum ImageFailure {
+    #[error(transparent)]
+    Fetch(#[from] crate::api::ImageFetchError),
+    #[error("the image is not in a supported format")]
+    Undecodable,
+    #[error("Not connected")]
+    Offline,
+    #[error("The image worker stopped before loading this image")]
+    WorkerStopped,
 }
 
 #[derive(Debug, Clone)]
 pub struct EncodeImage {
-    pub url: String,
-    pub size: ratatui::layout::Size,
-    pub source: std::sync::Arc<image::DynamicImage>,
+    pub url: crate::api::ImageUrl,
+    pub request: crate::tui::render::image::EncodeRequest,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -269,9 +292,6 @@ pub enum ApiCommand {
     },
     LoadCustomViews,
     LoadTeams,
-    LoadImage {
-        url: String,
-    },
     LoadDetail {
         target: IssueRef,
         reveal: Reveal,
@@ -350,7 +370,6 @@ impl ApiCommand {
             ApiCommand::LoadInboxFeed { .. } => FailureTarget::Inbox,
             ApiCommand::LoadCustomViews => FailureTarget::CustomViews,
             ApiCommand::LoadTeams => FailureTarget::Teams,
-            ApiCommand::LoadImage { url } => FailureTarget::Image { url: url.clone() },
             ApiCommand::LoadDetail { .. } => FailureTarget::Detail,
             ApiCommand::LoadStates { team_id } => FailureTarget::States {
                 team_id: team_id.clone(),

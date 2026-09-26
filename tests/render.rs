@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use linear_tui::api::fixture::FixtureClient;
-use linear_tui::api::{Credential, IssueRef, LinearApi, TeamId, Timestamp, ViewId};
+use linear_tui::api::{Credential, ImageUrl, IssueRef, LinearApi, TeamId, Timestamp, ViewId};
 use linear_tui::api::{Label, LabelId, Rgb};
 use linear_tui::store::Account;
 use linear_tui::tui::app::App;
@@ -8,8 +8,9 @@ use linear_tui::tui::cache::Remote;
 use linear_tui::tui::feed::{Feed, FeedKey, FeedRequest};
 use linear_tui::tui::focus::{DetailFocus, LeftPanel, Origin};
 use linear_tui::tui::message::{
-    Commands, Effect, EncodeImage, FailureTarget, Message, RequestError,
+    Commands, Effect, EncodeImage, FailureTarget, ImageCommand, Message, RequestError,
 };
+use linear_tui::tui::render::image::EncodeFailure;
 use linear_tui::tui::update::{apply, handle_key};
 use linear_tui::tui::view::ViewKind;
 use linear_tui::tui::{render_styled_to_string, render_to_string};
@@ -21,28 +22,43 @@ fn edit(app: &mut App, field: char) {
     handle_key(app, KeyEvent::new(KeyCode::Char(field), KeyModifiers::NONE));
 }
 
-fn settled_frame(app: &mut App, width: u16, height: u16) -> TestResult<String> {
-    let mut frame = render_to_string(app, width, height);
+struct Settled {
+    frame: String,
+    encodes: usize,
+}
 
-    for _ in 0..8 {
-        let Commands::Effects(effects) = linear_tui::tui::update::after_render(app) else {
-            return Ok(frame);
-        };
-
-        let requests: Vec<EncodeImage> = effects
+fn encode_requests(commands: Commands) -> Vec<EncodeImage> {
+    match commands {
+        Commands::Effects(effects) => effects
             .into_iter()
             .filter_map(|effect| match effect {
-                Effect::Encode(request) => Some(request),
-                _ => None,
+                Effect::Image(ImageCommand::Encode(request)) => Some(request),
+                Effect::Image(ImageCommand::Fetch { .. })
+                | Effect::Api(_)
+                | Effect::Store(_)
+                | Effect::Platform(_) => None,
             })
-            .collect();
+            .collect(),
+        Commands::Runtime(_) => Vec::new(),
+    }
+}
+
+fn settle(app: &mut App, width: u16, height: u16) -> TestResult<Settled> {
+    let mut frame = render_to_string(app, width, height);
+    let mut encodes = 0;
+
+    for _ in 0..8 {
+        let requests = encode_requests(linear_tui::tui::update::after_render(app));
 
         if requests.is_empty() {
-            return Ok(frame);
+            return Ok(Settled { frame, encodes });
         }
 
-        for EncodeImage { url, size, source } in requests {
-            let encoded = linear_tui::tui::render::image::encode(&source, size).map(Box::new);
+        for EncodeImage { url, request } in requests {
+            let size = request.size;
+            let encoded =
+                linear_tui::tui::render::image::encode(&request.source, size).map(Box::new);
+            encodes += 1;
 
             apply(app, Message::ImageEncoded { url, size, encoded });
         }
@@ -53,12 +69,32 @@ fn settled_frame(app: &mut App, width: u16, height: u16) -> TestResult<String> {
     Err("images kept asking to be re-encoded and never settled".into())
 }
 
-fn encodes(app: &App, url: &str) -> TestResult<usize> {
-    app.workspace
-        .image(url)
-        .and_then(Remote::value)
-        .map(|loaded| loaded.encodes())
-        .ok_or_else(|| "the image is loaded".into())
+fn settled_frame(app: &mut App, width: u16, height: u16) -> TestResult<String> {
+    Ok(settle(app, width, height)?.frame)
+}
+
+const TRACE: &str = "https://uploads.linear.app/trace.png";
+
+fn trace_url() -> TestResult<ImageUrl> {
+    ImageUrl::parse(TRACE).ok_or_else(|| "the trace url parses".into())
+}
+
+async fn deliver(app: &mut App, client: &FixtureClient, url: &ImageUrl) -> TestResult {
+    app.workspace.begin_image(url, app.now);
+
+    let bytes = client.image(url).await?;
+    let decoded =
+        linear_tui::tui::render::image::decode(&bytes).ok_or("the fixture png decodes")?;
+
+    apply(
+        app,
+        Message::ImageLoaded {
+            url: url.clone(),
+            image: Box::new(decoded),
+        },
+    );
+
+    Ok(())
 }
 
 fn expand_images(app: &mut App) {
@@ -1124,7 +1160,7 @@ async fn a_loaded_image_draws_pixels_into_the_reserved_box() -> TestResult {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await?;
 
-    let url = "https://uploads.linear.app/trace.png";
+    let url = trace_url()?;
     let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
     detail.description = Some(format!("Before the shot\n\n![oven trace]({url})"));
     app.workspace.set_detail(detail, app.now);
@@ -1137,16 +1173,7 @@ async fn a_loaded_image_draws_pixels_into_the_reserved_box() -> TestResult {
         "an unloaded image shows the reserved box"
     );
 
-    let bytes = client.image(url).await?;
-    let decoded =
-        linear_tui::tui::render::image::decode(&bytes).ok_or("the fixture png decodes")?;
-    apply(
-        &mut app,
-        Message::ImageLoaded {
-            url: url.to_string(),
-            image: Box::new(decoded),
-        },
-    );
+    deliver(&mut app, &client, &url).await?;
 
     let first = render_to_string(&mut app, 90, 24);
 
@@ -1154,12 +1181,6 @@ async fn a_loaded_image_draws_pixels_into_the_reserved_box() -> TestResult {
         first.contains("Loading image"),
         "the first frame after the bytes land shows the loader, got:\n{first}"
     );
-    assert_eq!(
-        encodes(&app, url)?,
-        0,
-        "render never encodes on the UI thread"
-    );
-
     let drawn = settled_frame(&mut app, 90, 24)?;
 
     assert!(
@@ -1179,7 +1200,7 @@ async fn scrolling_past_an_image_does_not_re_encode_it() -> TestResult {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await?;
 
-    let url = "https://uploads.linear.app/trace.png";
+    let url = trace_url()?;
     let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
     detail.description = Some(format!(
         "{}\n\n![oven trace]({url})\n\n{}",
@@ -1188,39 +1209,24 @@ async fn scrolling_past_an_image_does_not_re_encode_it() -> TestResult {
     ));
     app.workspace.set_detail(detail, app.now);
 
-    let bytes = client.image(url).await?;
-    let decoded =
-        linear_tui::tui::render::image::decode(&bytes).ok_or("the fixture png decodes")?;
-    apply(
-        &mut app,
-        Message::ImageLoaded {
-            url: url.to_string(),
-            image: Box::new(decoded),
-        },
-    );
+    deliver(&mut app, &client, &url).await?;
 
     expand_images(&mut app);
-    settled_frame(&mut app, 90, 20)?;
-    let after_first = encodes(&app, url)?;
+    let first = settle(&mut app, 90, 20)?.encodes;
 
-    assert_eq!(after_first, 1, "the first settled frame encodes once");
+    assert_eq!(first, 1, "the first settled frame encodes once");
+
+    let mut extra = 0;
 
     for _ in 0..12 {
         handle_key(
             &mut app,
             KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
         );
-        settled_frame(&mut app, 90, 20)?;
+        extra += settle(&mut app, 90, 20)?.encodes;
     }
 
-    let after_scrolling = encodes(&app, url)?;
-
-    assert_eq!(
-        after_scrolling,
-        after_first,
-        "clipping must not re-encode: scrolling re-encoded {} extra times",
-        after_scrolling - after_first
-    );
+    assert_eq!(extra, 0, "clipping must not re-encode while scrolling");
 
     Ok(())
 }
@@ -1230,7 +1236,7 @@ async fn an_image_scrolled_half_off_the_top_still_encodes_once() -> TestResult {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await?;
 
-    let url = "https://uploads.linear.app/trace.png";
+    let url = trace_url()?;
     let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
     detail.description = Some(format!(
         "{}\n\n![oven trace]({url})\n\n{}",
@@ -1239,34 +1245,25 @@ async fn an_image_scrolled_half_off_the_top_still_encodes_once() -> TestResult {
     ));
     app.workspace.set_detail(detail, app.now);
 
-    let bytes = client.image(url).await?;
-    let decoded =
-        linear_tui::tui::render::image::decode(&bytes).ok_or("the fixture png decodes")?;
-    apply(
-        &mut app,
-        Message::ImageLoaded {
-            url: url.to_string(),
-            image: Box::new(decoded),
-        },
-    );
+    deliver(&mut app, &client, &url).await?;
 
     expand_images(&mut app);
-    settled_frame(&mut app, 90, 20)?;
-    let baseline = encodes(&app, url)?;
+    let first = settle(&mut app, 90, 20)?.encodes;
 
-    assert_eq!(baseline, 1, "the first settled frame encodes once");
+    assert_eq!(first, 1, "the first settled frame encodes once");
+
+    let mut extra = 0;
 
     for _ in 0..30 {
         handle_key(
             &mut app,
             KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
         );
-        settled_frame(&mut app, 90, 20)?;
+        extra += settle(&mut app, 90, 20)?.encodes;
     }
 
     assert_eq!(
-        encodes(&app, url)?,
-        baseline,
+        extra, 0,
         "slicing must hold the encode stable while the image scrolls off the top"
     );
 
@@ -1278,30 +1275,16 @@ async fn a_pending_encode_is_requested_once_across_frames() -> TestResult {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await?;
 
-    let url = "https://uploads.linear.app/trace.png";
+    let url = trace_url()?;
     let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
     detail.description = Some(format!("Before the shot\n\n![oven trace]({url})"));
     app.workspace.set_detail(detail, app.now);
 
-    let bytes = client.image(url).await?;
-    let decoded =
-        linear_tui::tui::render::image::decode(&bytes).ok_or("the fixture png decodes")?;
-    apply(
-        &mut app,
-        Message::ImageLoaded {
-            url: url.to_string(),
-            image: Box::new(decoded),
-        },
-    );
+    deliver(&mut app, &client, &url).await?;
     expand_images(&mut app);
 
-    let requests = |app: &mut App| match linear_tui::tui::update::after_render(app) {
-        Commands::Effects(effects) => effects
-            .into_iter()
-            .filter(|effect| matches!(effect, Effect::Encode(_)))
-            .count(),
-        Commands::Runtime(_) => 0,
-    };
+    let requests =
+        |app: &mut App| encode_requests(linear_tui::tui::update::after_render(app)).len();
 
     render_to_string(&mut app, 90, 24);
     assert_eq!(requests(&mut app), 1);
@@ -1322,41 +1305,26 @@ async fn a_failed_encode_shows_an_error_and_stops_asking() -> TestResult {
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await?;
 
-    let url = "https://uploads.linear.app/trace.png";
+    let url = trace_url()?;
     let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
     detail.description = Some(format!("Before the shot\n\n![oven trace]({url})"));
     app.workspace.set_detail(detail, app.now);
 
-    let bytes = client.image(url).await?;
-    let decoded =
-        linear_tui::tui::render::image::decode(&bytes).ok_or("the fixture png decodes")?;
-    apply(
-        &mut app,
-        Message::ImageLoaded {
-            url: url.to_string(),
-            image: Box::new(decoded),
-        },
-    );
+    deliver(&mut app, &client, &url).await?;
     expand_images(&mut app);
 
     render_to_string(&mut app, 90, 24);
-    let Commands::Effects(effects) = linear_tui::tui::update::after_render(&mut app) else {
-        return Err("expected effects".into());
-    };
-    let size = effects
-        .into_iter()
-        .find_map(|effect| match effect {
-            Effect::Encode(request) => Some(request.size),
-            _ => None,
-        })
+    let size = encode_requests(linear_tui::tui::update::after_render(&mut app))
+        .first()
+        .map(|job| job.request.size)
         .ok_or("an encode request")?;
 
     apply(
         &mut app,
         Message::ImageEncoded {
-            url: url.to_string(),
+            url: url.clone(),
             size,
-            encoded: None,
+            encoded: Err(EncodeFailure::Unsupported),
         },
     );
 
@@ -1380,40 +1348,64 @@ async fn an_image_shown_inline_and_in_the_gallery_keeps_both_encodings() -> Test
     let client = FixtureClient::sample();
     let mut app = opened_detail_app(&client).await?;
 
-    let url = "https://uploads.linear.app/trace.png";
+    let url = trace_url()?;
     let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
     detail.description = Some(format!("Before the shot\n\n![oven trace]({url})"));
     app.workspace.set_detail(detail, app.now);
 
-    let bytes = client.image(url).await?;
-    let decoded =
-        linear_tui::tui::render::image::decode(&bytes).ok_or("the fixture png decodes")?;
-    apply(
-        &mut app,
-        Message::ImageLoaded {
-            url: url.to_string(),
-            image: Box::new(decoded),
-        },
-    );
+    deliver(&mut app, &client, &url).await?;
     expand_images(&mut app);
     handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('I'), KeyModifiers::SHIFT),
     );
 
-    settled_frame(&mut app, 90, 24)?;
-    let settled = encodes(&app, url)?;
+    let first = settle(&mut app, 90, 24)?.encodes;
 
-    assert_eq!(settled, 2, "one encoding for the pane, one for the gallery");
+    assert_eq!(first, 2, "one encoding for the pane, one for the gallery");
+
+    let mut extra = 0;
 
     for _ in 0..5 {
-        settled_frame(&mut app, 90, 24)?;
+        extra += settle(&mut app, 90, 24)?.encodes;
     }
 
     assert_eq!(
-        encodes(&app, url)?,
-        settled,
+        extra, 0,
         "two sizes on screen at once must not evict each other"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_gallery_says_so_when_its_image_leaves_the_issue() -> TestResult {
+    let client = FixtureClient::sample();
+    let mut app = opened_detail_app(&client).await?;
+
+    let url = trace_url()?;
+    let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
+    let original = detail.description.clone();
+    detail.description = Some(format!("Before the shot\n\n![oven trace]({url})"));
+    app.workspace.set_detail(detail.clone(), app.now);
+
+    handle_key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('I'), KeyModifiers::SHIFT),
+    );
+
+    detail.description = original;
+    app.workspace.set_detail(detail, app.now);
+
+    let frame = render_to_string(&mut app, 90, 24);
+
+    assert!(
+        frame.contains("Image not loaded"),
+        "a pruned image must not spin forever, got:\n{frame}"
+    );
+    assert!(
+        frame.contains("esc/q/I close"),
+        "the close keys come from the keymap, got:\n{frame}"
     );
 
     Ok(())

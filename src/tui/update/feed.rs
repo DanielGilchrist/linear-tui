@@ -75,20 +75,6 @@ pub(super) fn access_session(app: &mut App) -> Effects {
     Effects::one(Effect::Api(ApiCommand::LoadSession))
 }
 
-pub(super) fn access_detail_images(app: &mut App) -> Effects {
-    let urls: Vec<String> = app
-        .workspace
-        .detail_markdown()
-        .image_urls()
-        .into_iter()
-        .collect();
-
-    urls.into_iter()
-        .filter(|url| app.workspace.begin_image(url, app.now))
-        .map(|url| Effect::Api(ApiCommand::LoadImage { url }))
-        .collect()
-}
-
 pub(super) fn access_teams(app: &mut App) -> Effects {
     let began = app
         .workspace

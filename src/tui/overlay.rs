@@ -8,8 +8,8 @@ use super::emoji::{self, PaletteEmoji};
 use super::focus::{Direction, Edge, Focus};
 use super::message::Effect;
 use crate::api::{
-    CommentId, IssueId, Label, LabelId, Priority, Reaction, ReactionTarget, StateId, StateOption,
-    TeamId, User, UserId,
+    CommentId, ImageUrl, IssueId, Label, LabelId, Priority, Reaction, ReactionTarget, StateId,
+    StateOption, TeamId, User, UserId,
 };
 use crate::store::Account;
 
@@ -231,52 +231,62 @@ impl Labels {
 }
 
 pub struct ImageView {
-    current: String,
-    following: VecDeque<String>,
-    index: usize,
+    before: VecDeque<ImageUrl>,
+    current: ImageUrl,
+    after: VecDeque<ImageUrl>,
 }
 
 impl ImageView {
-    pub fn open(urls: Vec<String>) -> Option<Self> {
-        let mut following = VecDeque::from(urls);
-        let current = following.pop_front()?;
+    pub fn open(urls: Vec<ImageUrl>) -> Option<Self> {
+        let mut after = VecDeque::from(urls);
+        let current = after.pop_front()?;
 
         Some(Self {
+            before: VecDeque::new(),
             current,
-            following,
-            index: 0,
+            after,
         })
     }
 
-    pub fn url(&self) -> &str {
+    pub fn url(&self) -> &ImageUrl {
         &self.current
     }
 
     pub fn position(&self) -> (usize, usize) {
-        (self.index + 1, self.len().get())
-    }
+        let position = self.before.len().saturating_add(1);
 
-    fn len(&self) -> NonZeroUsize {
-        NonZeroUsize::MIN.saturating_add(self.following.len())
+        (position, position.saturating_add(self.after.len()))
     }
 
     pub fn step(&mut self, direction: Direction) {
         match direction {
-            Direction::Next => {
-                if let Some(next) = self.following.pop_front() {
-                    let previous = std::mem::replace(&mut self.current, next);
-                    self.following.push_back(previous);
+            Direction::Next => match self.after.pop_front() {
+                Some(next) => {
+                    let left = std::mem::replace(&mut self.current, next);
+                    self.before.push_back(left);
                 }
-            }
-            Direction::Prev => {
-                if let Some(previous) = self.following.pop_back() {
-                    let next = std::mem::replace(&mut self.current, previous);
-                    self.following.push_front(next);
+                None => {
+                    if let Some(first) = self.before.pop_front() {
+                        let last = std::mem::replace(&mut self.current, first);
+                        self.after = std::mem::take(&mut self.before);
+                        self.after.push_back(last);
+                    }
                 }
-            }
+            },
+            Direction::Prev => match self.before.pop_back() {
+                Some(previous) => {
+                    let right = std::mem::replace(&mut self.current, previous);
+                    self.after.push_front(right);
+                }
+                None => {
+                    if let Some(last) = self.after.pop_back() {
+                        let first = std::mem::replace(&mut self.current, last);
+                        self.before = std::mem::take(&mut self.after);
+                        self.before.push_front(first);
+                    }
+                }
+            },
         }
-
-        self.index = direction.wrap(self.index, self.len());
     }
 }
 
@@ -1114,6 +1124,64 @@ pub enum Overlay {
 
 #[cfg(test)]
 mod tests {
+    fn gallery(names: &[&str]) -> Result<ImageView, String> {
+        let urls = names
+            .iter()
+            .map(|name| {
+                ImageUrl::parse(&format!("https://uploads.linear.app/{name}"))
+                    .ok_or_else(|| format!("{name} is not a valid upload url"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        ImageView::open(urls).ok_or_else(|| "an empty gallery".to_string())
+    }
+
+    fn current(view: &ImageView) -> Option<String> {
+        view.url().as_str().rsplit('/').next().map(str::to_string)
+    }
+
+    #[test]
+    fn the_gallery_wraps_in_both_directions() -> Result<(), String> {
+        let mut view = gallery(&["a", "b", "c"])?;
+
+        assert_eq!(
+            (current(&view), view.position()),
+            (Some("a".into()), (1, 3))
+        );
+
+        view.step(Direction::Prev);
+        assert_eq!(
+            (current(&view), view.position()),
+            (Some("c".into()), (3, 3))
+        );
+
+        view.step(Direction::Next);
+        assert_eq!(
+            (current(&view), view.position()),
+            (Some("a".into()), (1, 3))
+        );
+
+        view.step(Direction::Next);
+        view.step(Direction::Next);
+        view.step(Direction::Next);
+        assert_eq!(
+            (current(&view), view.position()),
+            (Some("a".into()), (1, 3))
+        );
+
+        let mut single = gallery(&["only"])?;
+        single.step(Direction::Next);
+        single.step(Direction::Prev);
+        assert_eq!(
+            (current(&single), single.position()),
+            (Some("only".into()), (1, 1))
+        );
+
+        assert!(ImageView::open(Vec::new()).is_none());
+
+        Ok(())
+    }
+
     use super::*;
     use crate::api::UserId;
 

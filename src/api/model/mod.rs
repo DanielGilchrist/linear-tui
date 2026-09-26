@@ -1,6 +1,7 @@
 mod credential;
 mod custom_view;
 mod id;
+mod image;
 mod issue;
 mod issue_ref;
 mod notification;
@@ -13,6 +14,7 @@ mod user;
 pub use credential::*;
 pub use custom_view::*;
 pub use id::*;
+pub use image::*;
 pub use issue::*;
 pub use issue_ref::*;
 pub use notification::*;

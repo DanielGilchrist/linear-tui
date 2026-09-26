@@ -136,8 +136,12 @@ pub const WORKSPACES_HINTS: &[Hint<WorkspacesInput>] = &[
 ];
 
 pub const IMAGE_HINTS: &[Hint<ImageInput>] = &[
-    Hint::Bound(ImageInput::Next),
-    Hint::Bound(ImageInput::Close),
+    Hint::Pair {
+        forward: ImageInput::Next,
+        back: ImageInput::Prev,
+        label: "next/prev",
+    },
+    Hint::Every(ImageInput::Close),
 ];
 
 pub const REACTIONS_HINTS: &[Hint<ReactionInput>] = &[

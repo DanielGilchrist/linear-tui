@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use ratatui::layout::Size;
 use ratatui::style::Style;
 use ratatui::widgets::ListState;
@@ -6,9 +8,10 @@ use super::cache::{Cache, CacheStatus, RefreshPolicy, Remote};
 use super::feed::{Feed, FeedKey, FeedStore};
 use super::markdown;
 use super::message::EncodeImage;
-use super::render::image::{Encoded, Loaded};
+use super::render::image::{DrawnImage, EncodeFailure, Encoded, Loaded};
 use super::saved_views::SavedViewsPanel;
 use super::view::{View, ViewKind};
+use crate::api::ImageUrl;
 use crate::api::{
     IssueDetail, IssueSummary, NotificationItem, Session, StateOption, Team, TeamId, Timestamp,
     User,
@@ -23,8 +26,14 @@ pub struct RenderedDetail {
 }
 
 impl RenderedDetail {
-    pub fn image_urls(&self) -> Vec<String> {
-        let mut urls: Vec<String> = Vec::new();
+    pub fn contains_image(&self, url: &ImageUrl) -> bool {
+        std::iter::once(&self.description)
+            .chain(self.comment_bodies.iter())
+            .any(|rendered| rendered.images.iter().any(|image| image.url == *url))
+    }
+
+    pub fn image_urls(&self) -> Vec<ImageUrl> {
+        let mut urls: Vec<ImageUrl> = Vec::new();
 
         let blocks = std::iter::once(&self.description).chain(self.comment_bodies.iter());
 
@@ -105,9 +114,10 @@ pub struct WorkspaceData {
     pub recent_state: ListState,
     pub teams: TeamsPanel,
     images: ImageStore,
+    expanded_images: HashSet<ImageUrl>,
 }
 
-pub type ImageStore = Cache<String, Remote<Loaded>>;
+pub type ImageStore = Cache<ImageUrl, Remote<Loaded>>;
 
 impl WorkspaceData {
     pub fn new() -> Self {
@@ -124,12 +134,18 @@ impl WorkspaceData {
             recent_state: ListState::default().with_selected(Some(0)),
             teams: TeamsPanel::new(),
             images: ImageStore::default(),
+            expanded_images: HashSet::new(),
         }
     }
 
     pub fn set_detail(&mut self, detail: IssueDetail, now: Timestamp) {
         self.detail_markdown = RenderedDetail::render(&detail);
         self.detail.set(detail, now);
+
+        let rendered = &self.detail_markdown;
+        self.images.retain(|url, _| rendered.contains_image(url));
+        self.expanded_images
+            .retain(|url| rendered.contains_image(url));
     }
 
     pub fn bust_detail(&mut self) {
@@ -163,6 +179,7 @@ impl WorkspaceData {
             recent_state: _,
             teams,
             images,
+            expanded_images: _,
         } = self;
 
         session.cancel();
@@ -198,62 +215,93 @@ impl WorkspaceData {
             .any(|(_, cell)| cell.in_flight() || cell.value().is_some_and(Loaded::is_encoding))
     }
 
-    pub fn take_encode_requests(&mut self) -> Vec<EncodeImage> {
-        self.images
-            .iter_mut()
-            .flat_map(|(url, cell)| {
-                let requests = cell.value_mut().map(Loaded::take_requests);
+    pub fn claim_encode(&mut self, drawn: &DrawnImage) -> Option<EncodeImage> {
+        let request = self
+            .images
+            .get_mut(&drawn.url)?
+            .value_mut()?
+            .claim(drawn.size)?;
 
-                requests.into_iter().flatten().map(|request| EncodeImage {
-                    url: url.clone(),
-                    size: request.size,
-                    source: request.source,
-                })
-            })
-            .collect()
+        Some(EncodeImage {
+            url: drawn.url.clone(),
+            request,
+        })
     }
 
-    pub fn settle_encode(&mut self, url: &str, size: Size, encoded: Option<Encoded>) {
-        let Some(loaded) = self
-            .images
-            .get_mut(&url.to_string())
-            .and_then(Remote::value_mut)
-        else {
+    pub fn settle_encode(
+        &mut self,
+        url: &ImageUrl,
+        size: Size,
+        encoded: Result<Encoded, EncodeFailure>,
+    ) {
+        let Some(loaded) = self.images.get_mut(url).and_then(Remote::value_mut) else {
             return;
         };
 
         match encoded {
-            Some(encoded) => loaded.set_encoded(encoded),
-            None => loaded.encode_failed(size),
+            Ok(encoded) => loaded.set_encoded(encoded),
+            Err(failure) => loaded.encode_failed(size, failure),
         }
     }
 
-    pub fn image(&self, url: &str) -> Option<&Remote<Loaded>> {
-        self.images.get(&url.to_string())
-    }
-
-    pub fn set_image(&mut self, url: String, loaded: Loaded, now: Timestamp) {
-        self.images.get_or_default(&url).set(loaded, now);
-    }
-
-    pub fn begin_image(&mut self, url: &str, now: Timestamp) -> bool {
+    pub fn loading_images(&self) -> Vec<ImageUrl> {
         self.images
-            .get_or_default(&url.to_string())
+            .iter()
+            .filter(|(_, cell)| cell.in_flight())
+            .map(|(url, _)| url.clone())
+            .collect()
+    }
+
+    pub fn expanded_images(&self) -> &HashSet<ImageUrl> {
+        &self.expanded_images
+    }
+
+    pub fn toggle_images(&mut self, urls: &[ImageUrl]) -> bool {
+        let expanding = urls.iter().any(|url| !self.expanded_images.contains(url));
+
+        for url in urls {
+            if expanding {
+                self.expanded_images.insert(url.clone());
+            } else {
+                self.expanded_images.remove(url);
+            }
+        }
+
+        expanding
+    }
+
+    pub fn image(&self, url: &ImageUrl) -> Option<&Remote<Loaded>> {
+        self.images.get(url)
+    }
+
+    pub fn set_image(&mut self, url: &ImageUrl, loaded: Loaded, now: Timestamp) {
+        if let Some(cell) = self.images.get_mut(url) {
+            cell.set(loaded, now);
+        }
+    }
+
+    pub fn begin_image(&mut self, url: &ImageUrl, now: Timestamp) -> bool {
+        if !self.detail_markdown.contains_image(url) {
+            return false;
+        }
+
+        self.images
+            .get_or_default(url)
             .begin_access(now, &IMAGE_REFRESH)
     }
 
-    pub fn fail_image(&mut self, url: &str, error: String) {
-        self.images.get_or_default(&url.to_string()).fail(error);
+    pub fn fail_image(&mut self, url: &ImageUrl, error: String) {
+        if let Some(cell) = self.images.get_mut(url) {
+            cell.fail(error);
+        }
     }
 
-    pub fn overlay_render_parts(&mut self) -> (&FeedStore, &mut ImageStore) {
-        (&self.feeds, &mut self.images)
+    pub fn overlay_render_parts(&self) -> (&FeedStore, &ImageStore) {
+        (&self.feeds, &self.images)
     }
 
-    pub fn detail_render_parts(
-        &mut self,
-    ) -> (&Remote<IssueDetail>, &RenderedDetail, &mut ImageStore) {
-        (&self.detail, &self.detail_markdown, &mut self.images)
+    pub fn detail_render_parts(&self) -> (&Remote<IssueDetail>, &RenderedDetail, &ImageStore) {
+        (&self.detail, &self.detail_markdown, &self.images)
     }
 }
 

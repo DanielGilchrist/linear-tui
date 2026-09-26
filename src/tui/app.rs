@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use ratatui::widgets::ListState;
 
 use super::cache::{CacheStatus, Remote};
@@ -13,6 +11,7 @@ use super::overlay::{
     AssignOptions, Confirm, Editor, Find, Input, Labels, Menu, Overlay, Picker, PickerKind, Prefix,
     Search, SearchPhase,
 };
+use super::render::image::DrawnImage;
 use super::saved_views::ViewSurface;
 use super::spinner::Spinner;
 use super::status::Status;
@@ -120,7 +119,7 @@ pub struct Ui {
     pub comment_scroll_max: usize,
     overlay: Overlay,
     pub find_query: Option<String>,
-    pub expanded_images: HashSet<String>,
+    pub drawn_images: Vec<DrawnImage>,
 }
 
 pub struct SessionState {
@@ -290,7 +289,7 @@ impl App {
                 comment_scroll_max: 0,
                 overlay: Overlay::None,
                 find_query: None,
-                expanded_images: HashSet::new(),
+                drawn_images: Vec::new(),
             },
             workspace: WorkspaceData::new(),
             session: SessionState::new(),
@@ -376,7 +375,7 @@ impl App {
             comment_scroll_max: _,
             overlay,
             find_query,
-            expanded_images,
+            drawn_images,
         } = &mut self.ui;
 
         *focus = Focus::MyWork;
@@ -385,7 +384,7 @@ impl App {
         view_state.select(Some(0));
         *find_query = None;
         *comment_scroll = 0;
-        expanded_images.clear();
+        drawn_images.clear();
         *zoom = Zoom::Normal;
         *status = None;
     }
@@ -829,7 +828,7 @@ impl App {
             comment_scroll_max: _,
             overlay: _,
             find_query: _,
-            expanded_images: _,
+            drawn_images: _,
         } = &mut self.ui;
 
         match focus {
@@ -1019,26 +1018,6 @@ impl App {
         };
 
         self.workspace.recent_state.select(Some(position));
-    }
-
-    pub fn expanded_images(&self) -> &HashSet<String> {
-        &self.ui.expanded_images
-    }
-
-    pub fn toggle_images(&mut self, urls: &[String]) -> bool {
-        let expanding = urls
-            .iter()
-            .any(|url| !self.ui.expanded_images.contains(url));
-
-        for url in urls {
-            if expanding {
-                self.ui.expanded_images.insert(url.clone());
-            } else {
-                self.ui.expanded_images.remove(url);
-            }
-        }
-
-        expanding
     }
 
     pub fn clear_transient_status(&mut self) {

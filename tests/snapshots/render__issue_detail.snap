@@ -27,4 +27,4 @@ expression: "render_to_string(&mut app, 110, 26)"
 ┌Teams───────────────────────────────────┐│▌ Damper was replaced 6 months ago, should still be under         ║
 │⠋  Loading…                             ││warranty.                                                         ↓
 └────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
- t thumbnail   j/k scroll   C-d/C-u page   e edit   c comment   m comments   + react   o… Dan's Donuts · @dan
+ t show/hide   j/k scroll   C-d/C-u page   e edit   c comment   m comments   + react   o… Dan's Donuts · @dan
