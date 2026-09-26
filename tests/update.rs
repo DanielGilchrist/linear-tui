@@ -4,7 +4,9 @@ use linear_tui::api::{
     CommentId, Cursor, IssueId, IssueRef, IssueSummary, Label, LabelId, Page, Reaction, ReactionId,
     ReactionTarget, Rgb, StateId, Team, TeamId, Timestamp, UserId, ViewId,
 };
-use linear_tui::api::{Credential, IssueUpdate, LinearApi, OAuthToken, Priority};
+use linear_tui::api::{
+    Credential, ImageFetchError, ImageUrl, IssueUpdate, LinearApi, OAuthToken, Priority,
+};
 use linear_tui::store::Account;
 use linear_tui::tui::app::{App, AuthState, RECENT_CAP};
 use linear_tui::tui::cache::{CacheStatus, Remote};
@@ -12,14 +14,19 @@ use linear_tui::tui::event::Redraw;
 use linear_tui::tui::feed::{Feed, FeedKey, FeedRequest};
 use linear_tui::tui::focus::{DetailFocus, DetailView, Focus, LeftPanel, Origin, Reveal, Scroll};
 use linear_tui::tui::message::{
-    ApiCommand, Commands, Effect, Effects, FailureTarget, Message, PlatformCommand, RequestError,
-    RuntimeCommand, StoreCommand,
+    ApiCommand, Commands, Effect, Effects, FailureTarget, ImageCommand, ImageFailure, Message,
+    PlatformCommand, RequestError, RuntimeCommand, StoreCommand,
 };
 use linear_tui::tui::overlay::{Compose, InputPurpose, Overlay, PickerKind};
 use linear_tui::tui::render_to_string;
 use linear_tui::tui::status::Status;
 use linear_tui::tui::update::{apply as apply_all, handle_key as handle_key_all, tick};
 use linear_tui::tui::view::ViewKind;
+
+fn upload(path: &str) -> TestResult<ImageUrl> {
+    ImageUrl::parse(&format!("https://uploads.linear.app/{path}"))
+        .ok_or_else(|| format!("{path} is not a valid upload url").into())
+}
 
 fn press(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
@@ -29,7 +36,9 @@ fn ctrl(c: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
 }
 
-fn only(commands: Commands) -> Option<Effect> {
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+fn only(commands: Commands) -> TestResult<Option<Effect>> {
     match commands {
         Commands::Effects(effects) => {
             let mut iter = effects.into_iter();
@@ -39,29 +48,33 @@ fn only(commands: Commands) -> Option<Effect> {
                 "expected at most one effect in the step"
             );
 
-            first
+            Ok(first)
         }
-        Commands::Runtime(command) => panic!("expected effects, got a runtime step {command:?}"),
+        Commands::Runtime(command) => {
+            Err(format!("expected effects, got a runtime step {command:?}").into())
+        }
     }
 }
 
-fn effects(commands: Commands) -> Effects {
+fn effects(commands: Commands) -> TestResult<Effects> {
     match commands {
-        Commands::Effects(effects) => effects,
-        Commands::Runtime(command) => panic!("expected effects, got a runtime step {command:?}"),
+        Commands::Effects(effects) => Ok(effects),
+        Commands::Runtime(command) => {
+            Err(format!("expected effects, got a runtime step {command:?}").into())
+        }
     }
 }
 
-fn handle_key(app: &mut App, key: KeyEvent) -> Option<Effect> {
+fn handle_key(app: &mut App, key: KeyEvent) -> TestResult<Option<Effect>> {
     only(handle_key_all(app, key))
 }
 
-fn apply(app: &mut App, message: Message) -> Option<Effect> {
+fn apply(app: &mut App, message: Message) -> TestResult<Option<Effect>> {
     only(apply_all(app, message))
 }
 
-fn edit(app: &mut App, field: char) -> Option<Effect> {
-    handle_key(app, press(KeyCode::Char('e')));
+fn edit(app: &mut App, field: char) -> TestResult<Option<Effect>> {
+    handle_key(app, press(KeyCode::Char('e')))?;
     handle_key(app, press(KeyCode::Char(field)))
 }
 
@@ -77,46 +90,51 @@ fn signed_in() -> App {
     app
 }
 
-fn scroll_line(app: &App) -> usize {
-    app.reading_scroll()
+fn scroll_line(app: &App) -> TestResult<usize> {
+    Ok(app
+        .reading_scroll()
         .and_then(|scroll| scroll.line())
-        .expect("a resolved reading scroll line")
+        .ok_or("a resolved reading scroll line")?)
 }
 
 #[test]
-fn w_opens_the_workspace_selector() {
+fn w_opens_the_workspace_selector() -> TestResult {
     let mut app = App::new();
 
-    handle_key(&mut app, press(KeyCode::Char('w')));
+    handle_key(&mut app, press(KeyCode::Char('w')))?;
 
     assert!(matches!(app.overlay(), Overlay::Workspaces(_)));
+
+    Ok(())
 }
 
 #[test]
-fn adding_a_key_requests_account_validation() {
+fn adding_a_key_requests_account_validation() -> TestResult {
     let mut app = App::new();
 
-    handle_key(&mut app, press(KeyCode::Char('w')));
+    handle_key(&mut app, press(KeyCode::Char('w')))?;
     // rows: browser, key, env var. Step past browser to "Add with an API key".
-    handle_key(&mut app, press(KeyCode::Char('j')));
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Char('j')))?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert_eq!(
         app.input().map(|input| input.purpose.clone()),
         Some(InputPurpose::AddWorkspaceKey)
     );
 
-    handle_key(&mut app, press(KeyCode::Char('k')));
+    handle_key(&mut app, press(KeyCode::Char('k')))?;
     let command = handle_key_all(&mut app, press(KeyCode::Enter));
     match command {
         Commands::Runtime(RuntimeCommand::AddAccount { credential }) => {
             assert_eq!(credential, Credential::PersonalKey("k".into()))
         }
-        other => panic!("expected AddAccount, got {other:?}"),
+        other => return Err(format!("expected AddAccount, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn account_added_is_stored_and_switched_to() {
+fn account_added_is_stored_and_switched_to() -> TestResult {
     let mut app = App::new();
     let account = Account {
         workspace_key: "acme".into(),
@@ -140,8 +158,10 @@ fn account_added_is_stored_and_switched_to() {
         Commands::Runtime(RuntimeCommand::SwitchWorkspace(account)) => {
             assert_eq!(account.workspace_key, "acme")
         }
-        other => panic!("expected SwitchWorkspace, got {other:?}"),
+        other => return Err(format!("expected SwitchWorkspace, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
@@ -181,24 +201,25 @@ fn tick_redraws_when_a_timestamp_comes_due() {
 }
 
 #[tokio::test]
-async fn in_progress_filter_returns_only_started() {
+async fn in_progress_filter_returns_only_started() -> TestResult {
     let client = FixtureClient::sample();
     let page = client
         .issues(&linear_tui::api::IssueFilter::in_progress_mine(), None)
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(page.items.len(), 3);
     assert!(page
         .items
         .iter()
         .all(|i| i.state.state_type == linear_tui::api::StateType::Started));
+
+    Ok(())
 }
 
 #[test]
-fn bracket_cycles_to_next_view_and_requests_load() {
+fn bracket_cycles_to_next_view_and_requests_load() -> TestResult {
     let mut app = App::new();
 
-    let commands = handle_key(&mut app, press(KeyCode::Char(']')));
+    let commands = handle_key(&mut app, press(KeyCode::Char(']')))?;
 
     assert_eq!(app.active_view_index(), 1);
     assert!(app.focus().is_panel(LeftPanel::MyWork));
@@ -207,88 +228,100 @@ fn bracket_cycles_to_next_view_and_requests_load() {
             request: FeedRequest::Refresh,
             ..
         })) => {}
-        other => panic!("expected a feed refresh for view 1, got {other:?}"),
+        other => return Err(format!("expected a feed refresh for view 1, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn question_mark_toggles_the_menu_overlay() {
+fn question_mark_toggles_the_menu_overlay() -> TestResult {
     let mut app = App::new();
 
-    handle_key(&mut app, press(KeyCode::Char('?')));
+    handle_key(&mut app, press(KeyCode::Char('?')))?;
     assert!(app.menu().is_some());
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert!(app.menu().is_none());
+
+    Ok(())
 }
 
 #[test]
-fn menu_enter_runs_the_selected_action() {
+fn menu_enter_runs_the_selected_action() -> TestResult {
     let mut app = detail_app();
 
-    handle_key(&mut app, press(KeyCode::Char('?')));
+    handle_key(&mut app, press(KeyCode::Char('?')))?;
     assert!(app.menu().is_some());
 
-    let commands = handle_key(&mut app, press(KeyCode::Enter));
+    let commands = handle_key(&mut app, press(KeyCode::Enter))?;
 
     assert!(app.menu().is_none());
     assert!(app.prefix().is_some());
     assert!(commands.is_none());
 
-    let command = handle_key(&mut app, press(KeyCode::Char('s')));
+    let command = handle_key(&mut app, press(KeyCode::Char('s')))?;
     assert!(matches!(
         command,
         Some(Effect::Api(ApiCommand::LoadStates { .. }))
     ));
+
+    Ok(())
 }
 
 #[test]
-fn tab_in_menu_jumps_between_sections() {
+fn tab_in_menu_jumps_between_sections() -> TestResult {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('?')));
+    handle_key(&mut app, press(KeyCode::Char('?')))?;
 
     let first = app.menu().and_then(|m| m.selected_action());
-    handle_key(&mut app, press(KeyCode::Tab));
+    handle_key(&mut app, press(KeyCode::Tab))?;
     let after_tab = app.menu().and_then(|m| m.selected_action());
 
     assert!(app.menu().is_some());
     assert_ne!(first, after_tab);
     assert_eq!(after_tab, Some(linear_tui::tui::action::Action::GoPrefix));
+
+    Ok(())
 }
 
 #[test]
-fn number_key_jumps_to_panel() {
+fn number_key_jumps_to_panel() -> TestResult {
     let mut app = App::new();
 
-    let commands = handle_key(&mut app, press(KeyCode::Char('3')));
+    let commands = handle_key(&mut app, press(KeyCode::Char('3')))?;
     assert!(app.focus().is_panel(LeftPanel::SavedViews));
     assert!(commands.is_none());
 
-    handle_key(&mut app, press(KeyCode::Char('4')));
+    handle_key(&mut app, press(KeyCode::Char('4')))?;
     assert!(app.focus().is_panel(LeftPanel::Teams));
+
+    Ok(())
 }
 
 #[test]
-fn focusing_teams_loads_them_once() {
+fn focusing_teams_loads_them_once() -> TestResult {
     let mut app = App::new();
 
-    match handle_key(&mut app, press(KeyCode::Char('4'))) {
+    match handle_key(&mut app, press(KeyCode::Char('4')))? {
         Some(Effect::Api(ApiCommand::LoadTeams)) => {}
-        other => panic!("expected the teams panel to load, got {other:?}"),
+        other => return Err(format!("expected the teams panel to load, got {other:?}").into()),
     }
 
-    handle_key(&mut app, press(KeyCode::Char('1')));
+    handle_key(&mut app, press(KeyCode::Char('1')))?;
 
     assert!(
-        handle_key(&mut app, press(KeyCode::Char('4'))).is_none(),
+        handle_key(&mut app, press(KeyCode::Char('4')))?.is_none(),
         "a cell already in flight is not requested twice"
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_loaded_teams_panel_has_a_selection() {
+fn a_loaded_teams_panel_has_a_selection() -> TestResult {
     let mut app = App::new();
-    handle_key(&mut app, press(KeyCode::Char('4')));
+    handle_key(&mut app, press(KeyCode::Char('4')))?;
 
     render_to_string(&mut app, 80, 24);
     app.workspace.teams.state.select(None);
@@ -311,15 +344,17 @@ fn a_loaded_teams_panel_has_a_selection() {
                 },
             ],
         },
-    );
+    )?;
 
     assert_eq!(app.teams().state.selected(), Some(0));
+
+    Ok(())
 }
 
 #[test]
-fn recent_history_restores_a_selection_after_an_empty_render() {
+fn recent_history_restores_a_selection_after_an_empty_render() -> TestResult {
     let mut app = App::new();
-    handle_key(&mut app, press(KeyCode::Char('2')));
+    handle_key(&mut app, press(KeyCode::Char('2')))?;
 
     render_to_string(&mut app, 80, 24);
     app.workspace.recent_state.select(None);
@@ -327,15 +362,17 @@ fn recent_history_restores_a_selection_after_an_empty_render() {
     apply(
         &mut app,
         Message::RecentLoaded(vec![sample_issue("i1", "DAN-1")]),
-    );
+    )?;
 
     assert_eq!(app.workspace.recent_state.selected(), Some(0));
+
+    Ok(())
 }
 
 #[test]
-fn navigating_the_teams_panel_moves_the_selection() {
+fn navigating_the_teams_panel_moves_the_selection() -> TestResult {
     let mut app = App::new();
-    handle_key(&mut app, press(KeyCode::Char('4')));
+    handle_key(&mut app, press(KeyCode::Char('4')))?;
 
     apply(
         &mut app,
@@ -355,21 +392,23 @@ fn navigating_the_teams_panel_moves_the_selection() {
                 },
             ],
         },
-    );
+    )?;
     assert_eq!(app.teams().state.selected(), Some(0));
 
-    handle_key(&mut app, press(KeyCode::Char('j')));
+    handle_key(&mut app, press(KeyCode::Char('j')))?;
 
     assert_eq!(app.teams().state.selected(), Some(1));
     assert_eq!(
         app.teams().selected().map(|team| team.name.as_str()),
         Some("Pizza")
     );
+
+    Ok(())
 }
 
-fn teams_app() -> App {
+fn teams_app() -> TestResult<App> {
     let mut app = App::new();
-    handle_key(&mut app, press(KeyCode::Char('4')));
+    handle_key(&mut app, press(KeyCode::Char('4')))?;
     apply(
         &mut app,
         Message::TeamsLoaded {
@@ -388,24 +427,24 @@ fn teams_app() -> App {
                 },
             ],
         },
-    );
+    )?;
 
-    app
+    Ok(app)
 }
 
-fn feed_filter(command: Option<Effect>) -> linear_tui::api::IssueFilter {
+fn feed_filter(command: Option<Effect>) -> TestResult<linear_tui::api::IssueFilter> {
     match command {
         Some(Effect::Api(ApiCommand::LoadFeed {
             key: FeedKey::Issues(filter),
             ..
-        })) => filter,
-        other => panic!("expected a team-scoped feed load, got {other:?}"),
+        })) => Ok(filter),
+        other => Err(format!("expected a team-scoped feed load, got {other:?}").into()),
     }
 }
 
 #[test]
-fn teams_are_ordered_by_key_so_a_long_list_is_stable() {
-    let app = teams_app();
+fn teams_are_ordered_by_key_so_a_long_list_is_stable() -> TestResult {
+    let app = teams_app()?;
 
     assert_eq!(
         app.teams()
@@ -415,13 +454,15 @@ fn teams_are_ordered_by_key_so_a_long_list_is_stable() {
             .collect::<Vec<_>>(),
         vec!["DAN", "DAN2"]
     );
+
+    Ok(())
 }
 
 #[test]
-fn entering_a_team_opens_its_active_issues() {
-    let mut app = teams_app();
+fn entering_a_team_opens_its_active_issues() -> TestResult {
+    let mut app = teams_app()?;
 
-    let filter = feed_filter(handle_key(&mut app, press(KeyCode::Enter)));
+    let filter = feed_filter(handle_key(&mut app, press(KeyCode::Enter))?)?;
 
     assert!(app.focus().is_view());
     assert_eq!(app.view().map(|view| view.name()), Some("Donuts"));
@@ -434,14 +475,16 @@ fn entering_a_team_opens_its_active_issues() {
         ],
         "a team opens on the browser, not a narrow mode"
     );
+
+    Ok(())
 }
 
 #[test]
-fn cycling_a_team_surface_switches_mode_and_loads_that_feed() {
-    let mut app = teams_app();
-    let opened = feed_filter(handle_key(&mut app, press(KeyCode::Enter)));
+fn cycling_a_team_surface_switches_mode_and_loads_that_feed() -> TestResult {
+    let mut app = teams_app()?;
+    let opened = feed_filter(handle_key(&mut app, press(KeyCode::Enter))?)?;
 
-    let backlog = feed_filter(handle_key(&mut app, press(KeyCode::Char(']'))));
+    let backlog = feed_filter(handle_key(&mut app, press(KeyCode::Char(']')))?)?;
 
     assert_ne!(backlog, opened, "each mode is its own feed key");
     assert_eq!(backlog.team, Some(TeamId::from_raw("t_donut")));
@@ -449,12 +492,14 @@ fn cycling_a_team_surface_switches_mode_and_loads_that_feed() {
         backlog.state_types_in,
         vec![linear_tui::api::StateType::Backlog]
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_cached_team_mode_is_not_refetched_when_you_cycle_back() {
-    let mut app = teams_app();
-    let active = feed_filter(handle_key(&mut app, press(KeyCode::Enter)));
+fn a_cached_team_mode_is_not_refetched_when_you_cycle_back() -> TestResult {
+    let mut app = teams_app()?;
+    let active = feed_filter(handle_key(&mut app, press(KeyCode::Enter))?)?;
 
     apply(
         &mut app,
@@ -463,35 +508,39 @@ fn a_cached_team_mode_is_not_refetched_when_you_cycle_back() {
             request: FeedRequest::Refresh,
             page: Page::single(vec![sample_issue("i1", "DAN-1")]),
         },
-    );
+    )?;
 
-    handle_key(&mut app, press(KeyCode::Char(']')));
-    let back = handle_key(&mut app, press(KeyCode::Char('[')));
+    handle_key(&mut app, press(KeyCode::Char(']')))?;
+    let back = handle_key(&mut app, press(KeyCode::Char('[')))?;
 
     assert!(
         back.is_none(),
         "the mode's feed is already cached, so cycling back is free"
     );
     assert_eq!(app.view_len(), 1);
+
+    Ok(())
 }
 
 #[test]
-fn escaping_a_team_surface_returns_to_the_teams_panel() {
-    let mut app = teams_app();
-    handle_key(&mut app, press(KeyCode::Enter));
+fn escaping_a_team_surface_returns_to_the_teams_panel() -> TestResult {
+    let mut app = teams_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
 
     assert!(
         app.focus().is_panel(LeftPanel::Teams),
         "a team surface belongs to the teams panel, not saved views"
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_detail_opened_from_a_team_returns_to_that_team() {
-    let mut app = teams_app();
-    let filter = feed_filter(handle_key(&mut app, press(KeyCode::Enter)));
+fn a_detail_opened_from_a_team_returns_to_that_team() -> TestResult {
+    let mut app = teams_app()?;
+    let filter = feed_filter(handle_key(&mut app, press(KeyCode::Enter))?)?;
 
     apply(
         &mut app,
@@ -500,21 +549,23 @@ fn a_detail_opened_from_a_team_returns_to_that_team() {
             request: FeedRequest::Refresh,
             page: Page::single(vec![sample_issue("i1", "DAN-1")]),
         },
-    );
-    handle_key(&mut app, press(KeyCode::Enter));
+    )?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(matches!(app.focus(), Focus::Detail(..)));
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
 
     assert!(app.focus().is_view());
     assert_eq!(app.view().map(|view| view.name()), Some("Donuts"));
+
+    Ok(())
 }
 
 #[test]
-fn reload_on_teams_reloads_teams_not_the_active_feed() {
+fn reload_on_teams_reloads_teams_not_the_active_feed() -> TestResult {
     let mut app = App::new();
 
-    handle_key(&mut app, press(KeyCode::Char('4')));
+    handle_key(&mut app, press(KeyCode::Char('4')))?;
     apply(
         &mut app,
         Message::TeamsLoaded {
@@ -525,25 +576,29 @@ fn reload_on_teams_reloads_teams_not_the_active_feed() {
                 triage_enabled: false,
             }],
         },
-    );
+    )?;
 
-    match handle_key(&mut app, press(KeyCode::Char('r'))) {
+    match handle_key(&mut app, press(KeyCode::Char('r')))? {
         Some(Effect::Api(ApiCommand::LoadTeams)) => {}
-        other => panic!("expected a teams reload, got {other:?}"),
+        other => return Err(format!("expected a teams reload, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn tab_cycles_from_my_work_into_the_stack() {
+fn tab_cycles_from_my_work_into_the_stack() -> TestResult {
     let mut app = App::new();
 
-    handle_key(&mut app, press(KeyCode::Tab));
+    handle_key(&mut app, press(KeyCode::Tab))?;
 
     assert!(app.focus().is_panel(LeftPanel::Recent));
+
+    Ok(())
 }
 
 #[test]
-fn views_loaded_prefetches_the_selected_view() {
+fn views_loaded_prefetches_the_selected_view() -> TestResult {
     let mut app = App::new();
     app.focus_panel(LeftPanel::SavedViews);
 
@@ -553,52 +608,58 @@ fn views_loaded_prefetches_the_selected_view() {
             saved_view("v1", "Urgent"),
             saved_view("v2", "Menu ideas"),
         ]),
-    );
+    )?;
 
     match command {
         Some(Effect::Api(ApiCommand::LoadFeed {
             key: FeedKey::View(id),
             ..
         })) if id.as_str() == "v1" => {}
-        other => panic!("expected a prefetch for v1, got {other:?}"),
+        other => return Err(format!("expected a prefetch for v1, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn moving_the_selection_prefetches_the_next_view() {
-    let mut app = saved_views_app();
+fn moving_the_selection_prefetches_the_next_view() -> TestResult {
+    let mut app = saved_views_app()?;
 
-    let command = handle_key(&mut app, press(KeyCode::Char('j')));
+    let command = handle_key(&mut app, press(KeyCode::Char('j')))?;
 
     match command {
         Some(Effect::Api(ApiCommand::LoadFeed {
             key: FeedKey::View(id),
             ..
         })) if id.as_str() == "v2" => {}
-        other => panic!("expected a prefetch for v2, got {other:?}"),
+        other => return Err(format!("expected a prefetch for v2, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn entering_a_view_focuses_the_view_surface() {
-    let mut app = saved_views_app();
+fn entering_a_view_focuses_the_view_surface() -> TestResult {
+    let mut app = saved_views_app()?;
 
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
 
     assert!(app.focus().is_view());
     assert_eq!(
         app.view().map(|view| view.key()),
         Some(FeedKey::View(ViewId::from_raw("v1")))
     );
+
+    Ok(())
 }
 
 #[test]
-fn entering_an_issue_from_the_view_opens_the_detail() {
-    let mut app = saved_views_app();
-    handle_key(&mut app, press(KeyCode::Enter));
-    load_view_feed(&mut app, "v1", vec![sample_issue("i1", "DAN2-7")]);
+fn entering_an_issue_from_the_view_opens_the_detail() -> TestResult {
+    let mut app = saved_views_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
+    load_view_feed(&mut app, "v1", vec![sample_issue("i1", "DAN2-7")])?;
 
-    let command = handle_key(&mut app, press(KeyCode::Enter));
+    let command = handle_key(&mut app, press(KeyCode::Enter))?;
 
     // the view stays open underneath so esc can return to it
     assert!(app.view().is_some());
@@ -615,106 +676,124 @@ fn entering_an_issue_from_the_view_opens_the_detail() {
             target,
             reveal: Reveal::Top,
         })) if target.as_str() == "i1" => {}
-        other => panic!("expected LoadDetail for i1, got {other:?}"),
+        other => return Err(format!("expected LoadDetail for i1, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn esc_closes_the_view_back_to_the_panel() {
-    let mut app = saved_views_app();
-    handle_key(&mut app, press(KeyCode::Enter));
+fn esc_closes_the_view_back_to_the_panel() -> TestResult {
+    let mut app = saved_views_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(app.focus().is_view());
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
 
     assert!(app.view().is_none());
     assert!(app.focus().is_panel(LeftPanel::SavedViews));
+
+    Ok(())
 }
 
 #[test]
-fn esc_from_a_view_opened_detail_returns_to_the_view() {
-    let mut app = saved_views_app();
-    handle_key(&mut app, press(KeyCode::Enter));
-    load_view_feed(&mut app, "v1", vec![sample_issue("i1", "DAN2-7")]);
-    handle_key(&mut app, press(KeyCode::Enter));
+fn esc_from_a_view_opened_detail_returns_to_the_view() -> TestResult {
+    let mut app = saved_views_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
+    load_view_feed(&mut app, "v1", vec![sample_issue("i1", "DAN2-7")])?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(matches!(app.focus(), Focus::Detail(..)));
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
 
     assert!(app.focus().is_view());
     assert_eq!(
         app.view().map(|view| view.key()),
         Some(FeedKey::View(ViewId::from_raw("v1")))
     );
+
+    Ok(())
 }
 
 #[test]
-fn z_toggles_zoom_and_esc_unzooms_before_closing() {
-    let mut app = saved_views_app();
-    handle_key(&mut app, press(KeyCode::Enter));
+fn z_toggles_zoom_and_esc_unzooms_before_closing() -> TestResult {
+    let mut app = saved_views_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
 
-    handle_key(&mut app, press(KeyCode::Char('z')));
+    handle_key(&mut app, press(KeyCode::Char('z')))?;
     assert_eq!(app.ui.zoom, linear_tui::tui::app::Zoom::Full);
 
     // esc unzooms first, keeping the view open
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert_eq!(app.ui.zoom, linear_tui::tui::app::Zoom::Normal);
     assert!(app.view().is_some());
 
     // a second esc closes it
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert!(app.view().is_none());
     assert!(app.focus().is_panel(LeftPanel::SavedViews));
+
+    Ok(())
 }
 
 #[test]
-fn zoom_works_on_the_my_work_list() {
+fn zoom_works_on_the_my_work_list() -> TestResult {
     let mut app = list_app_with_issue();
 
-    handle_key(&mut app, press(KeyCode::Char('z')));
+    handle_key(&mut app, press(KeyCode::Char('z')))?;
     assert_eq!(app.ui.zoom, linear_tui::tui::app::Zoom::Full);
     assert!(app.focus().is_panel(LeftPanel::MyWork));
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert_eq!(app.ui.zoom, linear_tui::tui::app::Zoom::Normal);
     assert!(app.focus().is_panel(LeftPanel::MyWork));
+
+    Ok(())
 }
 
 #[test]
-fn the_display_prefix_cycles_group_and_sort() {
-    let mut app = saved_views_app();
-    handle_key(&mut app, press(KeyCode::Enter));
+fn the_display_prefix_cycles_group_and_sort() -> TestResult {
+    let mut app = saved_views_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
 
     // v then g cycles group status -> priority
-    handle_key(&mut app, press(KeyCode::Char('v')));
-    handle_key(&mut app, press(KeyCode::Char('g')));
+    handle_key(&mut app, press(KeyCode::Char('v')))?;
+    handle_key(&mut app, press(KeyCode::Char('g')))?;
     assert_eq!(
-        app.view().unwrap().display.group,
+        app.view().ok_or("a view is open")?.display.group,
         linear_tui::tui::display::GroupBy::Priority
     );
 
     // v then s cycles sort manual -> priority
-    handle_key(&mut app, press(KeyCode::Char('v')));
-    handle_key(&mut app, press(KeyCode::Char('s')));
+    handle_key(&mut app, press(KeyCode::Char('v')))?;
+    handle_key(&mut app, press(KeyCode::Char('s')))?;
     assert_eq!(
-        app.view().unwrap().display.sort,
+        app.view().ok_or("a view is open")?.display.sort,
         linear_tui::tui::display::SortBy::Priority
     );
+
+    Ok(())
 }
 
 #[test]
-fn status_acts_on_the_highlighted_view_issue() {
-    let mut app = saved_views_app();
-    handle_key(&mut app, press(KeyCode::Enter));
-    load_view_feed(&mut app, "v1", vec![sample_issue("i1", "DAN2-7")]);
+fn status_acts_on_the_highlighted_view_issue() -> TestResult {
+    let mut app = saved_views_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
+    load_view_feed(&mut app, "v1", vec![sample_issue("i1", "DAN2-7")])?;
 
-    let command = edit(&mut app, 's');
+    let command = edit(&mut app, 's')?;
 
     assert_eq!(app.picker().map(|p| &p.kind), Some(&PickerKind::Status));
     match command {
         Some(Effect::Api(ApiCommand::LoadStates { team_id })) if team_id.as_str() == "t_pizza" => {}
-        other => panic!("expected LoadStates for the highlighted issue, got {other:?}"),
+        other => {
+            return Err(
+                format!("expected LoadStates for the highlighted issue, got {other:?}").into(),
+            )
+        }
     }
+
+    Ok(())
 }
 
 #[test]
@@ -725,26 +804,30 @@ fn the_panel_starts_in_a_loading_state() {
 }
 
 #[test]
-fn views_load_prefetches_even_when_focus_is_elsewhere() {
+fn views_load_prefetches_even_when_focus_is_elsewhere() -> TestResult {
     let mut app = App::new();
     assert!(app.focus().is_panel(LeftPanel::MyWork));
 
     let command = apply(
         &mut app,
         Message::CustomViewsLoaded(vec![saved_view("v1", "Urgent")]),
-    );
+    )?;
 
     match command {
         Some(Effect::Api(ApiCommand::LoadFeed {
             key: FeedKey::View(id),
             ..
         })) if id.as_str() == "v1" => {}
-        other => panic!("expected a prefetch for v1 from MyWork, got {other:?}"),
+        other => {
+            return Err(format!("expected a prefetch for v1 from MyWork, got {other:?}").into())
+        }
     }
+
+    Ok(())
 }
 
 #[test]
-fn a_failed_views_fetch_clears_the_panel_loading_flag() {
+fn a_failed_views_fetch_clears_the_panel_loading_flag() -> TestResult {
     let mut app = App::new();
     app.workspace.saved_views.views.begin();
     assert!(app.workspace.saved_views.views.in_flight());
@@ -755,16 +838,18 @@ fn a_failed_views_fetch_clears_the_panel_loading_flag() {
             target: FailureTarget::CustomViews,
             error: RequestError::Other("boom".into()),
         },
-    );
+    )?;
 
     assert!(!app.workspace.saved_views.views.in_flight());
     assert!(matches!(app.ui.status, Some(Status::Error(_))));
+
+    Ok(())
 }
 
 #[test]
-fn a_failed_view_issues_fetch_is_recorded_and_can_be_retried() {
-    let mut app = saved_views_app();
-    handle_key(&mut app, press(KeyCode::Enter));
+fn a_failed_view_issues_fetch_is_recorded_and_can_be_retried() -> TestResult {
+    let mut app = saved_views_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
 
     apply(
         &mut app,
@@ -772,7 +857,7 @@ fn a_failed_view_issues_fetch_is_recorded_and_can_be_retried() {
             target: FailureTarget::Feed(FeedKey::View(ViewId::from_raw("v1"))),
             error: RequestError::Other("boom".into()),
         },
-    );
+    )?;
 
     assert!(matches!(
         app.workspace
@@ -784,46 +869,50 @@ fn a_failed_view_issues_fetch_is_recorded_and_can_be_retried() {
     assert!(matches!(app.ui.status, Some(Status::Error(_))));
 
     // r on the open view refetches rather than leaving a permanent spinner
-    let command = handle_key(&mut app, press(KeyCode::Char('r')));
+    let command = handle_key(&mut app, press(KeyCode::Char('r')))?;
     match command {
         Some(Effect::Api(ApiCommand::LoadFeed {
             key: FeedKey::View(id),
             ..
         })) if id.as_str() == "v1" => {}
-        other => panic!("expected a retry for v1, got {other:?}"),
+        other => return Err(format!("expected a retry for v1, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn a_failed_view_is_refetched_on_revisit_from_the_panel() {
-    let mut app = saved_views_app();
-    handle_key(&mut app, press(KeyCode::Enter));
+fn a_failed_view_is_refetched_on_revisit_from_the_panel() -> TestResult {
+    let mut app = saved_views_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
     apply(
         &mut app,
         Message::Failed {
             target: FailureTarget::Feed(FeedKey::View(ViewId::from_raw("v1"))),
             error: RequestError::Other("boom".into()),
         },
-    );
-    handle_key(&mut app, press(KeyCode::Esc));
+    )?;
+    handle_key(&mut app, press(KeyCode::Esc))?;
 
     // move off v1 and back: prefetch must refetch the Failed entry
-    handle_key(&mut app, press(KeyCode::Char('j')));
-    let command = handle_key(&mut app, press(KeyCode::Char('k')));
+    handle_key(&mut app, press(KeyCode::Char('j')))?;
+    let command = handle_key(&mut app, press(KeyCode::Char('k')))?;
 
     match command {
         Some(Effect::Api(ApiCommand::LoadFeed {
             key: FeedKey::View(id),
             ..
         })) if id.as_str() == "v1" => {}
-        other => panic!("expected a refetch for the failed v1, got {other:?}"),
+        other => return Err(format!("expected a refetch for the failed v1, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn reloading_a_shrunk_view_keeps_the_selection_in_range() {
-    let mut app = saved_views_app();
-    handle_key(&mut app, press(KeyCode::Enter));
+fn reloading_a_shrunk_view_keeps_the_selection_in_range() -> TestResult {
+    let mut app = saved_views_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
     load_view_feed(
         &mut app,
         "v1",
@@ -832,58 +921,62 @@ fn reloading_a_shrunk_view_keeps_the_selection_in_range() {
             sample_issue("i2", "DAN-2"),
             sample_issue("i3", "DAN-3"),
         ],
-    );
+    )?;
     // select the last issue
-    handle_key(&mut app, press(KeyCode::Char('j')));
-    handle_key(&mut app, press(KeyCode::Char('j')));
+    handle_key(&mut app, press(KeyCode::Char('j')))?;
+    handle_key(&mut app, press(KeyCode::Char('j')))?;
 
     // the view now returns a single issue
-    load_view_feed(&mut app, "v1", vec![sample_issue("i1", "DAN-1")]);
+    load_view_feed(&mut app, "v1", vec![sample_issue("i1", "DAN-1")])?;
 
     assert!(
         app.view_selected_issue().is_some(),
         "selection stranded out of range after the view shrank"
     );
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn the_fixture_serves_distinct_issues_per_view() {
+async fn the_fixture_serves_distinct_issues_per_view() -> TestResult {
     let client = FixtureClient::sample();
 
     let urgent = client
         .custom_view_issues(&ViewId::from_raw("v_urgent"), None)
-        .await
-        .unwrap()
+        .await?
         .items;
     let oven = client
         .custom_view_issues(&ViewId::from_raw("v_oven"), None)
-        .await
-        .unwrap()
+        .await?
         .items;
 
     assert_ne!(urgent.len(), oven.len());
     assert!(oven
         .iter()
         .all(|issue| issue.id.as_str() == "i1" || issue.id.as_str() == "i3"));
+
+    Ok(())
 }
 
 #[test]
-fn tabbing_away_from_a_view_closes_the_surface() {
-    let mut app = saved_views_app();
-    handle_key(&mut app, press(KeyCode::Enter));
+fn tabbing_away_from_a_view_closes_the_surface() -> TestResult {
+    let mut app = saved_views_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(app.focus().is_view());
 
-    handle_key(&mut app, press(KeyCode::Tab));
+    handle_key(&mut app, press(KeyCode::Tab))?;
 
     assert!(
         app.view().is_none(),
         "zombie view surface survived tab-away"
     );
     assert!(!app.focus().is_view());
+
+    Ok(())
 }
 
 #[test]
-fn recent_loaded_populates_the_panel() {
+fn recent_loaded_populates_the_panel() -> TestResult {
     let mut app = App::new();
 
     apply(
@@ -892,9 +985,11 @@ fn recent_loaded_populates_the_panel() {
             sample_issue("i1", "DAN-1"),
             sample_issue("i2", "DAN-2"),
         ]),
-    );
+    )?;
 
     assert_eq!(app.workspace.recently_viewed.len(), 2);
+
+    Ok(())
 }
 
 #[test]
@@ -913,7 +1008,7 @@ fn revealing_an_index_past_the_list_end_clamps_to_the_last_row() {
 }
 
 #[test]
-fn recent_history_loaded_after_a_descend_merges_instead_of_vanishing() {
+fn recent_history_loaded_after_a_descend_merges_instead_of_vanishing() -> TestResult {
     let mut app = App::new();
 
     app.record_recent(sample_issue("i9", "DAN-9"));
@@ -925,7 +1020,7 @@ fn recent_history_loaded_after_a_descend_merges_instead_of_vanishing() {
             sample_issue("i9", "DAN-9"),
             sample_issue("i2", "DAN-2"),
         ]),
-    );
+    )?;
 
     let identifiers: Vec<&str> = app
         .workspace
@@ -936,10 +1031,12 @@ fn recent_history_loaded_after_a_descend_merges_instead_of_vanishing() {
 
     assert_eq!(identifiers, vec!["DAN-9", "DAN-1", "DAN-2"]);
     assert_eq!(app.workspace.recent_state.selected(), Some(0));
+
+    Ok(())
 }
 
 #[test]
-fn merging_recent_history_stays_within_the_cap() {
+fn merging_recent_history_stays_within_the_cap() -> TestResult {
     let mut app = App::new();
 
     app.record_recent(sample_issue("live", "DAN-0"));
@@ -948,14 +1045,23 @@ fn merging_recent_history_stays_within_the_cap() {
         .map(|n| sample_issue(&format!("i{n}"), &format!("DAN-{n}")))
         .collect();
 
-    apply(&mut app, Message::RecentLoaded(loaded));
+    apply(&mut app, Message::RecentLoaded(loaded))?;
 
     assert_eq!(app.workspace.recently_viewed.len(), RECENT_CAP);
-    assert_eq!(app.workspace.recently_viewed[0].identifier, "DAN-0");
+    assert_eq!(
+        app.workspace
+            .recently_viewed
+            .first()
+            .ok_or("recently viewed is empty")?
+            .identifier,
+        "DAN-0"
+    );
+
+    Ok(())
 }
 
 #[test]
-fn clearing_recently_viewed_confirms_first() {
+fn clearing_recently_viewed_confirms_first() -> TestResult {
     let mut app = App::new();
     app.open_detail_focus(DetailFocus::reading(
         IssueId::from_raw("i1"),
@@ -967,67 +1073,75 @@ fn clearing_recently_viewed_confirms_first() {
             detail: Box::new(sample_detail("i1", "DAN-1")),
             reveal: Reveal::Top,
         },
-    );
-    handle_key(&mut app, press(KeyCode::Char('2')));
+    )?;
+    handle_key(&mut app, press(KeyCode::Char('2')))?;
     assert!(app.focus().is_panel(LeftPanel::Recent));
 
-    handle_key(&mut app, press(KeyCode::Char('x')));
+    handle_key(&mut app, press(KeyCode::Char('x')))?;
     assert!(app.confirm().is_some());
 
-    let command = handle_key(&mut app, press(KeyCode::Char('y')));
+    let command = handle_key(&mut app, press(KeyCode::Char('y')))?;
     match command {
         Some(Effect::Store(StoreCommand::ClearRecent)) => {}
-        other => panic!("expected ClearRecent, got {other:?}"),
+        other => return Err(format!("expected ClearRecent, got {other:?}").into()),
     }
 
-    apply(&mut app, Message::RecentCleared);
+    apply(&mut app, Message::RecentCleared)?;
     assert!(app.workspace.recently_viewed.is_empty());
     assert!(
         !app.active_feed_status().in_flight(),
         "confirming a non-fetch command must not leave the view spinner stuck"
     );
+
+    Ok(())
 }
 
 #[test]
-fn clearing_does_nothing_off_the_recent_panel() {
+fn clearing_does_nothing_off_the_recent_panel() -> TestResult {
     let mut app = list_app_with_issue();
     app.workspace.recently_viewed = vec![sample_issue("i1", "DAN-1")];
 
-    handle_key(&mut app, press(KeyCode::Char('x')));
+    handle_key(&mut app, press(KeyCode::Char('x')))?;
 
     assert!(app.confirm().is_none());
+
+    Ok(())
 }
 
 #[test]
-fn brackets_do_nothing_off_my_work() {
+fn brackets_do_nothing_off_my_work() -> TestResult {
     let mut app = App::new();
     app.focus_panel(LeftPanel::Teams);
 
-    let commands = handle_key(&mut app, press(KeyCode::Char(']')));
+    let commands = handle_key(&mut app, press(KeyCode::Char(']')))?;
 
     assert_eq!(app.active_view_index(), 0);
     assert!(commands.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn enter_on_issue_opens_detail() {
+fn enter_on_issue_opens_detail() -> TestResult {
     let mut app = list_app_with_issue();
 
-    let commands = handle_key(&mut app, press(KeyCode::Enter));
+    let commands = handle_key(&mut app, press(KeyCode::Enter))?;
 
     assert!(matches!(app.focus(), Focus::Detail(..)));
     assert!(app.workspace.detail().in_flight());
     match commands {
         Some(Effect::Api(ApiCommand::LoadDetail { target, .. })) if target.as_str() == "i1" => {}
-        other => panic!("expected LoadDetail(i1), got {other:?}"),
+        other => return Err(format!("expected LoadDetail(i1), got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn esc_from_a_detail_returns_to_the_panel_it_was_opened_from() {
+fn esc_from_a_detail_returns_to_the_panel_it_was_opened_from() -> TestResult {
     let mut app = list_app_with_issue();
 
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(matches!(
         app.focus(),
         Focus::Detail(DetailFocus {
@@ -1036,39 +1150,43 @@ fn esc_from_a_detail_returns_to_the_panel_it_was_opened_from() {
         })
     ));
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert!(app.focus().is_panel(LeftPanel::MyWork));
+
+    Ok(())
 }
 
 #[test]
-fn detail_actions_do_nothing_in_the_detail_pane_when_no_issue_is_open() {
+fn detail_actions_do_nothing_in_the_detail_pane_when_no_issue_is_open() -> TestResult {
     let mut app = list_app_with_issue();
 
-    handle_key(&mut app, press(KeyCode::BackTab));
+    handle_key(&mut app, press(KeyCode::BackTab))?;
     assert!(matches!(app.focus(), Focus::Detail(..)));
 
-    handle_key(&mut app, press(KeyCode::Char('+')));
+    handle_key(&mut app, press(KeyCode::Char('+')))?;
     assert!(matches!(app.overlay(), Overlay::None));
+
+    Ok(())
 }
 
 #[test]
-fn cycling_into_the_detail_pane_opens_the_selected_issue() {
+fn cycling_into_the_detail_pane_opens_the_selected_issue() -> TestResult {
     let mut app = detail_app();
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert!(app.focus().is_panel(LeftPanel::MyWork));
     assert!(
         app.workspace.detail().value().is_some(),
         "leaving must not touch the cached detail"
     );
 
-    handle_key(&mut app, press(KeyCode::BackTab));
+    handle_key(&mut app, press(KeyCode::BackTab))?;
     match app.focus() {
         Focus::Detail(detail) => assert_eq!(detail.issue.as_str(), "i1"),
-        _ => panic!("expected cycling into the pane to open the selection"),
+        _ => return Err("expected cycling into the pane to open the selection".into()),
     }
 
-    handle_key(&mut app, press(KeyCode::Char('+')));
+    handle_key(&mut app, press(KeyCode::Char('+')))?;
     match app.overlay() {
         Overlay::Reactions(reactions) => {
             assert_eq!(
@@ -1076,21 +1194,23 @@ fn cycling_into_the_detail_pane_opens_the_selected_issue() {
                 ReactionTarget::Issue(IssueId::from_raw("i1"))
             );
         }
-        _ => panic!("expected reactions to target the reopened issue"),
+        _ => return Err("expected reactions to target the reopened issue".into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn detail_actions_target_the_open_issue_after_tabbing_away_and_back() {
+fn detail_actions_target_the_open_issue_after_tabbing_away_and_back() -> TestResult {
     let mut app = detail_app();
 
-    handle_key(&mut app, press(KeyCode::Char('1')));
+    handle_key(&mut app, press(KeyCode::Char('1')))?;
     assert!(app.focus().is_panel(LeftPanel::MyWork));
 
-    handle_key(&mut app, press(KeyCode::BackTab));
+    handle_key(&mut app, press(KeyCode::BackTab))?;
     assert!(matches!(app.focus(), Focus::Detail(..)));
 
-    handle_key(&mut app, press(KeyCode::Char('+')));
+    handle_key(&mut app, press(KeyCode::Char('+')))?;
     match app.overlay() {
         Overlay::Reactions(reactions) => {
             assert_eq!(
@@ -1098,12 +1218,14 @@ fn detail_actions_target_the_open_issue_after_tabbing_away_and_back() {
                 ReactionTarget::Issue(IssueId::from_raw("i1"))
             );
         }
-        _ => panic!("expected the reactions overlay"),
+        _ => return Err("expected the reactions overlay".into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn esc_from_a_detail_opened_from_recent_returns_to_recent() {
+fn esc_from_a_detail_opened_from_recent_returns_to_recent() -> TestResult {
     let mut app = App::new();
     app.open_detail_focus(DetailFocus::reading(
         IssueId::from_raw("i1"),
@@ -1115,12 +1237,12 @@ fn esc_from_a_detail_opened_from_recent_returns_to_recent() {
             detail: Box::new(sample_detail("i1", "DAN-1")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
 
-    handle_key(&mut app, press(KeyCode::Char('2')));
+    handle_key(&mut app, press(KeyCode::Char('2')))?;
     assert!(app.focus().is_panel(LeftPanel::Recent));
 
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(matches!(
         app.focus(),
         Focus::Detail(DetailFocus {
@@ -1129,15 +1251,17 @@ fn esc_from_a_detail_opened_from_recent_returns_to_recent() {
         })
     ));
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert!(app.focus().is_panel(LeftPanel::Recent));
+
+    Ok(())
 }
 
 #[test]
-fn react_in_reading_targets_the_issue() {
+fn react_in_reading_targets_the_issue() -> TestResult {
     let mut app = detail_app();
 
-    handle_key(&mut app, press(KeyCode::Char('+')));
+    handle_key(&mut app, press(KeyCode::Char('+')))?;
 
     match app.overlay() {
         Overlay::Reactions(reactions) => {
@@ -1146,16 +1270,18 @@ fn react_in_reading_targets_the_issue() {
                 ReactionTarget::Issue(IssueId::from_raw("i1"))
             );
         }
-        _ => panic!("expected the reactions overlay"),
+        _ => return Err("expected the reactions overlay".into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn react_in_comments_targets_the_selected_comment() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn react_in_comments_targets_the_selected_comment() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
 
-    handle_key(&mut app, press(KeyCode::Char('+')));
+    handle_key(&mut app, press(KeyCode::Char('+')))?;
 
     match app.overlay() {
         Overlay::Reactions(reactions) => {
@@ -1164,12 +1290,14 @@ fn react_in_comments_targets_the_selected_comment() {
                 ReactionTarget::Comment(CommentId::from_raw("c1"))
             );
         }
-        _ => panic!("expected the reactions overlay"),
+        _ => return Err("expected the reactions overlay".into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn toggling_reactions_deletes_your_own_and_creates_a_new_one() {
+fn toggling_reactions_deletes_your_own_and_creates_a_new_one() -> TestResult {
     let mut app = list_app_with_issue();
     app.open_detail_focus(DetailFocus {
         issue: IssueRef::Id(IssueId::from_raw("i1")),
@@ -1186,9 +1314,9 @@ fn toggling_reactions_deletes_your_own_and_creates_a_new_one() {
     app.workspace.set_detail(detail, app.now);
 
     // Open, step up into the Current row (your +1), toggle it off.
-    handle_key(&mut app, press(KeyCode::Char('+')));
-    handle_key(&mut app, press(KeyCode::Char('k')));
-    let deleted = handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Char('+')))?;
+    handle_key(&mut app, press(KeyCode::Char('k')))?;
+    let deleted = handle_key(&mut app, press(KeyCode::Enter))?;
     match deleted {
         Some(Effect::Api(ApiCommand::DeleteReaction {
             reaction_id,
@@ -1197,12 +1325,12 @@ fn toggling_reactions_deletes_your_own_and_creates_a_new_one() {
             assert_eq!(reaction_id.as_str(), "rx");
             assert_eq!(issue_id.as_str(), "i1");
         }
-        other => panic!("expected DeleteReaction, got {other:?}"),
+        other => return Err(format!("expected DeleteReaction, got {other:?}").into()),
     }
 
     // Reopen: the highlight starts on the first Add item (heart), toggle it on.
-    handle_key(&mut app, press(KeyCode::Char('+')));
-    let created = handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Char('+')))?;
+    let created = handle_key(&mut app, press(KeyCode::Enter))?;
     match created {
         Some(Effect::Api(ApiCommand::CreateReaction {
             target,
@@ -1213,12 +1341,14 @@ fn toggling_reactions_deletes_your_own_and_creates_a_new_one() {
             assert_eq!(emoji, "heart");
             assert_eq!(issue_id.as_str(), "i1");
         }
-        other => panic!("expected CreateReaction, got {other:?}"),
+        other => return Err(format!("expected CreateReaction, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn a_custom_reaction_you_made_is_removable_from_the_current_section() {
+fn a_custom_reaction_you_made_is_removable_from_the_current_section() -> TestResult {
     let mut app = list_app_with_issue();
     app.open_detail_focus(DetailFocus {
         issue: IssueRef::Id(IssueId::from_raw("i1")),
@@ -1235,23 +1365,29 @@ fn a_custom_reaction_you_made_is_removable_from_the_current_section() {
     app.workspace.set_detail(detail, app.now);
 
     // The custom reaction sits in the Current row: step up, toggle it off.
-    handle_key(&mut app, press(KeyCode::Char('+')));
-    handle_key(&mut app, press(KeyCode::Char('k')));
-    let removed = handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Char('+')))?;
+    handle_key(&mut app, press(KeyCode::Char('k')))?;
+    let removed = handle_key(&mut app, press(KeyCode::Enter))?;
     match removed {
         Some(Effect::Api(ApiCommand::DeleteReaction { reaction_id, .. })) => {
             assert_eq!(reaction_id.as_str(), "re")
         }
-        other => panic!("expected DeleteReaction for the custom reaction, got {other:?}"),
+        other => {
+            return Err(
+                format!("expected DeleteReaction for the custom reaction, got {other:?}").into(),
+            )
+        }
     }
+
+    Ok(())
 }
 
 #[test]
-fn custom_reaction_routes_through_the_input_overlay() {
+fn custom_reaction_routes_through_the_input_overlay() -> TestResult {
     let mut app = detail_app();
 
-    handle_key(&mut app, press(KeyCode::Char('+')));
-    handle_key(&mut app, press(KeyCode::Char('c')));
+    handle_key(&mut app, press(KeyCode::Char('+')))?;
+    handle_key(&mut app, press(KeyCode::Char('c')))?;
 
     match app.overlay() {
         Overlay::Input(input) => assert_eq!(
@@ -1261,35 +1397,39 @@ fn custom_reaction_routes_through_the_input_overlay() {
                 target: ReactionTarget::Issue(IssueId::from_raw("i1"))
             }
         ),
-        _ => panic!("expected the input overlay"),
+        _ => return Err("expected the input overlay".into()),
     }
 
-    handle_key(&mut app, press(KeyCode::Char('🚀')));
-    let command = handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Char('🚀')))?;
+    let command = handle_key(&mut app, press(KeyCode::Enter))?;
     match command {
         Some(Effect::Api(ApiCommand::CreateReaction { emoji, .. })) => assert_eq!(emoji, "🚀"),
-        other => panic!("expected CreateReaction, got {other:?}"),
+        other => return Err(format!("expected CreateReaction, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn a_reaction_for_a_stale_issue_reports_rather_than_swallowing() {
+fn a_reaction_for_a_stale_issue_reports_rather_than_swallowing() -> TestResult {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('+')));
+    handle_key(&mut app, press(KeyCode::Char('+')))?;
 
     // The detail pane moves on to another issue while the overlay is open.
     app.workspace
         .set_detail(sample_detail("i2", "DAN-2"), app.now);
     app.refocus_detail_issue(IssueRef::Id(IssueId::from_raw("i2")));
 
-    let command = handle_key(&mut app, press(KeyCode::Enter));
+    let command = handle_key(&mut app, press(KeyCode::Enter))?;
 
     assert!(command.is_none(), "a mismatched target must not fire");
     assert_eq!(app.ui.status, Some(Status::NeedHighlightedIssue));
+
+    Ok(())
 }
 
 #[test]
-fn reaction_toggled_reloads_the_detail() {
+fn reaction_toggled_reloads_the_detail() -> TestResult {
     let mut app = detail_app();
 
     let command = apply(
@@ -1297,37 +1437,41 @@ fn reaction_toggled_reloads_the_detail() {
         Message::ReactionToggled {
             id: IssueId::from_raw("i1"),
         },
-    );
+    )?;
     match command {
         Some(Effect::Api(ApiCommand::LoadDetail { target, reveal })) => {
             assert_eq!(target.as_str(), "i1");
             assert_eq!(reveal, Reveal::Keep);
         }
-        other => panic!("expected LoadDetail, got {other:?}"),
+        other => return Err(format!("expected LoadDetail, got {other:?}").into()),
     }
     assert!(app.workspace.detail().in_flight());
+
+    Ok(())
 }
 
 #[test]
-fn reveal_keep_preserves_the_comment_selection() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn reveal_keep_preserves_the_comment_selection() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
     app.reveal_focused(Some(2));
 
-    let detail = app.workspace.detail().value().cloned().expect("detail");
+    let detail = app.workspace.detail().value().cloned().ok_or("detail")?;
     apply(
         &mut app,
         Message::DetailLoaded {
             detail: Box::new(detail),
             reveal: Reveal::Keep,
         },
-    );
+    )?;
 
     assert_eq!(app.comment_cursor(), Some(2));
+
+    Ok(())
 }
 
 #[test]
-fn a_fresh_cached_view_is_not_refetched() {
+fn a_fresh_cached_view_is_not_refetched() -> TestResult {
     let mut app = App::new();
     let filter = linear_tui::api::IssueFilter::in_progress_mine();
     app.workspace.feeds.insert(
@@ -1335,14 +1479,16 @@ fn a_fresh_cached_view_is_not_refetched() {
         Feed::ready(Page::single(vec![sample_issue("i1", "DAN-1")]), app.now),
     );
 
-    let command = handle_key(&mut app, press(KeyCode::Char(']')));
+    let command = handle_key(&mut app, press(KeyCode::Char(']')))?;
 
     assert!(command.is_none(), "a fresh cached feed must not refetch");
     assert_eq!(app.active_issues().len(), 1);
+
+    Ok(())
 }
 
 #[test]
-fn a_stale_cached_view_revalidates_but_keeps_its_rows() {
+fn a_stale_cached_view_revalidates_but_keeps_its_rows() -> TestResult {
     let mut app = App::new();
     let filter = linear_tui::api::IssueFilter::in_progress_mine();
     app.workspace.feeds.insert(
@@ -1354,7 +1500,7 @@ fn a_stale_cached_view_revalidates_but_keeps_its_rows() {
     );
     app.now = Timestamp::from_epoch(5 * 60);
 
-    let command = handle_key(&mut app, press(KeyCode::Char(']')));
+    let command = handle_key(&mut app, press(KeyCode::Char(']')))?;
 
     assert!(matches!(
         command,
@@ -1364,10 +1510,12 @@ fn a_stale_cached_view_revalidates_but_keeps_its_rows() {
         }))
     ));
     assert_eq!(app.active_issues().len(), 1);
+
+    Ok(())
 }
 
 #[test]
-fn a_cold_cached_view_busts_and_full_loads() {
+fn a_cold_cached_view_busts_and_full_loads() -> TestResult {
     let mut app = App::new();
     let filter = linear_tui::api::IssueFilter::in_progress_mine();
     app.workspace.feeds.insert(
@@ -1379,7 +1527,7 @@ fn a_cold_cached_view_busts_and_full_loads() {
     );
     app.now = Timestamp::from_epoch(24 * 60 * 60);
 
-    let command = handle_key(&mut app, press(KeyCode::Char(']')));
+    let command = handle_key(&mut app, press(KeyCode::Char(']')))?;
 
     assert!(matches!(
         command,
@@ -1392,13 +1540,15 @@ fn a_cold_cached_view_busts_and_full_loads() {
         app.active_issues().is_empty(),
         "a cold feed must clear its stale rows rather than flash them"
     );
+
+    Ok(())
 }
 
 #[test]
-fn scrolling_near_the_end_loads_the_next_page() {
+fn scrolling_near_the_end_loads_the_next_page() -> TestResult {
     let mut app = App::new();
     app.focus_my_work();
-    let key = app.active_feed_key().unwrap();
+    let key = app.active_feed_key().ok_or("no active feed")?;
     let items: Vec<_> = (0..12)
         .map(|n| sample_issue(&format!("i{n}"), &format!("DAN-{n}")))
         .collect();
@@ -1414,22 +1564,26 @@ fn scrolling_near_the_end_loads_the_next_page() {
     );
     app.ui.list_state.select(Some(5));
 
-    let command = handle_key(&mut app, press(KeyCode::Char('j')));
+    let command = handle_key(&mut app, press(KeyCode::Char('j')))?;
 
     match command {
         Some(Effect::Api(ApiCommand::LoadFeed {
             key: FeedKey::Issues(_),
             request: FeedRequest::LoadMore { after },
         })) if after == Cursor("cursor-1".into()) => {}
-        other => panic!("expected a LoadMore for the next page, got {other:?}"),
+        other => {
+            return Err(format!("expected a LoadMore for the next page, got {other:?}").into())
+        }
     }
+
+    Ok(())
 }
 
 #[test]
-fn jumping_to_the_bottom_of_a_truncated_feed_loads_the_next_page() {
+fn jumping_to_the_bottom_of_a_truncated_feed_loads_the_next_page() -> TestResult {
     let mut app = App::new();
     app.focus_my_work();
-    let key = app.active_feed_key().unwrap();
+    let key = app.active_feed_key().ok_or("no active feed")?;
     let items: Vec<_> = (0..12)
         .map(|n| sample_issue(&format!("i{n}"), &format!("DAN-{n}")))
         .collect();
@@ -1445,7 +1599,7 @@ fn jumping_to_the_bottom_of_a_truncated_feed_loads_the_next_page() {
     );
     app.ui.list_state.select(Some(0));
 
-    let command = handle_key(&mut app, press(KeyCode::Char('G')));
+    let command = handle_key(&mut app, press(KeyCode::Char('G')))?;
 
     assert_eq!(app.ui.list_state.selected(), Some(11));
     match command {
@@ -1453,12 +1607,14 @@ fn jumping_to_the_bottom_of_a_truncated_feed_loads_the_next_page() {
             key: FeedKey::Issues(_),
             request: FeedRequest::LoadMore { after },
         })) if after == Cursor("cursor-1".into()) => {}
-        other => panic!("expected G to load the next page, got {other:?}"),
+        other => return Err(format!("expected G to load the next page, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn feed_results_land_only_in_their_own_key() {
+fn feed_results_land_only_in_their_own_key() -> TestResult {
     let mut app = App::new();
     apply(
         &mut app,
@@ -1467,21 +1623,28 @@ fn feed_results_land_only_in_their_own_key() {
             request: FeedRequest::Refresh,
             page: Page::single(vec![sample_issue("i1", "ENG-1")]),
         },
-    );
+    )?;
 
     assert!(app.active_issues().is_empty());
+
+    Ok(())
 }
 
 #[test]
-fn reconnect_reissues_an_in_flight_feed_rather_than_orphaning_it() {
+fn reconnect_reissues_an_in_flight_feed_rather_than_orphaning_it() -> TestResult {
     let mut app = App::new();
     app.focus_my_work();
-    let key = app.active_feed_key().unwrap();
+    let key = app.active_feed_key().ok_or("no active feed")?;
     app.workspace
         .feeds
         .get_or_default(&key)
         .begin(&FeedRequest::Refresh);
-    assert!(app.workspace.feeds.get(&key).unwrap().in_flight());
+    assert!(app
+        .workspace
+        .feeds
+        .get(&key)
+        .ok_or("the feed cell exists")?
+        .in_flight());
 
     let commands = linear_tui::tui::update::reconnect(&mut app);
 
@@ -1491,14 +1654,16 @@ fn reconnect_reissues_an_in_flight_feed_rather_than_orphaning_it() {
             .any(|command| matches!(command, Effect::Api(ApiCommand::LoadFeed { key: k, .. }) if k == &key)),
         "an in-flight feed must be re-requested after reconnect, not left spinning forever"
     );
+
+    Ok(())
 }
 
 #[test]
-fn two_reloads_while_the_session_is_failed_issue_one_request() {
+fn two_reloads_while_the_session_is_failed_issue_one_request() -> TestResult {
     let mut app = list_app_with_issue();
     app.workspace.session.fail("boom".into());
 
-    let first = effects(handle_key_all(&mut app, press(KeyCode::Char('r'))));
+    let first = effects(handle_key_all(&mut app, press(KeyCode::Char('r'))))?;
     assert!(
         first
             .iter()
@@ -1506,13 +1671,15 @@ fn two_reloads_while_the_session_is_failed_issue_one_request() {
         "a failed session cell is retried on reload"
     );
 
-    let second = effects(handle_key_all(&mut app, press(KeyCode::Char('r'))));
+    let second = effects(handle_key_all(&mut app, press(KeyCode::Char('r'))))?;
     assert!(
         !second
             .iter()
             .any(|command| matches!(command, Effect::Api(ApiCommand::LoadSession))),
         "the retry is already in flight, so a second reload must not duplicate it"
     );
+
+    Ok(())
 }
 
 #[test]
@@ -1550,11 +1717,52 @@ fn reconnect_reissues_a_loading_detail() {
 }
 
 #[test]
-fn reconnect_reissues_a_loading_view_feed() {
-    let mut app = saved_views_app();
-    handle_key(&mut app, press(KeyCode::Enter));
+fn reconnect_reissues_a_loading_image() -> TestResult {
+    let mut app = list_app_with_issue();
+    let url = upload("trace.png")?;
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("look\n\n![trace]({url})"));
 
-    let key = app.view().expect("a view surface is open").key();
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
+
+    let commands = linear_tui::tui::update::reconnect(&mut app);
+
+    assert!(
+        commands.iter().any(|command| matches!(
+            command,
+            Effect::Image(ImageCommand::Fetch { url: requested }) if *requested == url
+        )),
+        "an image in flight when the reconnect cancelled it must be requested again"
+    );
+    assert!(
+        app.workspace
+            .image(&url)
+            .is_some_and(|cell| cell.in_flight()),
+        "the cell is loading again rather than stuck as not loaded"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn reconnect_reissues_a_loading_view_feed() -> TestResult {
+    let mut app = saved_views_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
+
+    let key = app.view().ok_or("a view surface is open")?.key();
     app.workspace
         .feeds
         .get_or_default(&key)
@@ -1568,15 +1776,17 @@ fn reconnect_reissues_a_loading_view_feed() {
             .any(|command| matches!(command, Effect::Api(ApiCommand::LoadFeed { key: k, .. }) if k == &key)),
         "the focused view's feed must be re-requested after reconnect"
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_reconnect_unwedges_a_searching_picker() {
+fn a_reconnect_unwedges_a_searching_picker() -> TestResult {
     let mut app = detail_app();
-    edit(&mut app, 'a');
-    handle_key(&mut app, press(KeyCode::Char('/')));
-    handle_key(&mut app, press(KeyCode::Char('d')));
-    handle_key(&mut app, press(KeyCode::Enter));
+    edit(&mut app, 'a')?;
+    handle_key(&mut app, press(KeyCode::Char('/')))?;
+    handle_key(&mut app, press(KeyCode::Char('d')))?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(app.overlay_in_flight());
 
     linear_tui::tui::update::reconnect(&mut app);
@@ -1585,12 +1795,14 @@ fn a_reconnect_unwedges_a_searching_picker() {
         !app.overlay_in_flight(),
         "a cancelled search must settle rather than spin forever"
     );
+
+    Ok(())
 }
 
 #[test]
-fn an_unbound_key_inside_a_picker_keeps_an_async_error_visible() {
+fn an_unbound_key_inside_a_picker_keeps_an_async_error_visible() -> TestResult {
     let mut app = detail_app();
-    edit(&mut app, 's');
+    edit(&mut app, 's')?;
 
     apply(
         &mut app,
@@ -1600,21 +1812,23 @@ fn an_unbound_key_inside_a_picker_keeps_an_async_error_visible() {
             },
             error: RequestError::Other("boom".into()),
         },
-    );
+    )?;
     assert!(matches!(app.ui.status, Some(Status::Error(_))));
 
-    handle_key(&mut app, press(KeyCode::F(5)));
+    handle_key(&mut app, press(KeyCode::F(5)))?;
 
     assert!(
         matches!(app.ui.status, Some(Status::Error(_))),
         "an unbound key has no opinion on the status, so it must not erase one"
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_background_feed_refresh_does_not_clear_an_error_status() {
+fn a_background_feed_refresh_does_not_clear_an_error_status() -> TestResult {
     let mut app = list_app_with_issue();
-    let key = app.active_feed_key().expect("an active feed");
+    let key = app.active_feed_key().ok_or("an active feed")?;
     app.ui.status = Some(Status::Error("boom".into()));
 
     apply(
@@ -1624,39 +1838,43 @@ fn a_background_feed_refresh_does_not_clear_an_error_status() {
             request: FeedRequest::Refresh,
             page: Page::single(vec![sample_issue("i1", "DAN-1")]),
         },
-    );
+    )?;
 
     assert!(
         matches!(app.ui.status, Some(Status::Error(_))),
         "a background refresh must not wipe an unread error"
     );
+
+    Ok(())
 }
 
 #[test]
-fn cancelling_a_picker_replaces_a_stale_status() {
+fn cancelling_a_picker_replaces_a_stale_status() -> TestResult {
     let mut app = detail_app();
 
-    handle_key(&mut app, press(KeyCode::Char('y')));
+    handle_key(&mut app, press(KeyCode::Char('y')))?;
     assert_eq!(app.ui.status, Some(Status::CopiedUrl));
 
-    edit(&mut app, 's');
-    handle_key(&mut app, press(KeyCode::Esc));
+    edit(&mut app, 's')?;
+    handle_key(&mut app, press(KeyCode::Esc))?;
 
     assert_eq!(
         app.ui.status,
         Some(Status::Cancelled),
         "closing a task-like overlay reports Cancelled rather than leaving a stale success"
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_picker_opened_onto_an_in_flight_cell_shows_loading() {
+fn a_picker_opened_onto_an_in_flight_cell_shows_loading() -> TestResult {
     let mut app = detail_app();
 
-    edit(&mut app, 's');
-    handle_key(&mut app, press(KeyCode::Esc));
+    edit(&mut app, 's')?;
+    handle_key(&mut app, press(KeyCode::Esc))?;
 
-    let reopened = edit(&mut app, 's');
+    let reopened = edit(&mut app, 's')?;
 
     assert!(
         reopened.is_none(),
@@ -1666,15 +1884,17 @@ fn a_picker_opened_onto_an_in_flight_cell_shows_loading() {
         app.overlay_in_flight(),
         "the picker reads the in-flight cell rather than a bool of its own"
     );
+
+    Ok(())
 }
 
 #[test]
-fn switching_the_workspace_clears_the_ui_pointing_at_the_old_one() {
+fn switching_the_workspace_clears_the_ui_pointing_at_the_old_one() -> TestResult {
     let filter = linear_tui::api::IssueFilter::assigned_to_me();
     let mut app = detail_app();
     assert!(app.workspace.detail().value().is_some());
 
-    handle_key(&mut app, press(KeyCode::Char('c')));
+    handle_key(&mut app, press(KeyCode::Char('c')))?;
     assert!(
         app.editor().is_some(),
         "an editor targeting the old workspace's issue is open when the switch arrives"
@@ -1707,45 +1927,53 @@ fn switching_the_workspace_clears_the_ui_pointing_at_the_old_one() {
     );
     assert!(app.focus().is_panel(LeftPanel::MyWork));
     assert!(app.view().is_none());
+
+    Ok(())
 }
 
 #[test]
-fn esc_from_detail_focuses_my_work() {
+fn esc_from_detail_focuses_my_work() -> TestResult {
     let mut app = detail_app();
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
 
     assert!(app.focus().is_panel(LeftPanel::MyWork));
+
+    Ok(())
 }
 
 #[test]
-fn status_action_requires_an_opened_issue() {
+fn status_action_requires_an_opened_issue() -> TestResult {
     let mut app = list_app_with_issue();
 
-    let commands = edit(&mut app, 's');
+    let commands = edit(&mut app, 's')?;
 
     assert!(app.picker().is_none());
     assert!(commands.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn s_opens_status_picker_once_issue_is_loaded() {
+fn s_opens_status_picker_once_issue_is_loaded() -> TestResult {
     let mut app = detail_app();
 
-    let commands = edit(&mut app, 's');
+    let commands = edit(&mut app, 's')?;
 
     assert_eq!(app.picker().map(|p| &p.kind), Some(&PickerKind::Status));
     match commands {
         Some(Effect::Api(ApiCommand::LoadStates { team_id })) if team_id.as_str() == "t_pizza" => {}
-        other => panic!("expected LoadStates for t_pizza, got {other:?}"),
+        other => return Err(format!("expected LoadStates for t_pizza, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn m_enters_comments_mode_and_selects_the_first_comment() {
-    let mut app = detail_app_with_comments();
+fn m_enters_comments_mode_and_selects_the_first_comment() -> TestResult {
+    let mut app = detail_app_with_comments()?;
 
-    let command = handle_key(&mut app, press(KeyCode::Char('m')));
+    let command = handle_key(&mut app, press(KeyCode::Char('m')))?;
 
     assert!(matches!(
         app.focus(),
@@ -1757,13 +1985,15 @@ fn m_enters_comments_mode_and_selects_the_first_comment() {
     ));
     assert_eq!(app.comment_cursor(), Some(0));
     assert!(command.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn m_reports_when_there_are_no_comments() {
+fn m_reports_when_there_are_no_comments() -> TestResult {
     let mut app = detail_app();
 
-    handle_key(&mut app, press(KeyCode::Char('m')));
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
 
     assert!(matches!(
         app.focus(),
@@ -1774,14 +2004,16 @@ fn m_reports_when_there_are_no_comments() {
         })
     ));
     assert_eq!(app.ui.status, Some(Status::NoComments));
+
+    Ok(())
 }
 
 #[test]
-fn esc_in_comments_mode_returns_to_reading_then_leaves() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn esc_in_comments_mode_returns_to_reading_then_leaves() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert!(matches!(
         app.focus(),
         Focus::Detail(DetailFocus {
@@ -1791,52 +2023,60 @@ fn esc_in_comments_mode_returns_to_reading_then_leaves() {
         })
     ));
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert!(app.focus().is_panel(LeftPanel::MyWork));
+
+    Ok(())
 }
 
 #[test]
-fn j_moves_the_comment_selection_in_comments_mode() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn j_moves_the_comment_selection_in_comments_mode() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
 
-    handle_key(&mut app, press(KeyCode::Char('j')));
+    handle_key(&mut app, press(KeyCode::Char('j')))?;
 
     assert_eq!(app.comment_cursor(), Some(1));
+
+    Ok(())
 }
 
 #[test]
-fn r_replies_to_a_reply_using_the_thread_root_as_parent() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
-    handle_key(&mut app, press(KeyCode::Char('j')));
+fn r_replies_to_a_reply_using_the_thread_root_as_parent() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
+    handle_key(&mut app, press(KeyCode::Char('j')))?;
 
-    handle_key(&mut app, press(KeyCode::Char('r')));
+    handle_key(&mut app, press(KeyCode::Char('r')))?;
 
-    let editor = app.editor().expect("reply editor open");
+    let editor = app.editor().ok_or("reply editor open")?;
     assert!(matches!(&editor.compose, Compose::Reply { parent_id } if parent_id.as_str() == "c1"));
+
+    Ok(())
 }
 
 #[test]
-fn r_replies_to_a_root_using_its_own_id_as_parent() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn r_replies_to_a_root_using_its_own_id_as_parent() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
 
-    handle_key(&mut app, press(KeyCode::Char('r')));
+    handle_key(&mut app, press(KeyCode::Char('r')))?;
 
-    let editor = app.editor().expect("reply editor open");
+    let editor = app.editor().ok_or("reply editor open")?;
     assert!(matches!(&editor.compose, Compose::Reply { parent_id } if parent_id.as_str() == "c1"));
+
+    Ok(())
 }
 
 #[test]
-fn submitting_a_reply_posts_with_the_thread_parent() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
-    handle_key(&mut app, press(KeyCode::Char('r')));
-    handle_key(&mut app, press(KeyCode::Char('o')));
-    handle_key(&mut app, press(KeyCode::Char('k')));
+fn submitting_a_reply_posts_with_the_thread_parent() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
+    handle_key(&mut app, press(KeyCode::Char('r')))?;
+    handle_key(&mut app, press(KeyCode::Char('o')))?;
+    handle_key(&mut app, press(KeyCode::Char('k')))?;
 
-    let command = handle_key(&mut app, ctrl('s'));
+    let command = handle_key(&mut app, ctrl('s'))?;
 
     match command {
         Some(Effect::Api(ApiCommand::CreateComment {
@@ -1849,23 +2089,25 @@ fn submitting_a_reply_posts_with_the_thread_parent() {
             assert_eq!(body, "ok");
             assert_eq!(parent.as_str(), "c1");
         }
-        other => panic!("expected a threaded CreateComment, got {other:?}"),
+        other => return Err(format!("expected a threaded CreateComment, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn commenting_from_a_view_targets_the_selected_issue_not_the_stale_detail() {
-    let mut app = saved_views_app();
-    handle_key(&mut app, press(KeyCode::Enter));
-    load_view_feed(&mut app, "v1", vec![sample_issue("i2", "DAN2-8")]);
+fn commenting_from_a_view_targets_the_selected_issue_not_the_stale_detail() -> TestResult {
+    let mut app = saved_views_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
+    load_view_feed(&mut app, "v1", vec![sample_issue("i2", "DAN2-8")])?;
 
     app.workspace
         .set_detail(sample_detail("i1", "DAN2-7"), app.now);
 
-    handle_key(&mut app, press(KeyCode::Char('c')));
-    handle_key(&mut app, press(KeyCode::Char('k')));
+    handle_key(&mut app, press(KeyCode::Char('c')))?;
+    handle_key(&mut app, press(KeyCode::Char('k')))?;
 
-    let command = handle_key(&mut app, ctrl('s'));
+    let command = handle_key(&mut app, ctrl('s'))?;
 
     match command {
         Some(Effect::Api(ApiCommand::CreateComment {
@@ -1877,50 +2119,62 @@ fn commenting_from_a_view_targets_the_selected_issue_not_the_stale_detail() {
             assert_eq!(issue_id.as_str(), "i2");
             assert_eq!(body, "k");
         }
-        other => panic!("expected CreateComment for i2, got {other:?}"),
+        other => return Err(format!("expected CreateComment for i2, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn e_opens_the_edit_editor_prefilled_with_my_comment_body() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn e_opens_the_edit_editor_prefilled_with_my_comment_body() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
 
-    let command = handle_key(&mut app, press(KeyCode::Char('e')));
+    let command = handle_key(&mut app, press(KeyCode::Char('e')))?;
 
-    let editor = app.editor().expect("edit editor open");
+    let editor = app.editor().ok_or("edit editor open")?;
     assert!(matches!(&editor.compose, Compose::Edit { comment_id } if comment_id.as_str() == "c1"));
     assert_eq!(editor.text(), "root comment");
     match command {
         Some(Effect::Api(ApiCommand::LoadMembers { team_id })) if team_id.as_str() == "t_pizza" => {
         }
-        other => panic!("expected LoadMembers for the mention popup, got {other:?}"),
+        other => {
+            return Err(format!("expected LoadMembers for the mention popup, got {other:?}").into())
+        }
     }
+
+    Ok(())
 }
 
 #[test]
-fn e_refuses_to_edit_someone_elses_comment() {
-    let mut app = detail_app_with_comments();
-    let mut detail = app.workspace.detail().value().cloned().expect("detail");
-    detail.comments[0].is_mine = false;
+fn e_refuses_to_edit_someone_elses_comment() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
+    detail
+        .comments
+        .first_mut()
+        .ok_or("the detail has a comment")?
+        .is_mine = false;
     app.workspace.set_detail(detail, app.now);
-    handle_key(&mut app, press(KeyCode::Char('m')));
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
 
-    let command = handle_key(&mut app, press(KeyCode::Char('e')));
+    let command = handle_key(&mut app, press(KeyCode::Char('e')))?;
 
     assert!(app.editor().is_none());
     assert_eq!(app.ui.status, Some(Status::NotYourComment));
     assert!(command.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn submitting_an_edit_updates_the_comment() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
-    handle_key(&mut app, press(KeyCode::Char('e')));
-    handle_key(&mut app, press(KeyCode::Char('!')));
+fn submitting_an_edit_updates_the_comment() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
+    handle_key(&mut app, press(KeyCode::Char('e')))?;
+    handle_key(&mut app, press(KeyCode::Char('!')))?;
 
-    let command = handle_key(&mut app, ctrl('s'));
+    let command = handle_key(&mut app, ctrl('s'))?;
 
     match command {
         Some(Effect::Api(ApiCommand::UpdateComment {
@@ -1933,13 +2187,15 @@ fn submitting_an_edit_updates_the_comment() {
             assert_eq!(comment_id.as_str(), "c1");
             assert_eq!(body, "root comment!");
         }
-        other => panic!("expected UpdateComment, got {other:?}"),
+        other => return Err(format!("expected UpdateComment, got {other:?}").into()),
     }
     assert!(app.editor().is_none());
+
+    Ok(())
 }
 
 #[test]
-fn comment_edited_refetches_the_thread_from_the_top() {
+fn comment_edited_refetches_the_thread_from_the_top() -> TestResult {
     let mut app = detail_app();
 
     let command = apply(
@@ -1947,7 +2203,7 @@ fn comment_edited_refetches_the_thread_from_the_top() {
         Message::CommentEdited {
             id: IssueId::from_raw("i1"),
         },
-    );
+    )?;
 
     assert!(app.workspace.detail().in_flight());
     match command {
@@ -1955,19 +2211,25 @@ fn comment_edited_refetches_the_thread_from_the_top() {
             target,
             reveal: Reveal::Top,
         })) if target.as_str() == "i1" => {}
-        other => panic!("expected LoadDetail for i1 revealing the top, got {other:?}"),
+        other => {
+            return Err(
+                format!("expected LoadDetail for i1 revealing the top, got {other:?}").into(),
+            )
+        }
     }
+
+    Ok(())
 }
 
 #[test]
-fn d_confirms_before_deleting_my_comment() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn d_confirms_before_deleting_my_comment() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
 
-    let no_command = handle_key(&mut app, press(KeyCode::Char('d')));
+    let no_command = handle_key(&mut app, press(KeyCode::Char('d')))?;
     assert!(no_command.is_none());
 
-    let confirm = app.confirm().expect("delete confirm open");
+    let confirm = app.confirm().ok_or("delete confirm open")?;
     match &confirm.command {
         Effect::Api(ApiCommand::DeleteComment {
             issue_id,
@@ -1976,58 +2238,68 @@ fn d_confirms_before_deleting_my_comment() {
             assert_eq!(issue_id.as_str(), "i1");
             assert_eq!(comment_id.as_str(), "c1");
         }
-        other => panic!("expected DeleteComment, got {other:?}"),
+        other => return Err(format!("expected DeleteComment, got {other:?}").into()),
     }
 
-    let command = handle_key(&mut app, press(KeyCode::Char('y')));
+    let command = handle_key(&mut app, press(KeyCode::Char('y')))?;
     assert!(app.confirm().is_none());
     match command {
         Some(Effect::Api(ApiCommand::DeleteComment {
             issue_id,
             comment_id,
         })) if issue_id.as_str() == "i1" && comment_id.as_str() == "c1" => {}
-        other => panic!("expected DeleteComment on confirm, got {other:?}"),
+        other => return Err(format!("expected DeleteComment on confirm, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn d_refuses_to_delete_someone_elses_comment() {
-    let mut app = detail_app_with_comments();
-    let mut detail = app.workspace.detail().value().cloned().expect("detail");
-    detail.comments[0].is_mine = false;
+fn d_refuses_to_delete_someone_elses_comment() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
+    detail
+        .comments
+        .first_mut()
+        .ok_or("the detail has a comment")?
+        .is_mine = false;
     app.workspace.set_detail(detail, app.now);
-    handle_key(&mut app, press(KeyCode::Char('m')));
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
 
-    let command = handle_key(&mut app, press(KeyCode::Char('d')));
+    let command = handle_key(&mut app, press(KeyCode::Char('d')))?;
 
     assert!(app.confirm().is_none());
     assert_eq!(app.ui.status, Some(Status::NotYourComment));
     assert!(command.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn ctrl_d_still_pages_in_comments_mode() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn ctrl_d_still_pages_in_comments_mode() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
 
-    let command = handle_key(&mut app, ctrl('d'));
+    let command = handle_key(&mut app, ctrl('d'))?;
 
     assert!(app.confirm().is_none());
     assert!(command.is_none());
     assert_ne!(app.comment_cursor(), Some(0));
+
+    Ok(())
 }
 
 #[test]
-fn comment_deleted_stays_in_comments_and_refetches() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn comment_deleted_stays_in_comments_and_refetches() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
 
     let command = apply(
         &mut app,
         Message::CommentDeleted {
             id: IssueId::from_raw("i1"),
         },
-    );
+    )?;
 
     assert!(app.workspace.detail().in_flight());
     assert!(matches!(
@@ -2043,17 +2315,23 @@ fn comment_deleted_stays_in_comments_and_refetches() {
             target,
             reveal: Reveal::Top,
         })) if target.as_str() == "i1" => {}
-        other => panic!("expected LoadDetail for i1 revealing the top, got {other:?}"),
+        other => {
+            return Err(
+                format!("expected LoadDetail for i1 revealing the top, got {other:?}").into(),
+            )
+        }
     }
+
+    Ok(())
 }
 
 #[test]
-fn a_shrunk_thread_clamps_the_comment_selection() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn a_shrunk_thread_clamps_the_comment_selection() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
     app.reveal_focused(Some(2));
 
-    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
     detail.comments.pop();
     apply(
         &mut app,
@@ -2061,7 +2339,7 @@ fn a_shrunk_thread_clamps_the_comment_selection() {
             detail: Box::new(detail),
             reveal: Reveal::Top,
         },
-    );
+    )?;
 
     assert_eq!(app.comment_cursor(), Some(1));
     assert!(matches!(
@@ -2072,14 +2350,16 @@ fn a_shrunk_thread_clamps_the_comment_selection() {
             ..
         })
     ));
+
+    Ok(())
 }
 
 #[test]
-fn deleting_the_last_comment_falls_back_to_reading() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn deleting_the_last_comment_falls_back_to_reading() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
 
-    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
     detail.comments.clear();
     apply(
         &mut app,
@@ -2087,7 +2367,7 @@ fn deleting_the_last_comment_falls_back_to_reading() {
             detail: Box::new(detail),
             reveal: Reveal::Top,
         },
-    );
+    )?;
 
     assert!(matches!(
         app.focus(),
@@ -2097,54 +2377,64 @@ fn deleting_the_last_comment_falls_back_to_reading() {
             ..
         })
     ));
+
+    Ok(())
 }
 
 #[test]
-fn comment_action_requires_an_opened_issue() {
+fn comment_action_requires_an_opened_issue() -> TestResult {
     let mut app = list_app_with_issue();
 
-    let commands = handle_key(&mut app, press(KeyCode::Char('c')));
+    let commands = handle_key(&mut app, press(KeyCode::Char('c')))?;
 
     assert!(app.editor().is_none());
     assert!(commands.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn c_opens_the_comment_editor_once_issue_is_loaded() {
+fn c_opens_the_comment_editor_once_issue_is_loaded() -> TestResult {
     let mut app = detail_app();
 
-    let command = handle_key(&mut app, press(KeyCode::Char('c')));
+    let command = handle_key(&mut app, press(KeyCode::Char('c')))?;
 
     assert!(app.editor().is_some());
     match command {
         Some(Effect::Api(ApiCommand::LoadMembers { team_id })) if team_id.as_str() == "t_pizza" => {
         }
-        other => panic!("expected LoadMembers for the mention popup, got {other:?}"),
+        other => {
+            return Err(format!("expected LoadMembers for the mention popup, got {other:?}").into())
+        }
     }
+
+    Ok(())
 }
 
 #[test]
-fn enter_inserts_a_newline_and_does_not_submit() {
+fn enter_inserts_a_newline_and_does_not_submit() -> TestResult {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('c')));
+    handle_key(&mut app, press(KeyCode::Char('c')))?;
 
-    handle_key(&mut app, press(KeyCode::Char('a')));
-    let command = handle_key(&mut app, press(KeyCode::Enter));
-    handle_key(&mut app, press(KeyCode::Char('b')));
+    handle_key(&mut app, press(KeyCode::Char('a')))?;
+    let command = handle_key(&mut app, press(KeyCode::Enter))?;
+    handle_key(&mut app, press(KeyCode::Char('b')))?;
 
     assert!(command.is_none());
     assert_eq!(app.editor().map(|e| e.text()), Some("a\nb".to_string()));
+
+    Ok(())
 }
 
 #[test]
-fn ctrl_s_posts_the_multiline_comment_for_the_open_issue() {
+fn ctrl_s_posts_the_multiline_comment_for_the_open_issue() -> TestResult {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('c')));
-    handle_key(&mut app, press(KeyCode::Char('a')));
-    handle_key(&mut app, press(KeyCode::Enter));
-    handle_key(&mut app, press(KeyCode::Char('b')));
+    handle_key(&mut app, press(KeyCode::Char('c')))?;
+    handle_key(&mut app, press(KeyCode::Char('a')))?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
+    handle_key(&mut app, press(KeyCode::Char('b')))?;
 
-    let command = handle_key(&mut app, ctrl('s'));
+    let command = handle_key(&mut app, ctrl('s'))?;
 
     match command {
         Some(Effect::Api(ApiCommand::CreateComment {
@@ -2157,49 +2447,55 @@ fn ctrl_s_posts_the_multiline_comment_for_the_open_issue() {
             assert_eq!(body, "a\nb");
             assert_eq!(parent_id, None);
         }
-        other => panic!("expected CreateComment, got {other:?}"),
+        other => return Err(format!("expected CreateComment, got {other:?}").into()),
     }
     assert!(app.editor().is_none());
+
+    Ok(())
 }
 
 #[test]
-fn mention_autocomplete_inserts_the_profile_url() {
+fn mention_autocomplete_inserts_the_profile_url() -> TestResult {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('c')));
+    handle_key(&mut app, press(KeyCode::Char('c')))?;
     apply(
         &mut app,
         Message::MembersLoaded {
             team_id: TeamId::from_raw("t_pizza"),
             members: vec![member("danniieelg"), member("sam")],
         },
-    );
+    )?;
 
-    handle_key(&mut app, press(KeyCode::Char('@')));
-    handle_key(&mut app, press(KeyCode::Char('d')));
+    handle_key(&mut app, press(KeyCode::Char('@')))?;
+    handle_key(&mut app, press(KeyCode::Char('d')))?;
     assert!(app.editor().is_some_and(|e| e.mention().is_some()));
 
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
 
-    let editor = app.editor().expect("editor open");
+    let editor = app.editor().ok_or("editor open")?;
     assert!(editor.mention().is_none());
     assert_eq!(
         editor.text(),
         "https://linear.app/dans-donuts/profiles/danniieelg"
     );
+
+    Ok(())
 }
 
 #[test]
-fn an_empty_comment_posts_nothing() {
+fn an_empty_comment_posts_nothing() -> TestResult {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('c')));
+    handle_key(&mut app, press(KeyCode::Char('c')))?;
 
-    let command = handle_key(&mut app, ctrl('s'));
+    let command = handle_key(&mut app, ctrl('s'))?;
 
     assert!(command.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn comment_posted_refetches_the_thread_and_reveals_the_bottom() {
+fn comment_posted_refetches_the_thread_and_reveals_the_bottom() -> TestResult {
     let mut app = detail_app();
 
     let command = apply(
@@ -2207,7 +2503,7 @@ fn comment_posted_refetches_the_thread_and_reveals_the_bottom() {
         Message::CommentPosted {
             id: IssueId::from_raw("i1"),
         },
-    );
+    )?;
 
     assert!(app.workspace.detail().in_flight());
     match command {
@@ -2215,21 +2511,27 @@ fn comment_posted_refetches_the_thread_and_reveals_the_bottom() {
             target,
             reveal: Reveal::Bottom,
         })) if target.as_str() == "i1" => {}
-        other => panic!("expected LoadDetail for i1 revealing the bottom, got {other:?}"),
+        other => {
+            return Err(
+                format!("expected LoadDetail for i1 revealing the bottom, got {other:?}").into(),
+            )
+        }
     }
+
+    Ok(())
 }
 
 #[test]
-fn posting_from_comments_mode_stays_in_comments_and_reveals_the_new_comment() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn posting_from_comments_mode_stays_in_comments_and_reveals_the_new_comment() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
 
     let command = apply(
         &mut app,
         Message::CommentPosted {
             id: IssueId::from_raw("i1"),
         },
-    );
+    )?;
 
     assert!(app.workspace.detail().in_flight());
     assert!(matches!(
@@ -2245,17 +2547,24 @@ fn posting_from_comments_mode_stays_in_comments_and_reveals_the_new_comment() {
             target,
             reveal: Reveal::NewestComment,
         })) if target.as_str() == "i1" => {}
-        other => panic!("expected LoadDetail for i1 revealing the newest comment, got {other:?}"),
+        other => {
+            return Err(format!(
+                "expected LoadDetail for i1 revealing the newest comment, got {other:?}"
+            )
+            .into())
+        }
     }
+
+    Ok(())
 }
 
 #[test]
-fn newest_comment_reveal_selects_the_new_comment() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn newest_comment_reveal_selects_the_new_comment() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
     app.reveal_focused(Some(0));
 
-    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
     detail.comments.push(linear_tui::api::Comment {
         id: CommentId::from_raw("c_new"),
         parent_id: None,
@@ -2271,13 +2580,15 @@ fn newest_comment_reveal_selects_the_new_comment() {
             detail: Box::new(detail),
             reveal: Reveal::NewestComment,
         },
-    );
+    )?;
 
     assert_eq!(app.comment_cursor(), Some(3));
+
+    Ok(())
 }
 
 #[test]
-fn a_bottom_reveal_scrolls_to_the_new_comment() {
+fn a_bottom_reveal_scrolls_to_the_new_comment() -> TestResult {
     let mut app = detail_app();
 
     app.open_detail_focus(DetailFocus::reading(
@@ -2290,38 +2601,42 @@ fn a_bottom_reveal_scrolls_to_the_new_comment() {
             detail: Box::new(sample_detail("i1", "DAN-1")),
             reveal: Reveal::Bottom,
         },
-    );
+    )?;
 
     assert_eq!(app.reading_scroll(), Some(Scroll::Bottom));
+
+    Ok(())
 }
 
 #[test]
-fn find_step_after_a_bottom_reveal_is_render_independent() {
-    let mut without_frame = tall_reading_app();
-    let mut with_frame = tall_reading_app();
+fn find_step_after_a_bottom_reveal_is_render_independent() -> TestResult {
+    let mut without_frame = tall_reading_app()?;
+    let mut with_frame = tall_reading_app()?;
 
     render_to_string(&mut without_frame, 60, 12);
     render_to_string(&mut with_frame, 60, 12);
     without_frame.ui.find_query = Some("needle".into());
     with_frame.ui.find_query = Some("needle".into());
 
-    handle_key(&mut without_frame, press(KeyCode::Char('G')));
-    handle_key(&mut with_frame, press(KeyCode::Char('G')));
+    handle_key(&mut without_frame, press(KeyCode::Char('G')))?;
+    handle_key(&mut with_frame, press(KeyCode::Char('G')))?;
 
     render_to_string(&mut with_frame, 60, 12);
 
-    handle_key(&mut without_frame, press(KeyCode::Char('n')));
-    handle_key(&mut with_frame, press(KeyCode::Char('n')));
+    handle_key(&mut without_frame, press(KeyCode::Char('n')))?;
+    handle_key(&mut with_frame, press(KeyCode::Char('n')))?;
 
     assert_eq!(
-        scroll_line(&without_frame),
-        scroll_line(&with_frame),
+        scroll_line(&without_frame)?,
+        scroll_line(&with_frame)?,
         "find_step must land in the same place whether or not a frame rendered after G"
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_bottom_reveal_does_not_hand_find_a_max_sentinel() {
+fn a_bottom_reveal_does_not_hand_find_a_max_sentinel() -> TestResult {
     let mut app = detail_app();
     apply(
         &mut app,
@@ -2329,7 +2644,7 @@ fn a_bottom_reveal_does_not_hand_find_a_max_sentinel() {
             detail: Box::new(sample_detail("i1", "DAN-1")),
             reveal: Reveal::Bottom,
         },
-    );
+    )?;
     assert_eq!(app.reading_scroll(), Some(Scroll::Bottom));
 
     assert_ne!(
@@ -2337,10 +2652,12 @@ fn a_bottom_reveal_does_not_hand_find_a_max_sentinel() {
         Some(usize::MAX),
         "a bottom reveal must not masquerade as a concrete line index for find_step"
     );
+
+    Ok(())
 }
 
 #[test]
-fn opening_a_detail_starts_at_the_top() {
+fn opening_a_detail_starts_at_the_top() -> TestResult {
     let mut app = detail_app();
 
     app.open_detail_focus(DetailFocus::reading(
@@ -2353,75 +2670,83 @@ fn opening_a_detail_starts_at_the_top() {
             detail: Box::new(sample_detail("i1", "DAN-1")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
 
     assert_eq!(app.reading_scroll(), Some(Scroll::Top));
+
+    Ok(())
 }
 
 #[test]
-fn picker_enter_opens_confirmation_then_applies() {
+fn picker_enter_opens_confirmation_then_applies() -> TestResult {
     let mut app = detail_app();
-    edit(&mut app, 's');
+    edit(&mut app, 's')?;
     apply(
         &mut app,
         Message::StatesLoaded {
             team_id: TeamId::from_raw("t_pizza"),
             states: vec![state_option("s_done", "Done")],
         },
-    );
+    )?;
 
-    let no_commands = handle_key(&mut app, press(KeyCode::Enter));
+    let no_commands = handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(app.picker().is_none());
     assert!(app.confirm().is_some());
     assert!(no_commands.is_none());
 
-    let commands = handle_key(&mut app, press(KeyCode::Char('y')));
+    let commands = handle_key(&mut app, press(KeyCode::Char('y')))?;
     assert!(app.confirm().is_none());
     match commands {
         Some(Effect::Api(ApiCommand::UpdateIssue {
             id,
             update: IssueUpdate::Status(state_id),
         })) if id.as_str() == "i1" && state_id.as_str() == "s_done" => {}
-        other => panic!("expected UpdateIssue with status, got {other:?}"),
+        other => return Err(format!("expected UpdateIssue with status, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn confirmation_cancel_does_not_write() {
+fn confirmation_cancel_does_not_write() -> TestResult {
     let mut app = detail_app();
-    edit(&mut app, 's');
+    edit(&mut app, 's')?;
     apply(
         &mut app,
         Message::StatesLoaded {
             team_id: TeamId::from_raw("t_pizza"),
             states: vec![state_option("s_done", "Done")],
         },
-    );
-    handle_key(&mut app, press(KeyCode::Enter));
+    )?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
 
-    let commands = handle_key(&mut app, press(KeyCode::Char('n')));
+    let commands = handle_key(&mut app, press(KeyCode::Char('n')))?;
 
     assert!(app.confirm().is_none());
     assert!(commands.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn priority_picker_sets_the_priority() {
+fn priority_picker_sets_the_priority() -> TestResult {
     let mut app = detail_app();
-    edit(&mut app, 'p');
+    edit(&mut app, 'p')?;
     assert_eq!(app.picker().map(|p| &p.kind), Some(&PickerKind::Priority));
 
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(app.confirm().is_some());
 
-    let command = handle_key(&mut app, press(KeyCode::Char('y')));
+    let command = handle_key(&mut app, press(KeyCode::Char('y')))?;
     match command {
         Some(Effect::Api(ApiCommand::UpdateIssue {
             update: IssueUpdate::Priority(priority),
             ..
         })) => assert_eq!(priority, Priority::Urgent),
-        other => panic!("expected UpdateIssue priority, got {other:?}"),
+        other => return Err(format!("expected UpdateIssue priority, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 fn label(id: &str, name: &str) -> Label {
@@ -2433,9 +2758,9 @@ fn label(id: &str, name: &str) -> Label {
 }
 
 #[test]
-fn labels_overlay_toggles_a_batch_then_submits_once() {
+fn labels_overlay_toggles_a_batch_then_submits_once() -> TestResult {
     let mut app = detail_app();
-    let command = edit(&mut app, 'l');
+    let command = edit(&mut app, 'l')?;
 
     assert!(matches!(
         command,
@@ -2449,16 +2774,16 @@ fn labels_overlay_toggles_a_batch_then_submits_once() {
             query: String::new(),
             labels: vec![label("lbl_oven", "oven"), label("lbl_bug", "bug")],
         },
-    );
+    )?;
 
     assert!(!app.overlay_in_flight());
 
-    let overlay = app.labels().expect("labels overlay");
+    let overlay = app.labels().ok_or("labels overlay")?;
     assert_eq!(overlay.results().len(), 2);
 
-    assert!(handle_key(&mut app, press(KeyCode::Char(' '))).is_none());
-    handle_key(&mut app, press(KeyCode::Down));
-    assert!(handle_key(&mut app, press(KeyCode::Char(' '))).is_none());
+    assert!(handle_key(&mut app, press(KeyCode::Char(' ')))?.is_none());
+    handle_key(&mut app, press(KeyCode::Down))?;
+    assert!(handle_key(&mut app, press(KeyCode::Char(' ')))?.is_none());
 
     assert!(
         app.labels()
@@ -2467,7 +2792,7 @@ fn labels_overlay_toggles_a_batch_then_submits_once() {
         "both toggles held while the overlay stays open"
     );
 
-    let command = handle_key(&mut app, press(KeyCode::Enter));
+    let command = handle_key(&mut app, press(KeyCode::Enter))?;
     match command {
         Some(Effect::Api(ApiCommand::UpdateIssue {
             update: IssueUpdate::Labels(ids),
@@ -2476,25 +2801,27 @@ fn labels_overlay_toggles_a_batch_then_submits_once() {
             ids,
             vec![LabelId::from_raw("lbl_oven"), LabelId::from_raw("lbl_bug")]
         ),
-        other => panic!("expected UpdateIssue labels, got {other:?}"),
+        other => return Err(format!("expected UpdateIssue labels, got {other:?}").into()),
     }
 
     assert!(app.labels().is_none(), "submit closes the overlay");
+
+    Ok(())
 }
 
 #[test]
-fn labels_typing_reissues_the_search() {
+fn labels_typing_reissues_the_search() -> TestResult {
     let mut app = detail_app();
-    edit(&mut app, 'l');
+    edit(&mut app, 'l')?;
     apply(
         &mut app,
         Message::LabelsFound {
             query: String::new(),
             labels: vec![label("lbl_oven", "oven")],
         },
-    );
+    )?;
 
-    let command = handle_key(&mut app, press(KeyCode::Char('b')));
+    let command = handle_key(&mut app, press(KeyCode::Char('b')))?;
 
     assert!(matches!(
         command,
@@ -2502,31 +2829,35 @@ fn labels_typing_reissues_the_search() {
     ));
     assert!(app.overlay_in_flight());
     assert!(app.labels().is_some_and(|l| l.results().is_empty()));
+
+    Ok(())
 }
 
 #[test]
-fn assign_picker_can_unassign() {
+fn assign_picker_can_unassign() -> TestResult {
     let mut app = detail_app();
-    edit(&mut app, 'a');
+    edit(&mut app, 'a')?;
 
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(app.confirm().is_some());
 
-    let command = handle_key(&mut app, press(KeyCode::Char('y')));
+    let command = handle_key(&mut app, press(KeyCode::Char('y')))?;
     match command {
         Some(Effect::Api(ApiCommand::UpdateIssue {
             id,
             update: IssueUpdate::Assignee(None),
         })) if id.as_str() == "i1" => {}
-        other => panic!("expected an unassign UpdateIssue, got {other:?}"),
+        other => return Err(format!("expected an unassign UpdateIssue, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn a_warm_status_picker_opens_from_cache_without_refetching() {
+fn a_warm_status_picker_opens_from_cache_without_refetching() -> TestResult {
     let mut app = detail_app();
 
-    let first = edit(&mut app, 's');
+    let first = edit(&mut app, 's')?;
     assert!(matches!(
         first,
         Some(Effect::Api(ApiCommand::LoadStates { .. }))
@@ -2537,21 +2868,23 @@ fn a_warm_status_picker_opens_from_cache_without_refetching() {
             team_id: TeamId::from_raw("t_pizza"),
             states: vec![state_option("s_done", "Done")],
         },
-    );
-    handle_key(&mut app, press(KeyCode::Esc));
+    )?;
+    handle_key(&mut app, press(KeyCode::Esc))?;
 
-    let second = edit(&mut app, 's');
+    let second = edit(&mut app, 's')?;
     assert!(second.is_none(), "a fresh states cache must not refetch");
     assert!(!app.overlay_in_flight());
 
-    let picker = app.picker().expect("picker open");
+    let picker = app.picker().ok_or("picker open")?;
     assert!(!picker.items.is_empty());
+
+    Ok(())
 }
 
 #[test]
-fn a_failed_detail_fetch_marks_the_cell_and_shows_an_error() {
+fn a_failed_detail_fetch_marks_the_cell_and_shows_an_error() -> TestResult {
     let mut app = list_app_with_issue();
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(app.workspace.detail().in_flight());
 
     apply(
@@ -2560,20 +2893,22 @@ fn a_failed_detail_fetch_marks_the_cell_and_shows_an_error() {
             target: FailureTarget::Detail,
             error: RequestError::Other("boom".into()),
         },
-    );
+    )?;
 
     assert!(matches!(
         app.workspace.detail().status(),
         CacheStatus::Failed(_)
     ));
     assert!(matches!(app.ui.status, Some(Status::Error(_))));
+
+    Ok(())
 }
 
 #[test]
-fn a_failed_states_fetch_stops_the_spinner_and_retries_next_time() {
+fn a_failed_states_fetch_stops_the_spinner_and_retries_next_time() -> TestResult {
     let mut app = detail_app();
 
-    edit(&mut app, 's');
+    edit(&mut app, 's')?;
     assert!(app.overlay_in_flight());
 
     apply(
@@ -2584,7 +2919,7 @@ fn a_failed_states_fetch_stops_the_spinner_and_retries_next_time() {
             },
             error: RequestError::Other("boom".into()),
         },
-    );
+    )?;
 
     assert!(matches!(
         app.workspace
@@ -2596,20 +2931,24 @@ fn a_failed_states_fetch_stops_the_spinner_and_retries_next_time() {
     assert!(!app.overlay_in_flight());
     assert!(matches!(app.ui.status, Some(Status::Error(_))));
 
-    handle_key(&mut app, press(KeyCode::Esc));
-    let retry = edit(&mut app, 's');
+    handle_key(&mut app, press(KeyCode::Esc))?;
+    let retry = edit(&mut app, 's')?;
     match retry {
         Some(Effect::Api(ApiCommand::LoadStates { team_id })) if team_id.as_str() == "t_pizza" => {}
-        other => panic!("expected a retry LoadStates after failure, got {other:?}"),
+        other => {
+            return Err(format!("expected a retry LoadStates after failure, got {other:?}").into())
+        }
     }
+
+    Ok(())
 }
 
 #[test]
-fn the_assign_picker_offers_yourself_without_fetching_everyone() {
+fn the_assign_picker_offers_yourself_without_fetching_everyone() -> TestResult {
     let mut app = detail_app();
     app.workspace.session = Remote::ready(session("dan"), app.now);
 
-    let command = edit(&mut app, 'a');
+    let command = edit(&mut app, 'a')?;
 
     assert!(
         command.is_none(),
@@ -2618,29 +2957,31 @@ fn the_assign_picker_offers_yourself_without_fetching_everyone() {
 
     let labels: Vec<&str> = app
         .picker()
-        .expect("assign picker open")
+        .ok_or("assign picker open")?
         .items
         .iter()
         .map(|item| item.label.as_str())
         .collect();
 
     assert_eq!(labels, vec!["Unassigned", "dan"]);
+
+    Ok(())
 }
 
 #[test]
-fn slash_in_the_assign_picker_searches_for_people() {
+fn slash_in_the_assign_picker_searches_for_people() -> TestResult {
     let mut app = detail_app();
-    edit(&mut app, 'a');
+    edit(&mut app, 'a')?;
 
-    handle_key(&mut app, press(KeyCode::Char('/')));
+    handle_key(&mut app, press(KeyCode::Char('/')))?;
     for c in "cha".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
-    let command = handle_key(&mut app, press(KeyCode::Enter));
+    let command = handle_key(&mut app, press(KeyCode::Enter))?;
 
     match command {
         Some(Effect::Api(ApiCommand::SearchUsers { query })) if query == "cha" => {}
-        other => panic!("expected SearchUsers(cha), got {other:?}"),
+        other => return Err(format!("expected SearchUsers(cha), got {other:?}").into()),
     }
     assert!(app.overlay_in_flight());
 
@@ -2650,11 +2991,11 @@ fn slash_in_the_assign_picker_searches_for_people() {
             query: "cha".into(),
             users: vec![member("charlieh")],
         },
-    );
+    )?;
 
     assert!(!app.overlay_in_flight());
 
-    let picker = app.picker().expect("assign picker open");
+    let picker = app.picker().ok_or("assign picker open")?;
     assert_eq!(
         picker
             .items
@@ -2663,17 +3004,19 @@ fn slash_in_the_assign_picker_searches_for_people() {
             .collect::<Vec<_>>(),
         vec!["charlieh"]
     );
+
+    Ok(())
 }
 
 #[test]
-fn results_for_a_stale_search_are_ignored() {
+fn results_for_a_stale_search_are_ignored() -> TestResult {
     let mut app = detail_app();
-    edit(&mut app, 'a');
-    handle_key(&mut app, press(KeyCode::Char('/')));
+    edit(&mut app, 'a')?;
+    handle_key(&mut app, press(KeyCode::Char('/')))?;
     for c in "cha".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
 
     apply(
         &mut app,
@@ -2681,24 +3024,26 @@ fn results_for_a_stale_search_are_ignored() {
             query: "ch".into(),
             users: vec![member("someone-else")],
         },
-    );
+    )?;
 
     assert!(
         app.overlay_in_flight(),
         "the current search is still in flight"
     );
 
-    let picker = app.picker().expect("assign picker open");
+    let picker = app.picker().ok_or("assign picker open")?;
     assert!(picker.items.is_empty(), "a superseded search must not fill");
+
+    Ok(())
 }
 
 #[test]
-fn a_failed_user_search_stops_the_picker_spinner() {
+fn a_failed_user_search_stops_the_picker_spinner() -> TestResult {
     let mut app = detail_app();
-    edit(&mut app, 'a');
-    handle_key(&mut app, press(KeyCode::Char('/')));
-    handle_key(&mut app, press(KeyCode::Char('d')));
-    handle_key(&mut app, press(KeyCode::Enter));
+    edit(&mut app, 'a')?;
+    handle_key(&mut app, press(KeyCode::Char('/')))?;
+    handle_key(&mut app, press(KeyCode::Char('d')))?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(app.overlay_in_flight());
 
     apply(
@@ -2707,116 +3052,132 @@ fn a_failed_user_search_stops_the_picker_spinner() {
             target: FailureTarget::UserSearch,
             error: RequestError::Other("boom".into()),
         },
-    );
+    )?;
 
     assert!(!app.overlay_in_flight());
     assert!(matches!(app.ui.status, Some(Status::Error(_))));
+
+    Ok(())
 }
 
 #[test]
-fn o_opens_url_from_highlighted_issue() {
+fn o_opens_url_from_highlighted_issue() -> TestResult {
     let mut app = list_app_with_issue();
-    let commands = handle_key(&mut app, press(KeyCode::Char('o')));
+    let commands = handle_key(&mut app, press(KeyCode::Char('o')))?;
 
     match commands {
         Some(Effect::Platform(PlatformCommand::OpenUrl(url))) if url.contains("DAN2-7") => {}
-        other => panic!("expected OpenUrl, got {other:?}"),
+        other => return Err(format!("expected OpenUrl, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn y_copies_url_from_highlighted_issue() {
+fn y_copies_url_from_highlighted_issue() -> TestResult {
     let mut app = list_app_with_issue();
-    let commands = handle_key(&mut app, press(KeyCode::Char('y')));
+    let commands = handle_key(&mut app, press(KeyCode::Char('y')))?;
 
     assert!(app.ui.status.is_some());
     match commands {
         Some(Effect::Platform(PlatformCommand::CopyToClipboard(url))) if url.contains("DAN2-7") => {
         }
-        other => panic!("expected CopyToClipboard, got {other:?}"),
+        other => return Err(format!("expected CopyToClipboard, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn esc_closes_picker_without_updating() {
+fn esc_closes_picker_without_updating() -> TestResult {
     let mut app = detail_app();
-    edit(&mut app, 'a');
+    edit(&mut app, 'a')?;
     assert!(app.picker().is_some());
 
-    let commands = handle_key(&mut app, press(KeyCode::Esc));
+    let commands = handle_key(&mut app, press(KeyCode::Esc))?;
 
     assert!(app.picker().is_none());
     assert!(commands.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn open_and_yank_do_nothing_without_a_selected_issue() {
+fn open_and_yank_do_nothing_without_a_selected_issue() -> TestResult {
     let mut app = App::new();
     app.focus_my_work();
     app.ui.list_state.select(None);
 
     for key in ['o', 'y'] {
-        let commands = handle_key(&mut app, press(KeyCode::Char(key)));
+        let commands = handle_key(&mut app, press(KeyCode::Char(key)))?;
         assert!(
             commands.is_none(),
             "{key} should not act without a selection"
         );
     }
+
+    Ok(())
 }
 
 #[test]
-fn go_prefix_then_g_jumps_to_the_top() {
+fn go_prefix_then_g_jumps_to_the_top() -> TestResult {
     let mut app = list_app_with_issues();
     app.ui.list_state.select(Some(2));
 
-    handle_key(&mut app, press(KeyCode::Char('g')));
+    handle_key(&mut app, press(KeyCode::Char('g')))?;
     assert!(app.prefix().is_some());
 
-    let commands = handle_key(&mut app, press(KeyCode::Char('g')));
+    let commands = handle_key(&mut app, press(KeyCode::Char('g')))?;
 
     assert!(app.prefix().is_none());
     assert!(commands.is_none());
     assert_eq!(app.ui.list_state.selected(), Some(0));
+
+    Ok(())
 }
 
 #[test]
-fn capital_g_jumps_to_the_bottom() {
+fn capital_g_jumps_to_the_bottom() -> TestResult {
     let mut app = list_app_with_issues();
     app.ui.list_state.select(Some(0));
 
-    handle_key(&mut app, press(KeyCode::Char('G')));
+    handle_key(&mut app, press(KeyCode::Char('G')))?;
 
     assert_eq!(app.ui.list_state.selected(), Some(2));
+
+    Ok(())
 }
 
 #[test]
-fn go_prefix_cancels_on_an_unbound_key() {
+fn go_prefix_cancels_on_an_unbound_key() -> TestResult {
     let mut app = App::new();
 
-    handle_key(&mut app, press(KeyCode::Char('g')));
+    handle_key(&mut app, press(KeyCode::Char('g')))?;
     assert!(app.prefix().is_some());
 
-    let commands = handle_key(&mut app, press(KeyCode::Char('z')));
+    let commands = handle_key(&mut app, press(KeyCode::Char('z')))?;
 
     assert!(app.prefix().is_none());
     assert!(commands.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn gi_opens_a_jump_input_that_loads_the_referenced_issue() {
+fn gi_opens_a_jump_input_that_loads_the_referenced_issue() -> TestResult {
     let mut app = App::new();
 
-    handle_key(&mut app, press(KeyCode::Char('g')));
-    handle_key(&mut app, press(KeyCode::Char('i')));
+    handle_key(&mut app, press(KeyCode::Char('g')))?;
+    handle_key(&mut app, press(KeyCode::Char('i')))?;
     assert_eq!(
         app.input().map(|i| i.purpose.clone()),
         Some(InputPurpose::Jump)
     );
 
     for c in "dan2-7".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
-    let commands = handle_key(&mut app, press(KeyCode::Enter));
+    let commands = handle_key(&mut app, press(KeyCode::Enter))?;
 
     assert!(matches!(app.focus(), Focus::Detail(..)));
     assert!(app.workspace.detail().in_flight());
@@ -2824,20 +3185,22 @@ fn gi_opens_a_jump_input_that_loads_the_referenced_issue() {
     match commands {
         Some(Effect::Api(ApiCommand::LoadDetail { target, .. })) if target.as_str() == "DAN2-7" => {
         }
-        other => panic!("expected LoadDetail(DAN2-7), got {other:?}"),
+        other => return Err(format!("expected LoadDetail(DAN2-7), got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn a_detail_fetched_by_identifier_is_applied_and_reanchored_to_its_id() {
+fn a_detail_fetched_by_identifier_is_applied_and_reanchored_to_its_id() -> TestResult {
     let mut app = App::new();
 
-    handle_key(&mut app, press(KeyCode::Char('g')));
-    handle_key(&mut app, press(KeyCode::Char('i')));
+    handle_key(&mut app, press(KeyCode::Char('g')))?;
+    handle_key(&mut app, press(KeyCode::Char('i')))?;
     for c in "dan2-7".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
 
     apply(
         &mut app,
@@ -2845,7 +3208,7 @@ fn a_detail_fetched_by_identifier_is_applied_and_reanchored_to_its_id() {
             detail: Box::new(sample_detail("i1", "DAN2-7")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
 
     assert!(
         app.open_detail().is_some(),
@@ -2853,12 +3216,14 @@ fn a_detail_fetched_by_identifier_is_applied_and_reanchored_to_its_id() {
     );
     match app.focus() {
         Focus::Detail(detail) => assert_eq!(detail.issue, IssueRef::Id(IssueId::from_raw("i1"))),
-        other => panic!("expected detail focus, got {other:?}"),
+        other => return Err(format!("expected detail focus, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn a_detail_for_an_issue_no_longer_open_is_dropped() {
+fn a_detail_for_an_issue_no_longer_open_is_dropped() -> TestResult {
     let mut app = detail_app();
 
     apply(
@@ -2867,123 +3232,137 @@ fn a_detail_for_an_issue_no_longer_open_is_dropped() {
             detail: Box::new(sample_detail("i9", "DAN-9")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
 
     assert_eq!(
         app.open_detail().map(|detail| detail.id.as_str()),
         Some("i1"),
         "a late response for another issue must not replace the open one"
     );
+
+    Ok(())
 }
 
 #[test]
-fn input_backspace_edits_the_buffer() {
+fn input_backspace_edits_the_buffer() -> TestResult {
     let mut app = App::new();
-    handle_key(&mut app, press(KeyCode::Char('g')));
-    handle_key(&mut app, press(KeyCode::Char('i')));
+    handle_key(&mut app, press(KeyCode::Char('g')))?;
+    handle_key(&mut app, press(KeyCode::Char('i')))?;
 
     for c in "ovenX".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
-    handle_key(&mut app, press(KeyCode::Backspace));
+    handle_key(&mut app, press(KeyCode::Backspace))?;
 
     assert_eq!(app.input().map(|i| i.buffer.as_str()), Some("oven"));
+
+    Ok(())
 }
 
 #[test]
-fn esc_cancels_the_input_without_a_command() {
+fn esc_cancels_the_input_without_a_command() -> TestResult {
     let mut app = App::new();
-    handle_key(&mut app, press(KeyCode::Char('g')));
-    handle_key(&mut app, press(KeyCode::Char('s')));
+    handle_key(&mut app, press(KeyCode::Char('g')))?;
+    handle_key(&mut app, press(KeyCode::Char('s')))?;
     assert!(app.input().is_some());
 
-    let commands = handle_key(&mut app, press(KeyCode::Esc));
+    let commands = handle_key(&mut app, press(KeyCode::Esc))?;
 
     assert!(app.input().is_none());
     assert!(commands.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn slash_filters_the_current_list_in_place() {
+fn slash_filters_the_current_list_in_place() -> TestResult {
     let mut app = list_app_with_issues();
 
-    handle_key(&mut app, press(KeyCode::Char('/')));
+    handle_key(&mut app, press(KeyCode::Char('/')))?;
     assert!(app.find().is_some());
 
     for c in "dan-2".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
     assert_eq!(app.ui.list_state.selected(), Some(1));
 
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(app.find().is_none());
     assert_eq!(app.ui.find_query.as_deref(), Some("dan-2"));
+
+    Ok(())
 }
 
 #[test]
-fn slash_finds_comments_in_comments_mode() {
-    let mut app = detail_app_with_comments();
-    handle_key(&mut app, press(KeyCode::Char('m')));
+fn slash_finds_comments_in_comments_mode() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
     assert_eq!(app.comment_cursor(), Some(0));
 
-    handle_key(&mut app, press(KeyCode::Char('/')));
+    handle_key(&mut app, press(KeyCode::Char('/')))?;
     assert!(app.find().is_some(), "/ must open find in comments mode");
 
     for c in "another".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
 
     assert_eq!(app.comment_cursor(), Some(2));
+
+    Ok(())
 }
 
 #[test]
-fn slash_scrolls_the_reading_pane_to_a_match() {
-    let mut app = detail_app_with_comments();
-    assert_eq!(scroll_line(&app), 0);
+fn slash_scrolls_the_reading_pane_to_a_match() -> TestResult {
+    let mut app = detail_app_with_comments()?;
+    assert_eq!(scroll_line(&app)?, 0);
 
-    handle_key(&mut app, press(KeyCode::Char('/')));
+    handle_key(&mut app, press(KeyCode::Char('/')))?;
     assert!(app.find().is_some(), "/ must open find in the reading pane");
 
     for c in "another root".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
 
     assert!(
-        scroll_line(&app) > 0,
+        scroll_line(&app)? > 0,
         "the reading pane should scroll to the matching line"
     );
 
-    let matched = scroll_line(&app);
-    handle_key(&mut app, press(KeyCode::Esc));
+    let matched = scroll_line(&app)?;
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert_eq!(
-        scroll_line(&app),
+        scroll_line(&app)?,
         0,
         "esc should restore the original scroll position"
     );
     assert!(matched > 0);
+
+    Ok(())
 }
 
 #[test]
-fn n_steps_between_matches_in_the_reading_pane() {
-    let mut app = detail_app_with_comments();
+fn n_steps_between_matches_in_the_reading_pane() -> TestResult {
+    let mut app = detail_app_with_comments()?;
     app.ui.find_query = Some("root".into());
 
-    handle_key(&mut app, press(KeyCode::Char('n')));
-    let first = scroll_line(&app);
+    handle_key(&mut app, press(KeyCode::Char('n')))?;
+    let first = scroll_line(&app)?;
     assert!(first > 0, "expected to land on the first match");
 
-    handle_key(&mut app, press(KeyCode::Char('n')));
+    handle_key(&mut app, press(KeyCode::Char('n')))?;
     assert!(
-        scroll_line(&app) > first,
+        scroll_line(&app)? > first,
         "n should advance to the next match"
     );
 
-    handle_key(&mut app, press(KeyCode::Char('N')));
-    assert_eq!(scroll_line(&app), first, "N should step back");
+    handle_key(&mut app, press(KeyCode::Char('N')))?;
+    assert_eq!(scroll_line(&app)?, first, "N should step back");
+
+    Ok(())
 }
 
 #[test]
-fn n_and_capital_n_cycle_matches() {
+fn n_and_capital_n_cycle_matches() -> TestResult {
     let mut app = list_app_with_issues();
     seed_active(
         &mut app,
@@ -2997,34 +3376,38 @@ fn n_and_capital_n_cycle_matches() {
     app.ui.find_query = Some("dan-2".into());
     app.ui.list_state.select(Some(0));
 
-    handle_key(&mut app, press(KeyCode::Char('n')));
+    handle_key(&mut app, press(KeyCode::Char('n')))?;
     assert_eq!(app.ui.list_state.selected(), Some(1));
 
-    handle_key(&mut app, press(KeyCode::Char('n')));
+    handle_key(&mut app, press(KeyCode::Char('n')))?;
     assert_eq!(app.ui.list_state.selected(), Some(3));
 
-    handle_key(&mut app, press(KeyCode::Char('N')));
+    handle_key(&mut app, press(KeyCode::Char('N')))?;
     assert_eq!(app.ui.list_state.selected(), Some(1));
+
+    Ok(())
 }
 
 #[test]
-fn esc_cancels_find_and_restores_selection() {
+fn esc_cancels_find_and_restores_selection() -> TestResult {
     let mut app = list_app_with_issues();
     app.ui.list_state.select(Some(2));
 
-    handle_key(&mut app, press(KeyCode::Char('/')));
+    handle_key(&mut app, press(KeyCode::Char('/')))?;
     for c in "dan-1".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
     assert_eq!(app.ui.list_state.selected(), Some(0));
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert!(app.find().is_none());
     assert_eq!(app.ui.list_state.selected(), Some(2));
+
+    Ok(())
 }
 
 #[test]
-fn find_matches_on_state_name_and_esc_exits_search() {
+fn find_matches_on_state_name_and_esc_exits_search() -> TestResult {
     let mut app = list_app_with_issues();
     seed_active(
         &mut app,
@@ -3039,52 +3422,56 @@ fn find_matches_on_state_name_and_esc_exits_search() {
         ],
     );
 
-    handle_key(&mut app, press(KeyCode::Char('/')));
+    handle_key(&mut app, press(KeyCode::Char('/')))?;
     for c in "in progress".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
 
     assert_eq!(app.ui.find_query.as_deref(), Some("in progress"));
     assert_eq!(app.ui.list_state.selected(), Some(1));
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert!(app.ui.find_query.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn gg_and_capital_g_navigate_inside_the_menu() {
+fn gg_and_capital_g_navigate_inside_the_menu() -> TestResult {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('?')));
+    handle_key(&mut app, press(KeyCode::Char('?')))?;
     let first = app.menu().and_then(|m| m.selected_action());
 
-    handle_key(&mut app, press(KeyCode::Char('G')));
+    handle_key(&mut app, press(KeyCode::Char('G')))?;
     let last = app.menu().and_then(|m| m.selected_action());
     assert!(app.menu().is_some());
     assert_ne!(first, last);
 
-    handle_key(&mut app, press(KeyCode::Char('g')));
+    handle_key(&mut app, press(KeyCode::Char('g')))?;
     assert!(app.prefix().is_some());
-    handle_key(&mut app, press(KeyCode::Char('g')));
+    handle_key(&mut app, press(KeyCode::Char('g')))?;
     assert!(app.menu().is_some());
     assert_eq!(app.menu().and_then(|m| m.selected_action()), first);
+
+    Ok(())
 }
 
 #[test]
-fn gs_searches_then_enter_opens_a_result() {
+fn gs_searches_then_enter_opens_a_result() -> TestResult {
     let mut app = App::new();
 
-    handle_key(&mut app, press(KeyCode::Char('g')));
-    handle_key(&mut app, press(KeyCode::Char('s')));
+    handle_key(&mut app, press(KeyCode::Char('g')))?;
+    handle_key(&mut app, press(KeyCode::Char('s')))?;
     assert_eq!(
         app.input().map(|i| i.purpose.clone()),
         Some(InputPurpose::Search)
     );
 
     for c in "oven".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
-    let search = handle_key(&mut app, press(KeyCode::Enter));
+    let search = handle_key(&mut app, press(KeyCode::Enter))?;
 
     assert!(app.search().is_some());
     match search {
@@ -3092,7 +3479,7 @@ fn gs_searches_then_enter_opens_a_result() {
             key: FeedKey::Search(term),
             request: FeedRequest::Refresh,
         })) if term == "oven" => {}
-        other => panic!("expected a search feed load for oven, got {other:?}"),
+        other => return Err(format!("expected a search feed load for oven, got {other:?}").into()),
     }
 
     apply(
@@ -3102,28 +3489,30 @@ fn gs_searches_then_enter_opens_a_result() {
             request: FeedRequest::Refresh,
             page: Page::single(vec![sample_issue("i9", "DAN2-7")]),
         },
-    );
+    )?;
     assert_eq!(search_len(&app, "oven"), 1);
 
-    let open = handle_key(&mut app, press(KeyCode::Enter));
+    let open = handle_key(&mut app, press(KeyCode::Enter))?;
 
     assert!(matches!(app.focus(), Focus::Detail(..)));
     assert!(app.search().is_none());
     match open {
         Some(Effect::Api(ApiCommand::LoadDetail { target, .. })) if target.as_str() == "i9" => {}
-        other => panic!("expected LoadDetail(i9), got {other:?}"),
+        other => return Err(format!("expected LoadDetail(i9), got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn reloading_a_detail_opened_from_search_refreshes_my_work_not_recent() {
+fn reloading_a_detail_opened_from_search_refreshes_my_work_not_recent() -> TestResult {
     let mut app = App::new();
-    handle_key(&mut app, press(KeyCode::Char('g')));
-    handle_key(&mut app, press(KeyCode::Char('s')));
+    handle_key(&mut app, press(KeyCode::Char('g')))?;
+    handle_key(&mut app, press(KeyCode::Char('s')))?;
     for c in "oven".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
 
     apply(
         &mut app,
@@ -3132,12 +3521,12 @@ fn reloading_a_detail_opened_from_search_refreshes_my_work_not_recent() {
             request: FeedRequest::Refresh,
             page: Page::single(vec![sample_issue("i9", "DAN2-7")]),
         },
-    );
-    handle_key(&mut app, press(KeyCode::Enter));
+    )?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(matches!(app.focus(), Focus::Detail(..)));
 
-    let active = app.active_feed_key().expect("an active MyWork feed");
-    let commands = effects(handle_key_all(&mut app, press(KeyCode::Char('r'))));
+    let active = app.active_feed_key().ok_or("an active MyWork feed")?;
+    let commands = effects(handle_key_all(&mut app, press(KeyCode::Char('r'))))?;
 
     let feeds: Vec<&FeedKey> = commands
         .iter()
@@ -3155,17 +3544,19 @@ fn reloading_a_detail_opened_from_search_refreshes_my_work_not_recent() {
     assert!(commands
         .iter()
         .any(|command| matches!(command, Effect::Api(ApiCommand::LoadDetail { .. }))));
+
+    Ok(())
 }
 
 #[test]
-fn esc_from_a_search_result_returns_to_the_results() {
+fn esc_from_a_search_result_returns_to_the_results() -> TestResult {
     let mut app = App::new();
-    handle_key(&mut app, press(KeyCode::Char('g')));
-    handle_key(&mut app, press(KeyCode::Char('s')));
+    handle_key(&mut app, press(KeyCode::Char('g')))?;
+    handle_key(&mut app, press(KeyCode::Char('s')))?;
     for c in "oven".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
     apply(
         &mut app,
         Message::FeedLoaded {
@@ -3176,41 +3567,45 @@ fn esc_from_a_search_result_returns_to_the_results() {
                 sample_issue("i9", "DAN-2"),
             ]),
         },
-    );
+    )?;
 
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(matches!(app.focus(), Focus::Detail(..)));
     assert!(app.search().is_none());
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert!(app.search().is_some());
     assert_eq!(search_len(&app, "oven"), 2);
+
+    Ok(())
 }
 
 #[test]
-fn esc_from_a_list_opened_detail_goes_home_not_search() {
+fn esc_from_a_list_opened_detail_goes_home_not_search() -> TestResult {
     let mut app = list_app_with_issue();
 
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(matches!(app.focus(), Focus::Detail(..)));
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert!(app.focus().is_panel(LeftPanel::MyWork));
     assert!(app.search().is_none());
+
+    Ok(())
 }
 
 #[test]
-fn esc_from_a_detail_searched_inside_a_view_returns_to_the_search() {
-    let mut app = saved_views_app();
-    handle_key(&mut app, press(KeyCode::Enter));
+fn esc_from_a_detail_searched_inside_a_view_returns_to_the_search() -> TestResult {
+    let mut app = saved_views_app()?;
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(app.focus().is_view());
 
-    handle_key(&mut app, press(KeyCode::Char('g')));
-    handle_key(&mut app, press(KeyCode::Char('s')));
+    handle_key(&mut app, press(KeyCode::Char('g')))?;
+    handle_key(&mut app, press(KeyCode::Char('s')))?;
     for c in "oven".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
     apply(
         &mut app,
         Message::FeedLoaded {
@@ -3218,31 +3613,35 @@ fn esc_from_a_detail_searched_inside_a_view_returns_to_the_search() {
             request: FeedRequest::Refresh,
             page: Page::single(vec![sample_issue("i8", "DAN-1")]),
         },
-    );
+    )?;
     assert!(app.search().is_some());
 
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(matches!(app.focus(), Focus::Detail(..)));
 
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert!(
         app.search().is_some(),
         "escaping a detail opened from a search inside a view must return to the search results"
     );
+
+    Ok(())
 }
 
 #[test]
-fn transient_status_clears_on_the_next_key() {
+fn transient_status_clears_on_the_next_key() -> TestResult {
     let mut app = list_app_with_issue();
     app.ui.status = Some(Status::Cancelled);
 
-    handle_key(&mut app, press(KeyCode::Char('j')));
+    handle_key(&mut app, press(KeyCode::Char('j')))?;
 
     assert!(app.ui.status.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn history_boundary_sets_no_status() {
+fn history_boundary_sets_no_status() -> TestResult {
     let mut app = App::new();
     app.open_detail_focus(DetailFocus::reading(
         IssueId::from_raw("i1"),
@@ -3254,22 +3653,24 @@ fn history_boundary_sets_no_status() {
             detail: Box::new(sample_detail("i1", "DAN-1")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
 
     let command = handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
-    );
+    )?;
 
     assert!(command.is_none());
     assert!(app.ui.status.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn opening_a_detail_keeps_the_source_panel_expanded() {
+fn opening_a_detail_keeps_the_source_panel_expanded() -> TestResult {
     let mut app = list_app_with_issue();
 
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
 
     assert!(matches!(
         app.focus(),
@@ -3279,10 +3680,12 @@ fn opening_a_detail_keeps_the_source_panel_expanded() {
             ..
         })
     ));
+
+    Ok(())
 }
 
 #[test]
-fn opening_from_recently_viewed_keeps_that_panel_expanded() {
+fn opening_from_recently_viewed_keeps_that_panel_expanded() -> TestResult {
     let mut app = App::new();
     app.open_detail_focus(DetailFocus::reading(
         IssueId::from_raw("i1"),
@@ -3294,12 +3697,12 @@ fn opening_from_recently_viewed_keeps_that_panel_expanded() {
             detail: Box::new(sample_detail("i1", "DAN-1")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
 
-    handle_key(&mut app, press(KeyCode::Char('2')));
+    handle_key(&mut app, press(KeyCode::Char('2')))?;
     assert!(app.focus().is_panel(LeftPanel::Recent));
 
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
 
     assert!(matches!(
         app.focus(),
@@ -3309,10 +3712,12 @@ fn opening_from_recently_viewed_keeps_that_panel_expanded() {
             ..
         })
     ));
+
+    Ok(())
 }
 
 #[test]
-fn tab_and_shift_tab_walk_history_in_the_detail_pane() {
+fn tab_and_shift_tab_walk_history_in_the_detail_pane() -> TestResult {
     let mut app = App::new();
     app.open_detail_focus(DetailFocus::reading(
         IssueId::from_raw("i1"),
@@ -3324,7 +3729,7 @@ fn tab_and_shift_tab_walk_history_in_the_detail_pane() {
             detail: Box::new(sample_detail("i1", "DAN-1")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
     app.open_detail_focus(DetailFocus::reading(
         IssueId::from_raw("i2"),
         Origin::Panel(LeftPanel::MyWork),
@@ -3335,12 +3740,12 @@ fn tab_and_shift_tab_walk_history_in_the_detail_pane() {
             detail: Box::new(sample_detail("i2", "DAN-2")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
 
-    let back = handle_key(&mut app, press(KeyCode::BackTab));
+    let back = handle_key(&mut app, press(KeyCode::BackTab))?;
     match back {
         Some(Effect::Api(ApiCommand::LoadDetail { target, .. })) if target.as_str() == "i1" => {}
-        other => panic!("expected Shift-Tab to load i1, got {other:?}"),
+        other => return Err(format!("expected Shift-Tab to load i1, got {other:?}").into()),
     }
     apply(
         &mut app,
@@ -3348,44 +3753,51 @@ fn tab_and_shift_tab_walk_history_in_the_detail_pane() {
             detail: Box::new(sample_detail("i1", "DAN-1")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
 
-    let forward = handle_key(&mut app, press(KeyCode::Tab));
+    let forward = handle_key(&mut app, press(KeyCode::Tab))?;
     match forward {
         Some(Effect::Api(ApiCommand::LoadDetail { target, .. })) if target.as_str() == "i2" => {}
-        other => panic!("expected Tab to load i2, got {other:?}"),
+        other => return Err(format!("expected Tab to load i2, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn tab_outside_the_detail_pane_still_cycles_panels() {
+fn tab_outside_the_detail_pane_still_cycles_panels() -> TestResult {
     let mut app = App::new();
 
-    handle_key(&mut app, press(KeyCode::Tab));
+    handle_key(&mut app, press(KeyCode::Tab))?;
 
     assert!(app.focus().is_panel(LeftPanel::Recent));
+
+    Ok(())
 }
 
 #[test]
-fn ctrl_d_and_ctrl_u_scroll_the_detail_by_half_a_page() {
+fn ctrl_d_and_ctrl_u_scroll_the_detail_by_half_a_page() -> TestResult {
     let mut app = detail_app();
     app.ui.viewport = 20;
+    app.ui.detail_scroll_max = 40;
 
     handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
-    );
-    assert_eq!(scroll_line(&app), 10);
+    )?;
+    assert_eq!(scroll_line(&app)?, 10);
 
     handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
-    );
-    assert_eq!(scroll_line(&app), 0);
+    )?;
+    assert_eq!(scroll_line(&app)?, 0);
+
+    Ok(())
 }
 
 #[test]
-fn ctrl_d_pages_the_focused_list_without_wrapping() {
+fn ctrl_d_pages_the_focused_list_without_wrapping() -> TestResult {
     let mut app = list_app_with_issues();
     app.ui.viewport = 4;
     app.ui.list_state.select(Some(0));
@@ -3393,18 +3805,20 @@ fn ctrl_d_pages_the_focused_list_without_wrapping() {
     handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
-    );
+    )?;
     assert_eq!(app.ui.list_state.selected(), Some(2));
 
     handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
-    );
+    )?;
     assert_eq!(app.ui.list_state.selected(), Some(2));
+
+    Ok(())
 }
 
 #[test]
-fn opening_issues_records_history_and_ctrl_o_goes_back() {
+fn opening_issues_records_history_and_ctrl_o_goes_back() -> TestResult {
     let mut app = App::new();
 
     app.open_detail_focus(DetailFocus::reading(
@@ -3417,7 +3831,7 @@ fn opening_issues_records_history_and_ctrl_o_goes_back() {
             detail: Box::new(sample_detail("i1", "DAN-1")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
     app.open_detail_focus(DetailFocus::reading(
         IssueId::from_raw("i2"),
         Origin::Panel(LeftPanel::MyWork),
@@ -3428,19 +3842,22 @@ fn opening_issues_records_history_and_ctrl_o_goes_back() {
             detail: Box::new(sample_detail("i2", "DAN-2")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
 
     assert_eq!(app.workspace.recently_viewed.len(), 2);
-    assert_eq!(app.workspace.recently_viewed[0].id.as_str(), "i2");
-    assert_eq!(app.workspace.recently_viewed[1].id.as_str(), "i1");
+    let [newest, oldest] = app.workspace.recently_viewed.as_slice() else {
+        return Err("expected exactly two recently viewed issues".into());
+    };
+    assert_eq!(newest.id.as_str(), "i2");
+    assert_eq!(oldest.id.as_str(), "i1");
 
     let back = handle_key(
         &mut app,
         KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
-    );
+    )?;
     match back {
         Some(Effect::Api(ApiCommand::LoadDetail { target, .. })) if target.as_str() == "i1" => {}
-        other => panic!("expected Ctrl-o to load i1, got {other:?}"),
+        other => return Err(format!("expected Ctrl-o to load i1, got {other:?}").into()),
     }
 
     app.open_detail_focus(DetailFocus::reading(
@@ -3453,17 +3870,19 @@ fn opening_issues_records_history_and_ctrl_o_goes_back() {
             detail: Box::new(sample_detail("i1", "DAN-1")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
     assert_eq!(
         app.workspace.recently_viewed.len(),
         2,
         "re-viewing must not duplicate"
     );
     assert_eq!(app.workspace.recent_state.selected(), Some(1));
+
+    Ok(())
 }
 
 #[test]
-fn enter_on_recently_viewed_reopens_the_issue() {
+fn enter_on_recently_viewed_reopens_the_issue() -> TestResult {
     let mut app = App::new();
     app.open_detail_focus(DetailFocus::reading(
         IssueId::from_raw("i1"),
@@ -3475,18 +3894,20 @@ fn enter_on_recently_viewed_reopens_the_issue() {
             detail: Box::new(sample_detail("i1", "DAN-1")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
     app.workspace.bust_detail();
     app.focus_panel(LeftPanel::Recent);
     app.workspace.recent_state.select(Some(0));
 
-    let commands = handle_key(&mut app, press(KeyCode::Enter));
+    let commands = handle_key(&mut app, press(KeyCode::Enter))?;
 
     assert!(matches!(app.focus(), Focus::Detail(..)));
     match commands {
         Some(Effect::Api(ApiCommand::LoadDetail { target, .. })) if target.as_str() == "i1" => {}
-        other => panic!("expected LoadDetail(i1), got {other:?}"),
+        other => return Err(format!("expected LoadDetail(i1), got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 fn search_len(app: &App, term: &str) -> usize {
@@ -3507,9 +3928,9 @@ fn seed_active(app: &mut App, issues: Vec<IssueSummary>) {
 }
 
 #[test]
-fn states_for_another_team_do_not_fill_the_status_picker() {
+fn states_for_another_team_do_not_fill_the_status_picker() -> TestResult {
     let mut app = detail_app();
-    edit(&mut app, 's');
+    edit(&mut app, 's')?;
     assert_eq!(app.picker().map(|p| &p.kind), Some(&PickerKind::Status));
     assert!(app.overlay_in_flight());
 
@@ -3519,21 +3940,23 @@ fn states_for_another_team_do_not_fill_the_status_picker() {
             team_id: TeamId::from_raw("t_other"),
             states: vec![state_option("s_done", "Done")],
         },
-    );
+    )?;
 
     assert!(app.overlay_in_flight());
 
-    let picker = app.picker().expect("picker still open");
+    let picker = app.picker().ok_or("picker still open")?;
     assert!(
         picker.items.is_empty(),
         "states for another team must not fill this issue's picker"
     );
+
+    Ok(())
 }
 
 #[test]
-fn the_spinner_ticks_while_a_status_picker_fetches() {
+fn the_spinner_ticks_while_a_status_picker_fetches() -> TestResult {
     let mut app = detail_app();
-    edit(&mut app, 's');
+    edit(&mut app, 's')?;
     assert!(app.overlay_in_flight());
     assert!(
         !app.workspace.detail().in_flight(),
@@ -3545,12 +3968,14 @@ fn the_spinner_ticks_while_a_status_picker_fetches() {
 
     assert_eq!(tick(&mut app, now), Redraw::Needed);
     assert_ne!(app.ui.spinner.glyph(), before);
+
+    Ok(())
 }
 
 #[test]
-fn members_for_another_team_do_not_fill_the_editor() {
+fn members_for_another_team_do_not_fill_the_editor() -> TestResult {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('c')));
+    handle_key(&mut app, press(KeyCode::Char('c')))?;
     assert!(app.editor().is_some());
 
     apply(
@@ -3559,25 +3984,27 @@ fn members_for_another_team_do_not_fill_the_editor() {
             team_id: TeamId::from_raw("t_other"),
             members: vec![member("sam")],
         },
-    );
+    )?;
 
     assert!(
-        app.editor().expect("editor open").candidates("").is_empty(),
+        app.editor().ok_or("editor open")?.candidates("").is_empty(),
         "members for another team must not fill this issue's editor"
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_failed_comment_post_reopens_the_editor_with_the_draft() {
+fn a_failed_comment_post_reopens_the_editor_with_the_draft() -> TestResult {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('c')));
+    handle_key(&mut app, press(KeyCode::Char('c')))?;
     for c in "hello".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
 
-    let command = handle_key(&mut app, ctrl('s')).expect("the post goes out");
+    let command = handle_key(&mut app, ctrl('s'))?.ok_or("the post goes out")?;
     let Effect::Api(posted) = command else {
-        panic!("expected an api command");
+        return Err("expected an api command".into());
     };
     assert!(app.editor().is_none(), "the editor closes while posting");
 
@@ -3587,7 +4014,7 @@ fn a_failed_comment_post_reopens_the_editor_with_the_draft() {
             target: posted.failure_target(),
             error: RequestError::Other("boom".into()),
         },
-    );
+    )?;
 
     assert_eq!(
         app.editor().map(|editor| editor.text()),
@@ -3595,10 +4022,561 @@ fn a_failed_comment_post_reopens_the_editor_with_the_draft() {
         "a rejected draft comes back rather than being thrown away"
     );
     assert!(matches!(app.ui.status, Some(Status::Error(_))));
+
+    Ok(())
 }
 
 #[test]
-fn a_comment_rejected_with_a_401_reopens_the_editor_without_wedging_members() {
+fn opening_an_issue_fetches_no_image_until_asked() -> TestResult {
+    let mut app = list_app_with_issue();
+    let url = upload("trace.png")?;
+
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("look\n\n![trace]({url})"));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+
+    let opened = effects(apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail.clone()),
+            reveal: Reveal::Top,
+        },
+    ))?;
+
+    assert!(
+        !opened
+            .iter()
+            .any(|command| matches!(command, Effect::Image(ImageCommand::Fetch { .. }))),
+        "a collapsed image costs nothing until t or I"
+    );
+
+    let shown = handle_key(&mut app, press(KeyCode::Char('t')))?;
+
+    assert!(
+        matches!(&shown, Some(Effect::Image(ImageCommand::Fetch { url: requested })) if *requested == url),
+        "t fetches the image it shows, got {shown:?}"
+    );
+
+    let again = effects(apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    ))?;
+
+    assert!(
+        !again
+            .iter()
+            .any(|command| matches!(command, Effect::Image(ImageCommand::Fetch { .. }))),
+        "a cell already in flight is not requested twice"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn capital_i_opens_the_description_image_and_requests_it() -> TestResult {
+    let mut app = list_app_with_issue();
+    let url = upload("trace.png")?;
+
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("look\n\n![trace]({url})"));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
+
+    apply(
+        &mut app,
+        Message::ImageFailed {
+            url: url.clone(),
+            reason: ImageFailure::Undecodable,
+        },
+    )?;
+
+    assert!(
+        matches!(
+            app.workspace.image(&url).map(Remote::status),
+            Some(CacheStatus::Failed(_))
+        ),
+        "the failure must land on a real cell for the retry to mean anything"
+    );
+
+    let opened = handle_key(&mut app, press(KeyCode::Char('I')))?;
+
+    assert!(matches!(app.overlay(), Overlay::Image(_)));
+    assert!(
+        matches!(opened, Some(Effect::Image(ImageCommand::Fetch { url: u })) if u == url),
+        "opening the viewer retries a failed image"
+    );
+
+    handle_key(&mut app, press(KeyCode::Esc))?;
+
+    assert!(matches!(app.overlay(), Overlay::None));
+
+    Ok(())
+}
+
+#[test]
+fn t_toggles_an_image_between_collapsed_and_expanded() -> TestResult {
+    let mut app = list_app_with_issue();
+    let url = upload("trace.png")?;
+
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("look\n\n![trace]({url})"));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+
+    assert!(
+        !app.workspace.expanded_images().contains(&url),
+        "images start collapsed"
+    );
+
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
+    assert!(app.workspace.expanded_images().contains(&url), "t expands");
+
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
+    assert!(
+        !app.workspace.expanded_images().contains(&url),
+        "t again collapses"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn expanding_an_image_is_forgotten_on_a_workspace_switch() -> TestResult {
+    let mut app = detail_app();
+    let url = upload("trace.png")?;
+
+    app.workspace.toggle_images(std::slice::from_ref(&url));
+    assert!(app.workspace.expanded_images().contains(&url));
+
+    app.reset_workspace();
+
+    assert!(
+        app.workspace.expanded_images().is_empty(),
+        "expansion is workspace-scoped state"
+    );
+
+    Ok(())
+}
+
+fn tall_comment_app() -> TestResult<App> {
+    let mut app = list_app_with_issue();
+    let mut detail = sample_detail("i1", "DAN2-7");
+
+    detail.comments = vec![
+        linear_tui::api::Comment {
+            id: CommentId::from_raw("c1"),
+            parent_id: None,
+            author: Some("dan".into()),
+            is_mine: true,
+            body: (0..40)
+                .map(|n| format!("line {n}"))
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+            created_at: Default::default(),
+            reactions: Vec::new(),
+        },
+        linear_tui::api::Comment {
+            id: CommentId::from_raw("c2"),
+            parent_id: None,
+            author: Some("dan".into()),
+            is_mine: true,
+            body: "second".into(),
+            created_at: Default::default(),
+            reactions: Vec::new(),
+        },
+    ];
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+
+    app.ui.viewport = 10;
+    app.ui.comment_scroll_max = 30;
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
+
+    Ok(app)
+}
+
+#[test]
+fn j_scrolls_within_a_tall_comment_before_advancing() -> TestResult {
+    let mut app = tall_comment_app()?;
+
+    assert_eq!(app.comment_cursor(), Some(0));
+    assert_eq!(app.ui.comment_scroll, 0);
+
+    handle_key(&mut app, press(KeyCode::Char('j')))?;
+
+    assert_eq!(
+        app.comment_cursor(),
+        Some(0),
+        "a tall comment scrolls before the cursor moves"
+    );
+    assert!(app.ui.comment_scroll > 0);
+
+    Ok(())
+}
+
+#[test]
+fn j_advances_once_a_tall_comment_is_exhausted() -> TestResult {
+    let mut app = tall_comment_app()?;
+
+    app.ui.comment_scroll = app.ui.comment_scroll_max;
+
+    handle_key(&mut app, press(KeyCode::Char('j')))?;
+
+    assert_eq!(
+        app.comment_cursor(),
+        Some(1),
+        "the cursor advances at the end"
+    );
+    assert_eq!(app.ui.comment_scroll, 0, "a new comment starts at its top");
+
+    Ok(())
+}
+
+#[test]
+fn k_scrolls_back_up_within_a_comment() -> TestResult {
+    let mut app = tall_comment_app()?;
+
+    app.ui.comment_scroll = 8;
+
+    handle_key(&mut app, press(KeyCode::Char('k')))?;
+
+    assert_eq!(app.comment_cursor(), Some(0));
+    assert!(app.ui.comment_scroll < 8);
+
+    Ok(())
+}
+
+#[test]
+fn stepping_through_the_popover_fetches_each_image() -> TestResult {
+    let mut app = list_app_with_issue();
+    let first = upload("one.png")?;
+    let second = upload("two.png")?;
+
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("![one]({first})\n\n![two]({second})"));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+
+    handle_key(&mut app, press(KeyCode::Char('I')))?;
+    assert!(matches!(app.overlay(), Overlay::Image(_)));
+
+    app.workspace.cancel_in_flight();
+
+    let stepped = handle_key(&mut app, press(KeyCode::Char('j')))?;
+
+    match &stepped {
+        Some(Effect::Image(ImageCommand::Fetch { url })) => assert_eq!(*url, second),
+        other => {
+            return Err(format!("stepping to the next image must request it, got {other:?}").into())
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+fn capital_i_reports_when_there_is_no_image() -> TestResult {
+    let mut app = detail_app();
+
+    assert!(handle_key(&mut app, press(KeyCode::Char('I')))?.is_none());
+    assert_eq!(app.ui.status, Some(Status::NoImages));
+    assert!(matches!(app.overlay(), Overlay::None));
+
+    Ok(())
+}
+
+#[test]
+fn a_failed_image_settles_its_cell() -> TestResult {
+    let mut app = list_app_with_issue();
+    let url = upload("trace.png")?;
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("look\n\n![trace]({url})"));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
+
+    apply(
+        &mut app,
+        Message::ImageFailed {
+            url: url.clone(),
+            reason: ImageFailure::Undecodable,
+        },
+    )?;
+
+    assert!(matches!(
+        app.workspace.image(&url).map(Remote::status),
+        Some(CacheStatus::Failed(_))
+    ));
+
+    Ok(())
+}
+
+#[test]
+fn a_forbidden_image_never_signs_the_viewer_out() -> TestResult {
+    let mut app = signed_in();
+    let url = upload("trace.png")?;
+
+    assert_eq!(app.session.auth(), AuthState::Authenticated);
+
+    let reply = apply_all(
+        &mut app,
+        Message::ImageFailed {
+            url,
+            reason: ImageFailure::Fetch(ImageFetchError::Status(403)),
+        },
+    );
+
+    assert!(reply.is_empty(), "no token refresh either, got {reply:?}");
+    assert_eq!(
+        app.session.auth(),
+        AuthState::Authenticated,
+        "an image host's 403 must not expire the session"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn t_in_reading_mode_shows_only_the_description_images() -> TestResult {
+    let mut app = list_app_with_issue();
+    let described = upload("described.png")?;
+    let commented = upload("commented.png")?;
+
+    let mut detail = sample_detail("i1", "DAN2-7");
+    detail.description = Some(format!("look\n\n![shot]({described})"));
+    detail.comments = vec![linear_tui::api::Comment {
+        id: CommentId::from_raw("c1"),
+        parent_id: None,
+        author: Some("dan".into()),
+        is_mine: true,
+        body: format!("![later]({commented})"),
+        created_at: Default::default(),
+        reactions: Vec::new(),
+    }];
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(detail),
+            reveal: Reveal::Top,
+        },
+    );
+
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
+
+    assert!(app.workspace.expanded_images().contains(&described));
+    assert!(
+        !app.workspace.expanded_images().contains(&commented),
+        "comment images wait for that comment to be selected"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn opening_another_issue_frees_the_previous_issues_images() -> TestResult {
+    let mut app = list_app_with_issue();
+    let url = upload("trace.png")?;
+
+    let mut first = sample_detail("i1", "DAN2-7");
+    first.description = Some(format!("look\n\n![trace]({url})"));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(first),
+            reveal: Reveal::Top,
+        },
+    );
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
+
+    assert!(app.workspace.image(&url).is_some());
+
+    app.workspace
+        .set_detail(sample_detail("i2", "DAN2-8"), app.now);
+
+    assert!(
+        app.workspace.image(&url).is_none(),
+        "only the open issue's images stay in memory"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn expansion_does_not_follow_a_url_into_another_issue() -> TestResult {
+    let mut app = list_app_with_issue();
+    let url = upload("pixel.gif")?;
+    let mut first = sample_detail("i1", "DAN2-7");
+    first.description = Some(format!("![shot]({url})"));
+    let mut second = sample_detail("i2", "DAN2-8");
+    second.description = Some("nothing to see".into());
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(first.clone()),
+            reveal: Reveal::Top,
+        },
+    );
+    handle_key(&mut app, press(KeyCode::Char('t')))?;
+
+    assert!(app.workspace.expanded_images().contains(&url));
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i2")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(second),
+            reveal: Reveal::Top,
+        },
+    );
+
+    assert!(
+        !app.workspace.expanded_images().contains(&url),
+        "leaving the issue forgets the consent"
+    );
+
+    app.open_detail_focus(DetailFocus {
+        issue: IssueRef::Id(IssueId::from_raw("i1")),
+        origin: Origin::Panel(LeftPanel::MyWork),
+        view: DetailView::reading(),
+        summary: None,
+    });
+    let reopened = effects(apply_all(
+        &mut app,
+        Message::DetailLoaded {
+            detail: Box::new(first),
+            reveal: Reveal::Top,
+        },
+    ))?;
+
+    assert!(
+        !reopened
+            .iter()
+            .any(|command| matches!(command, Effect::Image(ImageCommand::Fetch { .. }))),
+        "coming back fetches nothing without a keypress"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn a_reply_for_an_image_nobody_asked_for_is_dropped() -> TestResult {
+    let mut app = list_app_with_issue();
+    let url = upload("stray.png")?;
+
+    apply(
+        &mut app,
+        Message::ImageFailed {
+            url: url.clone(),
+            reason: ImageFailure::Undecodable,
+        },
+    )?;
+
+    assert!(
+        app.workspace.image(&url).is_none(),
+        "a late or foreign reply must not grow the cache"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn a_comment_rejected_with_a_401_reopens_the_editor_without_wedging_members() -> TestResult {
     let mut app = detail_app();
     let team = TeamId::from_raw("t_pizza");
 
@@ -3613,7 +4591,7 @@ fn a_comment_rejected_with_a_401_reopens_the_editor_without_wedging_members() {
     });
     assert!(app.session.activate("ws"));
 
-    handle_key(&mut app, press(KeyCode::Char('c')));
+    handle_key(&mut app, press(KeyCode::Char('c')))?;
     apply(
         &mut app,
         Message::Failed {
@@ -3622,15 +4600,15 @@ fn a_comment_rejected_with_a_401_reopens_the_editor_without_wedging_members() {
             },
             error: RequestError::Other("members boom".into()),
         },
-    );
+    )?;
 
     for c in "hello".chars() {
-        handle_key(&mut app, press(KeyCode::Char(c)));
+        handle_key(&mut app, press(KeyCode::Char(c)))?;
     }
 
-    let posted = match handle_key(&mut app, ctrl('s')) {
+    let posted = match handle_key(&mut app, ctrl('s'))? {
         Some(Effect::Api(command)) => command,
-        other => panic!("expected the post to go out, got {other:?}"),
+        other => return Err(format!("expected the post to go out, got {other:?}").into()),
     };
 
     let command = apply_all(
@@ -3656,20 +4634,22 @@ fn a_comment_rejected_with_a_401_reopens_the_editor_without_wedging_members() {
             .is_some_and(Remote::in_flight),
         "a runtime step cannot carry the paired LoadMembers, so the arm must not begin the cell"
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_failed_comment_post_is_dropped_once_the_user_has_moved_on() {
+fn a_failed_comment_post_is_dropped_once_the_user_has_moved_on() -> TestResult {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('c')));
-    handle_key(&mut app, press(KeyCode::Char('h')));
+    handle_key(&mut app, press(KeyCode::Char('c')))?;
+    handle_key(&mut app, press(KeyCode::Char('h')))?;
 
-    let command = handle_key(&mut app, ctrl('s')).expect("the post goes out");
+    let command = handle_key(&mut app, ctrl('s'))?.ok_or("the post goes out")?;
     let Effect::Api(posted) = command else {
-        panic!("expected an api command");
+        return Err("expected an api command".into());
     };
 
-    handle_key(&mut app, press(KeyCode::Char('?')));
+    handle_key(&mut app, press(KeyCode::Char('?')))?;
 
     apply(
         &mut app,
@@ -3677,26 +4657,28 @@ fn a_failed_comment_post_is_dropped_once_the_user_has_moved_on() {
             target: posted.failure_target(),
             error: RequestError::Other("boom".into()),
         },
-    );
+    )?;
 
     assert!(app.editor().is_none(), "the user has moved on");
     assert!(matches!(app.ui.status, Some(Status::Error(_))));
+
+    Ok(())
 }
 
 #[test]
-fn a_members_reply_landing_mid_mention_resets_the_selection() {
+fn a_members_reply_landing_mid_mention_resets_the_selection() -> TestResult {
     let mut app = detail_app();
-    handle_key(&mut app, press(KeyCode::Char('c')));
+    handle_key(&mut app, press(KeyCode::Char('c')))?;
     apply(
         &mut app,
         Message::MembersLoaded {
             team_id: TeamId::from_raw("t_pizza"),
             members: vec![member("dan"), member("sam")],
         },
-    );
+    )?;
 
-    handle_key(&mut app, press(KeyCode::Char('@')));
-    handle_key(&mut app, press(KeyCode::Down));
+    handle_key(&mut app, press(KeyCode::Char('@')))?;
+    handle_key(&mut app, press(KeyCode::Down))?;
     assert_eq!(mention_selection(&app), Some(1));
 
     apply(
@@ -3705,13 +4687,15 @@ fn a_members_reply_landing_mid_mention_resets_the_selection() {
             team_id: TeamId::from_raw("t_pizza"),
             members: vec![member("sam"), member("dan")],
         },
-    );
+    )?;
 
     assert_eq!(
         mention_selection(&app),
         Some(0),
         "a swapped candidate list must not leave the old index pointing at a new person"
     );
+
+    Ok(())
 }
 
 fn mention_selection(app: &App) -> Option<usize> {
@@ -3719,7 +4703,7 @@ fn mention_selection(app: &App) -> Option<usize> {
 }
 
 #[test]
-fn acting_during_a_detail_fetch_targets_the_descended_issue() {
+fn acting_during_a_detail_fetch_targets_the_descended_issue() -> TestResult {
     let mut app = App::new();
     app.focus_my_work();
     seed_active(&mut app, vec![sample_issue("i2", "DAN-2")]);
@@ -3728,24 +4712,28 @@ fn acting_during_a_detail_fetch_targets_the_descended_issue() {
     app.focus_panel(LeftPanel::Recent);
     app.workspace.recent_state.select(Some(0));
 
-    handle_key(&mut app, press(KeyCode::Enter));
+    handle_key(&mut app, press(KeyCode::Enter))?;
     assert!(matches!(app.focus(), Focus::Detail(..)));
     assert!(app.open_detail().is_none(), "the detail is still loading");
 
-    let command = handle_key(&mut app, press(KeyCode::Char('y')));
+    let command = handle_key(&mut app, press(KeyCode::Char('y')))?;
     match command {
         Some(Effect::Platform(PlatformCommand::CopyToClipboard(url))) => assert!(
             url.contains("DAN-1"),
             "acting must target the descended issue, not another panel's selection, got {url}"
         ),
-        other => panic!("expected a yank for the descended issue, got {other:?}"),
+        other => {
+            return Err(format!("expected a yank for the descended issue, got {other:?}").into())
+        }
     }
+
+    Ok(())
 }
 
 #[test]
-fn a_reply_to_a_reply_is_shown_and_actionable() {
+fn a_reply_to_a_reply_is_shown_and_actionable() -> TestResult {
     let mut app = detail_app();
-    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
     detail.comments = vec![
         comment("c1", None, "root"),
         comment("c1a", Some("c1"), "reply"),
@@ -3753,26 +4741,29 @@ fn a_reply_to_a_reply_is_shown_and_actionable() {
     ];
     app.workspace.set_detail(detail, app.now);
 
-    let threaded = app.open_detail().expect("detail").threaded_comments();
+    let threaded = app.open_detail().ok_or("detail")?.threaded_comments();
     assert_eq!(threaded.len(), 3, "a reply to a reply must be shown");
-    assert_eq!(threaded[2].depth, 2);
-    assert_eq!(threaded[2].comment.id.as_str(), "c1a1");
+    let nested = threaded.get(2).ok_or("the nested reply")?;
+    assert_eq!(nested.depth, 2);
+    assert_eq!(nested.comment.id.as_str(), "c1a1");
 
-    handle_key(&mut app, press(KeyCode::Char('m')));
-    handle_key(&mut app, press(KeyCode::Char('G')));
-    handle_key(&mut app, press(KeyCode::Char('r')));
+    handle_key(&mut app, press(KeyCode::Char('m')))?;
+    handle_key(&mut app, press(KeyCode::Char('G')))?;
+    handle_key(&mut app, press(KeyCode::Char('r')))?;
 
     let editor = app
         .editor()
-        .expect("reply editor open for the deepest comment");
+        .ok_or("reply editor open for the deepest comment")?;
     assert!(matches!(&editor.compose, Compose::Reply { parent_id } if parent_id.as_str() == "c1a"));
+
+    Ok(())
 }
 
 #[test]
-fn updating_an_issue_revalidates_the_list_in_place_without_blanking_it() {
+fn updating_an_issue_revalidates_the_list_in_place_without_blanking_it() -> TestResult {
     let mut app = App::new();
     app.focus_my_work();
-    let key = app.active_feed_key().unwrap();
+    let key = app.active_feed_key().ok_or("no active feed")?;
     app.workspace.feeds.insert(
         key.clone(),
         Feed::ready(Page::single(vec![sample_issue("i1", "DAN-1")]), app.now),
@@ -3783,7 +4774,7 @@ fn updating_an_issue_revalidates_the_list_in_place_without_blanking_it() {
         Message::IssueUpdated {
             id: IssueId::from_raw("i1"),
         },
-    );
+    )?;
 
     assert_eq!(
         app.active_issues().len(),
@@ -3791,16 +4782,22 @@ fn updating_an_issue_revalidates_the_list_in_place_without_blanking_it() {
         "invalidation must revalidate in place, not blank the visible list"
     );
     assert!(
-        app.workspace.feeds.get(&key).unwrap().in_flight(),
+        app.workspace
+            .feeds
+            .get(&key)
+            .ok_or("the feed cell exists")?
+            .in_flight(),
         "the feed should be revalidating"
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_second_refresh_does_not_race_a_first_still_in_flight() {
+fn a_second_refresh_does_not_race_a_first_still_in_flight() -> TestResult {
     let mut app = list_app_with_issue();
 
-    let first = handle_key(&mut app, press(KeyCode::Char('r')));
+    let first = handle_key(&mut app, press(KeyCode::Char('r')))?;
     assert!(matches!(
         first,
         Some(Effect::Api(ApiCommand::LoadFeed {
@@ -3809,15 +4806,17 @@ fn a_second_refresh_does_not_race_a_first_still_in_flight() {
         }))
     ));
 
-    let second = handle_key(&mut app, press(KeyCode::Char('r')));
+    let second = handle_key(&mut app, press(KeyCode::Char('r')))?;
     assert!(
         second.is_none(),
         "a second refresh while one is in flight must not put a second request on the wire"
     );
+
+    Ok(())
 }
 
 #[test]
-fn updating_another_issue_leaves_the_open_detail_untouched() {
+fn updating_another_issue_leaves_the_open_detail_untouched() -> TestResult {
     let mut app = detail_app();
     assert!(!app.workspace.detail().in_flight());
 
@@ -3826,7 +4825,7 @@ fn updating_another_issue_leaves_the_open_detail_untouched() {
         Message::IssueUpdated {
             id: IssueId::from_raw("i2"),
         },
-    ));
+    ))?;
 
     assert!(
         !app.workspace.detail().in_flight(),
@@ -3836,10 +4835,12 @@ fn updating_another_issue_leaves_the_open_detail_untouched() {
         !reloads_detail(&command),
         "an unrelated update must not fetch the open detail"
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_comment_result_for_another_issue_does_not_reload_the_open_detail() {
+fn a_comment_result_for_another_issue_does_not_reload_the_open_detail() -> TestResult {
     let mut app = detail_app();
 
     let command = effects(apply_all(
@@ -3847,17 +4848,19 @@ fn a_comment_result_for_another_issue_does_not_reload_the_open_detail() {
         Message::CommentPosted {
             id: IssueId::from_raw("i2"),
         },
-    ));
+    ))?;
 
     assert!(!app.workspace.detail().in_flight());
     assert!(!reloads_detail(&command));
+
+    Ok(())
 }
 
 #[test]
-fn a_stale_detail_reply_settles_the_revalidating_cell() {
+fn a_stale_detail_reply_settles_the_revalidating_cell() -> TestResult {
     let mut app = detail_app();
     app.workspace.begin_detail();
-    handle_key(&mut app, press(KeyCode::Esc));
+    handle_key(&mut app, press(KeyCode::Esc))?;
     assert!(app.focus().is_panel(LeftPanel::MyWork));
     assert!(app.workspace.detail().in_flight());
 
@@ -3867,12 +4870,14 @@ fn a_stale_detail_reply_settles_the_revalidating_cell() {
             detail: Box::new(sample_detail("i1", "DAN2-7")),
             reveal: Reveal::Top,
         },
-    );
+    )?;
 
     assert!(
         !app.workspace.detail().in_flight(),
         "an in-flight cell must settle even when its reply no longer matches the focus"
     );
+
+    Ok(())
 }
 
 fn reloads_detail(effects: &Effects) -> bool {
@@ -3881,7 +4886,7 @@ fn reloads_detail(effects: &Effects) -> bool {
         .any(|effect| matches!(effect, Effect::Api(ApiCommand::LoadDetail { .. })))
 }
 
-fn load_view_feed(app: &mut App, id: &str, issues: Vec<IssueSummary>) {
+fn load_view_feed(app: &mut App, id: &str, issues: Vec<IssueSummary>) -> TestResult {
     apply(
         app,
         Message::FeedLoaded {
@@ -3889,7 +4894,9 @@ fn load_view_feed(app: &mut App, id: &str, issues: Vec<IssueSummary>) {
             request: FeedRequest::Refresh,
             page: Page::single(issues),
         },
-    );
+    )?;
+
+    Ok(())
 }
 
 fn list_app_with_issue() -> App {
@@ -3915,12 +4922,13 @@ fn list_app_with_issues() -> App {
     app
 }
 
-fn tall_reading_app() -> App {
+fn tall_reading_app() -> TestResult<App> {
     let mut app = detail_app();
-    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
     detail.description = Some(vec!["needle"; 40].join("\n"));
     app.workspace.set_detail(detail, app.now);
-    app
+
+    Ok(app)
 }
 
 fn detail_app() -> App {
@@ -3943,7 +4951,7 @@ fn saved_view(id: &str, name: &str) -> linear_tui::api::SavedView {
     }
 }
 
-fn saved_views_app() -> App {
+fn saved_views_app() -> TestResult<App> {
     let mut app = App::new();
     app.focus_panel(LeftPanel::SavedViews);
     apply(
@@ -3952,8 +4960,9 @@ fn saved_views_app() -> App {
             saved_view("v1", "Urgent"),
             saved_view("v2", "Menu ideas"),
         ]),
-    );
-    app
+    )?;
+
+    Ok(app)
 }
 
 fn sample_issue(id: &str, identifier: &str) -> linear_tui::api::IssueSummary {
@@ -4017,7 +5026,7 @@ fn comment(id: &str, parent: Option<&str>, body: &str) -> linear_tui::api::Comme
 }
 
 #[test]
-fn an_auth_failure_prompts_reauth_until_the_session_recovers() {
+fn an_auth_failure_prompts_reauth_until_the_session_recovers() -> TestResult {
     let mut app = signed_in();
 
     apply(
@@ -4026,23 +5035,25 @@ fn an_auth_failure_prompts_reauth_until_the_session_recovers() {
             target: FailureTarget::CustomViews,
             error: RequestError::Unauthorised("Linear returned HTTP 401".into()),
         },
-    );
+    )?;
     assert_eq!(
         app.session.auth(),
         AuthState::Unauthenticated,
         "an auth failure should prompt re-auth"
     );
 
-    apply(&mut app, Message::SessionLoaded(session("dan")));
+    apply(&mut app, Message::SessionLoaded(session("dan")))?;
     assert_eq!(
         app.session.auth(),
         AuthState::Authenticated,
         "a successful session means auth is healthy again"
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_non_auth_failure_leaves_us_authenticated() {
+fn a_non_auth_failure_leaves_us_authenticated() -> TestResult {
     let mut app = signed_in();
 
     apply(
@@ -4051,13 +5062,15 @@ fn a_non_auth_failure_leaves_us_authenticated() {
             target: FailureTarget::CustomViews,
             error: RequestError::Other("Linear returned HTTP 500".into()),
         },
-    );
+    )?;
 
     assert_eq!(app.session.auth(), AuthState::Authenticated);
+
+    Ok(())
 }
 
 #[test]
-fn a_failed_session_load_is_retryable_rather_than_ephemeral() {
+fn a_failed_session_load_is_retryable_rather_than_ephemeral() -> TestResult {
     assert!(
         matches!(
             ApiCommand::LoadSession.failure_target(),
@@ -4075,11 +5088,11 @@ fn a_failed_session_load_is_retryable_rather_than_ephemeral() {
             target: ApiCommand::LoadSession.failure_target(),
             error: RequestError::Other("Linear returned HTTP 500".into()),
         },
-    );
+    )?;
     assert!(app.workspace.session.is_failed());
     assert!(matches!(app.ui.status, Some(Status::Error(_))));
 
-    let command = effects(handle_key_all(&mut app, press(KeyCode::Char('r'))));
+    let command = effects(handle_key_all(&mut app, press(KeyCode::Char('r'))))?;
     let retried = command
         .iter()
         .any(|c| matches!(c, Effect::Api(ApiCommand::LoadSession)));
@@ -4087,6 +5100,8 @@ fn a_failed_session_load_is_retryable_rather_than_ephemeral() {
         retried,
         "a failed session must be retried by reload, not stranded on 'connecting…'"
     );
+
+    Ok(())
 }
 
 fn oauth_app(refresh_token: Option<&str>, expires_at: Option<i64>) -> App {
@@ -4126,7 +5141,8 @@ fn an_auth_failure_with_a_refresh_token_refreshes_rather_than_prompting() {
 }
 
 #[test]
-fn a_token_refreshed_after_a_workspace_switch_updates_the_old_account_without_reconnecting() {
+fn a_token_refreshed_after_a_workspace_switch_updates_the_old_account_without_reconnecting(
+) -> TestResult {
     let mut app = oauth_app(Some("refresh"), None);
     app.session.upsert_account(Account {
         workspace_key: "other".into(),
@@ -4158,7 +5174,7 @@ fn a_token_refreshed_after_a_workspace_switch_updates_the_old_account_without_re
         .accounts()
         .iter()
         .find(|account| account.workspace_key == "ws")
-        .expect("the old account is still known");
+        .ok_or("the old account is still known")?;
 
     assert!(
         matches!(&refreshed.credential, Credential::OAuth(token) if token.access_token == "new-access"),
@@ -4169,10 +5185,12 @@ fn a_token_refreshed_after_a_workspace_switch_updates_the_old_account_without_re
         Some("other"),
         "the active workspace is untouched"
     );
+
+    Ok(())
 }
 
 #[test]
-fn a_refresh_failure_for_an_inactive_workspace_does_not_expire_the_active_one() {
+fn a_refresh_failure_for_an_inactive_workspace_does_not_expire_the_active_one() -> TestResult {
     let mut app = oauth_app(Some("refresh"), None);
     app.session.upsert_account(Account {
         workspace_key: "other".into(),
@@ -4186,33 +5204,39 @@ fn a_refresh_failure_for_an_inactive_workspace_does_not_expire_the_active_one() 
         Message::RefreshFailed {
             workspace_key: "ws".into(),
         },
-    );
+    )?;
 
     assert_eq!(app.session.auth(), AuthState::Authenticated);
+
+    Ok(())
 }
 
 #[test]
-fn further_auth_failures_while_refreshing_do_not_refresh_again() {
+fn further_auth_failures_while_refreshing_do_not_refresh_again() -> TestResult {
     let mut app = oauth_app(Some("refresh"), None);
     apply_all(&mut app, auth_failure());
 
-    let command = apply(&mut app, auth_failure());
+    let command = apply(&mut app, auth_failure())?;
 
     assert!(matches!(app.session.auth(), AuthState::Refreshing { .. }));
     assert!(command.is_none());
+
+    Ok(())
 }
 
 #[test]
-fn an_auth_failure_without_a_refresh_token_prompts_reauth() {
+fn an_auth_failure_without_a_refresh_token_prompts_reauth() -> TestResult {
     let mut app = oauth_app(None, None);
 
-    apply(&mut app, auth_failure());
+    apply(&mut app, auth_failure())?;
 
     assert_eq!(app.session.auth(), AuthState::Unauthenticated);
+
+    Ok(())
 }
 
 #[test]
-fn a_refreshed_token_updates_the_account_and_reconnects() {
+fn a_refreshed_token_updates_the_account_and_reconnects() -> TestResult {
     let mut app = oauth_app(Some("refresh"), None);
     app.session.begin_refresh(app.now);
 
@@ -4233,14 +5257,22 @@ fn a_refreshed_token_updates_the_account_and_reconnects() {
         command,
         Commands::Runtime(RuntimeCommand::Reconnect)
     ));
-    match &app.session.accounts()[0].credential {
+    match &app
+        .session
+        .accounts()
+        .first()
+        .ok_or("an account is stored")?
+        .credential
+    {
         Credential::OAuth(token) => assert_eq!(token.access_token, "new-access"),
-        other => panic!("expected OAuth, got {other:?}"),
+        other => return Err(format!("expected OAuth, got {other:?}").into()),
     }
+
+    Ok(())
 }
 
 #[test]
-fn a_failed_refresh_prompts_reauth() {
+fn a_failed_refresh_prompts_reauth() -> TestResult {
     let mut app = oauth_app(Some("refresh"), None);
     app.session.begin_refresh(app.now);
 
@@ -4249,9 +5281,11 @@ fn a_failed_refresh_prompts_reauth() {
         Message::RefreshFailed {
             workspace_key: "ws".into(),
         },
-    );
+    )?;
 
     assert_eq!(app.session.auth(), AuthState::Unauthenticated);
+
+    Ok(())
 }
 
 #[test]
@@ -4293,7 +5327,7 @@ fn proactive_refresh_fires_only_when_the_token_is_near_expiry() {
 }
 
 #[test]
-fn an_async_error_survives_an_unrelated_keystroke() {
+fn an_async_error_survives_an_unrelated_keystroke() -> TestResult {
     let mut app = list_app_with_issue();
 
     apply(
@@ -4302,15 +5336,17 @@ fn an_async_error_survives_an_unrelated_keystroke() {
             target: FailureTarget::CustomViews,
             error: RequestError::Other("boom".into()),
         },
-    );
+    )?;
     assert!(matches!(app.ui.status, Some(Status::Error(_))));
 
-    handle_key(&mut app, press(KeyCode::Insert));
+    handle_key(&mut app, press(KeyCode::Insert))?;
 
     assert!(
         matches!(app.ui.status, Some(Status::Error(_))),
         "a no-op keystroke must not wipe an async error"
     );
+
+    Ok(())
 }
 
 fn session(name: &str) -> linear_tui::api::Session {
@@ -4342,14 +5378,15 @@ fn state_option(id: &str, name: &str) -> linear_tui::api::StateOption {
     }
 }
 
-fn detail_app_with_comments() -> App {
+fn detail_app_with_comments() -> TestResult<App> {
     let mut app = detail_app();
-    let mut detail = app.workspace.detail().value().cloned().expect("detail");
+    let mut detail = app.workspace.detail().value().cloned().ok_or("detail")?;
     detail.comments = vec![
         comment("c1", None, "root comment"),
         comment("c1a", Some("c1"), "a reply"),
         comment("c2", None, "another root"),
     ];
     app.workspace.set_detail(detail, app.now);
-    app
+
+    Ok(app)
 }

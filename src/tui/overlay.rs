@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 
 use ratatui::widgets::ListState;
@@ -7,8 +8,8 @@ use super::emoji::{self, PaletteEmoji};
 use super::focus::{Direction, Edge, Focus};
 use super::message::Effect;
 use crate::api::{
-    CommentId, IssueId, Label, LabelId, Priority, Reaction, ReactionTarget, StateId, StateOption,
-    TeamId, User, UserId,
+    CommentId, ImageUrl, IssueId, Label, LabelId, Priority, Reaction, ReactionTarget, StateId,
+    StateOption, TeamId, User, UserId,
 };
 use crate::store::Account;
 
@@ -229,6 +230,66 @@ impl Labels {
     }
 }
 
+pub struct ImageView {
+    before: VecDeque<ImageUrl>,
+    current: ImageUrl,
+    after: VecDeque<ImageUrl>,
+}
+
+impl ImageView {
+    pub fn open(urls: Vec<ImageUrl>) -> Option<Self> {
+        let mut after = VecDeque::from(urls);
+        let current = after.pop_front()?;
+
+        Some(Self {
+            before: VecDeque::new(),
+            current,
+            after,
+        })
+    }
+
+    pub fn url(&self) -> &ImageUrl {
+        &self.current
+    }
+
+    pub fn position(&self) -> (usize, usize) {
+        let position = self.before.len().saturating_add(1);
+
+        (position, position.saturating_add(self.after.len()))
+    }
+
+    pub fn step(&mut self, direction: Direction) {
+        match direction {
+            Direction::Next => match self.after.pop_front() {
+                Some(next) => {
+                    let left = std::mem::replace(&mut self.current, next);
+                    self.before.push_back(left);
+                }
+                None => {
+                    if let Some(first) = self.before.pop_front() {
+                        let last = std::mem::replace(&mut self.current, first);
+                        self.after = std::mem::take(&mut self.before);
+                        self.after.push_back(last);
+                    }
+                }
+            },
+            Direction::Prev => match self.before.pop_back() {
+                Some(previous) => {
+                    let right = std::mem::replace(&mut self.current, previous);
+                    self.after.push_front(right);
+                }
+                None => {
+                    if let Some(last) = self.after.pop_back() {
+                        let first = std::mem::replace(&mut self.current, last);
+                        self.before = std::mem::take(&mut self.after);
+                        self.before.push_front(first);
+                    }
+                }
+            },
+        }
+    }
+}
+
 pub struct Confirm {
     pub message: String,
     pub command: Effect,
@@ -306,15 +367,16 @@ impl Menu {
             .map(|(index, _)| index)
             .collect();
 
-        let Some(len) = NonZeroUsize::new(items.len()) else {
+        let (Some(&first), Some(len)) = (items.first(), NonZeroUsize::new(items.len())) else {
             return;
         };
 
-        let current = self.state.selected().unwrap_or(items[0]);
+        let current = self.state.selected().unwrap_or(first);
         let position = items.iter().position(|&i| i == current).unwrap_or(0);
 
-        self.state
-            .select(Some(items[direction.wrap(position, len)]));
+        if let Some(&target) = items.get(direction.wrap(position, len)) {
+            self.state.select(Some(target));
+        }
     }
 
     pub fn jump_section(&mut self, direction: Direction) {
@@ -332,10 +394,17 @@ impl Menu {
 
         let current = self.state.selected().unwrap_or(0);
         let section = headers.iter().rposition(|&h| h <= current).unwrap_or(0);
-        let target = direction.wrap(section, len);
+        let Some(&header) = headers.get(direction.wrap(section, len)) else {
+            return;
+        };
 
-        let first_item = (headers[target] + 1..self.rows.len())
-            .find(|&index| matches!(self.rows[index], MenuRow::Item { .. }));
+        let first_item = self
+            .rows
+            .iter()
+            .enumerate()
+            .skip(header + 1)
+            .find(|(_, row)| matches!(row, MenuRow::Item { .. }))
+            .map(|(index, _)| index);
         if let Some(index) = first_item {
             self.state.select(Some(index));
         }
@@ -755,8 +824,8 @@ impl Editor {
             .map(|line| line.chars().map(Cell::Char).collect())
             .collect();
 
-        editor.row = editor.lines.len() - 1;
-        editor.col = editor.lines[editor.row].len();
+        editor.row = editor.lines.len().saturating_sub(1);
+        editor.col = editor.line_len(editor.row);
         editor.settle();
 
         editor
@@ -767,12 +836,13 @@ impl Editor {
             self.lines.push(Vec::new());
         }
 
-        self.row = self.row.min(self.lines.len() - 1);
-        self.col = self.col.min(self.lines[self.row].len());
+        let last_row = self.lines.len().saturating_sub(1);
+        self.row = self.row.min(last_row);
+        self.col = self.col.min(self.line_len(self.row));
 
         if let Some(mention) = &mut self.mention {
-            mention.anchor.row = mention.anchor.row.min(self.lines.len() - 1);
-            let anchor_line = self.lines[mention.anchor.row].len();
+            mention.anchor.row = mention.anchor.row.min(last_row);
+            let anchor_line = self.lines.get(mention.anchor.row).map_or(0, Vec::len);
             mention.anchor.col = if mention.anchor.row == self.row {
                 mention.anchor.col.min(self.col)
             } else {
@@ -817,42 +887,52 @@ impl Editor {
     }
 
     fn line_len(&self, row: usize) -> usize {
-        self.lines[row].len()
+        self.lines.get(row).map_or(0, Vec::len)
+    }
+
+    fn insert_cell(&mut self, cell: Cell) {
+        if let Some(line) = self.lines.get_mut(self.row) {
+            line.insert(self.col, cell);
+            self.col += 1;
+        }
+        self.settle();
     }
 
     pub fn insert_char(&mut self, c: char) {
-        self.lines[self.row].insert(self.col, Cell::Char(c));
-        self.col += 1;
-        self.settle();
+        self.insert_cell(Cell::Char(c));
     }
 
     fn insert_mention(&mut self, display: String, url: String) {
-        self.lines[self.row].insert(self.col, Cell::Mention(Mention { display, url }));
-        self.col += 1;
-        self.settle();
+        self.insert_cell(Cell::Mention(Mention { display, url }));
     }
 
     pub fn newline(&mut self) {
         self.close_mention();
 
-        let tail = self.lines[self.row].split_off(self.col);
+        if let Some(line) = self.lines.get_mut(self.row) {
+            let tail = line.split_off(self.col);
 
-        self.lines.insert(self.row + 1, tail);
-        self.row += 1;
-        self.col = 0;
+            self.lines.insert(self.row + 1, tail);
+            self.row += 1;
+            self.col = 0;
+        }
         self.settle();
     }
 
     pub fn backspace(&mut self) {
         if self.col > 0 {
-            self.col -= 1;
-            self.lines[self.row].remove(self.col);
-        } else if self.row > 0 {
+            if let Some(line) = self.lines.get_mut(self.row) {
+                self.col -= 1;
+                line.remove(self.col);
+            }
+        } else if let Some(previous_row) = self.row.checked_sub(1) {
             let current = self.lines.remove(self.row);
 
-            self.row -= 1;
-            self.col = self.line_len(self.row);
-            self.lines[self.row].extend(current);
+            self.row = previous_row;
+            self.col = self.line_len(previous_row);
+            if let Some(previous) = self.lines.get_mut(previous_row) {
+                previous.extend(current);
+            }
         }
         self.settle();
     }
@@ -901,7 +981,7 @@ impl Editor {
         match self
             .col
             .checked_sub(1)
-            .and_then(|i| self.lines[self.row].get(i))
+            .and_then(|i| self.lines.get(self.row)?.get(i))
         {
             None => true,
             Some(Cell::Char(c)) => c.is_whitespace(),
@@ -998,7 +1078,11 @@ impl Editor {
             return;
         };
 
-        self.lines[mention.anchor.row].drain(mention.anchor.col..self.col);
+        let Some(line) = self.lines.get_mut(mention.anchor.row) else {
+            return;
+        };
+
+        line.drain(mention.anchor.col..self.col);
         self.col = mention.anchor.col;
         self.settle();
         self.insert_mention(display, url);
@@ -1035,10 +1119,69 @@ pub enum Overlay {
     Reactions(Reactions),
     Workspaces(Workspaces),
     Labels(Labels),
+    Image(ImageView),
 }
 
 #[cfg(test)]
 mod tests {
+    fn gallery(names: &[&str]) -> Result<ImageView, String> {
+        let urls = names
+            .iter()
+            .map(|name| {
+                ImageUrl::parse(&format!("https://uploads.linear.app/{name}"))
+                    .ok_or_else(|| format!("{name} is not a valid upload url"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        ImageView::open(urls).ok_or_else(|| "an empty gallery".to_string())
+    }
+
+    fn current(view: &ImageView) -> Option<String> {
+        view.url().as_str().rsplit('/').next().map(str::to_string)
+    }
+
+    #[test]
+    fn the_gallery_wraps_in_both_directions() -> Result<(), String> {
+        let mut view = gallery(&["a", "b", "c"])?;
+
+        assert_eq!(
+            (current(&view), view.position()),
+            (Some("a".into()), (1, 3))
+        );
+
+        view.step(Direction::Prev);
+        assert_eq!(
+            (current(&view), view.position()),
+            (Some("c".into()), (3, 3))
+        );
+
+        view.step(Direction::Next);
+        assert_eq!(
+            (current(&view), view.position()),
+            (Some("a".into()), (1, 3))
+        );
+
+        view.step(Direction::Next);
+        view.step(Direction::Next);
+        view.step(Direction::Next);
+        assert_eq!(
+            (current(&view), view.position()),
+            (Some("a".into()), (1, 3))
+        );
+
+        let mut single = gallery(&["only"])?;
+        single.step(Direction::Next);
+        single.step(Direction::Prev);
+        assert_eq!(
+            (current(&single), single.position()),
+            (Some("only".into()), (1, 1))
+        );
+
+        assert!(ImageView::open(Vec::new()).is_none());
+
+        Ok(())
+    }
+
     use super::*;
     use crate::api::UserId;
 
@@ -1072,7 +1215,8 @@ mod tests {
     }
 
     #[test]
-    fn accept_mention_after_a_cross_row_move_is_a_no_op() {
+    fn accept_mention_after_a_cross_row_move_is_a_no_op() -> Result<(), Box<dyn std::error::Error>>
+    {
         let mut editor = editor_with_member();
         editor.insert_char('h');
         editor.open_mention();
@@ -1084,8 +1228,13 @@ mod tests {
 
         editor.accept_mention();
 
-        assert_eq!(editor.lines[0].len(), 3, "the anchored row is untouched");
-        assert!(editor.lines[1].is_empty());
+        let [anchored, next] = editor.lines.as_slice() else {
+            return Err(format!("expected two rows, got {}", editor.lines.len()).into());
+        };
+        assert_eq!(anchored.len(), 3, "the anchored row is untouched");
+        assert!(next.is_empty());
+
+        Ok(())
     }
 
     #[test]

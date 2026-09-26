@@ -11,6 +11,7 @@ use super::overlay::{
     AssignOptions, Confirm, Editor, Find, Input, Labels, Menu, Overlay, Picker, PickerKind, Prefix,
     Search, SearchPhase,
 };
+use super::render::image::DrawnImage;
 use super::saved_views::ViewSurface;
 use super::spinner::Spinner;
 use super::status::Status;
@@ -114,8 +115,11 @@ pub struct Ui {
     pub spinner: Spinner,
     pub viewport: usize,
     pub detail_scroll_max: usize,
+    pub comment_scroll: usize,
+    pub comment_scroll_max: usize,
     overlay: Overlay,
     pub find_query: Option<String>,
+    pub drawn_images: Vec<DrawnImage>,
 }
 
 pub struct SessionState {
@@ -281,8 +285,11 @@ impl App {
                 spinner: Spinner::default(),
                 viewport: 0,
                 detail_scroll_max: 0,
+                comment_scroll: 0,
+                comment_scroll_max: 0,
                 overlay: Overlay::None,
                 find_query: None,
+                drawn_images: Vec::new(),
             },
             workspace: WorkspaceData::new(),
             session: SessionState::new(),
@@ -364,8 +371,11 @@ impl App {
             spinner: _,
             viewport: _,
             detail_scroll_max: _,
+            comment_scroll,
+            comment_scroll_max: _,
             overlay,
             find_query,
+            drawn_images,
         } = &mut self.ui;
 
         *focus = Focus::MyWork;
@@ -373,6 +383,8 @@ impl App {
         list_state.select(Some(0));
         view_state.select(Some(0));
         *find_query = None;
+        *comment_scroll = 0;
+        drawn_images.clear();
         *zoom = Zoom::Normal;
         *status = None;
     }
@@ -649,7 +661,8 @@ impl App {
             | Overlay::Search(_)
             | Overlay::Find(_)
             | Overlay::Reactions(_)
-            | Overlay::Workspaces(_) => false,
+            | Overlay::Workspaces(_)
+            | Overlay::Image(_) => false,
         }
     }
 
@@ -685,12 +698,13 @@ impl App {
             | Overlay::Search(_)
             | Overlay::Find(_)
             | Overlay::Reactions(_)
-            | Overlay::Workspaces(_) => {}
+            | Overlay::Workspaces(_)
+            | Overlay::Image(_) => {}
         }
     }
 
     pub fn is_loading(&self) -> bool {
-        if self.overlay_in_flight() {
+        if self.overlay_in_flight() || self.workspace.images_in_flight() {
             return true;
         }
 
@@ -792,6 +806,7 @@ impl App {
     fn nav(&mut self) -> Nav<'_> {
         let viewport = self.ui.viewport;
         let scroll_max = self.ui.detail_scroll_max;
+        let comment_scroll_max = self.ui.comment_scroll_max;
         let comment_len = self.open_detail().map_or(0, |detail| detail.thread_len());
         let view_len = self.view_len();
         let main_len = self.panel(LeftPanel::MyWork).len;
@@ -799,7 +814,24 @@ impl App {
         let saved_len = self.panel(LeftPanel::SavedViews).len;
         let teams_len = self.panel(LeftPanel::Teams).len;
 
-        match &mut self.ui.focus {
+        let Ui {
+            focus,
+            comment_scroll,
+            list_state,
+            view_state: _,
+            views: _,
+            zoom: _,
+            status: _,
+            spinner: _,
+            viewport: _,
+            detail_scroll_max: _,
+            comment_scroll_max: _,
+            overlay: _,
+            find_query: _,
+            drawn_images: _,
+        } = &mut self.ui;
+
+        match focus {
             Focus::Detail(DetailFocus {
                 view: DetailView::Reading { scroll },
                 ..
@@ -815,9 +847,11 @@ impl App {
                 at,
                 len: comment_len,
                 viewport,
+                scroll: comment_scroll,
+                scroll_max: comment_scroll_max,
             },
             Focus::MyWork => Nav::List {
-                state: &mut self.ui.list_state,
+                state: list_state,
                 len: main_len,
                 viewport,
             },
@@ -870,9 +904,12 @@ impl App {
             Nav::Scroll { scroll, .. } => {
                 *scroll = index.map_or(Scroll::Top, Scroll::At);
             }
-            Nav::Comments { at, len, .. } => {
+            Nav::Comments {
+                at, len, scroll, ..
+            } => {
                 if let Some(cursor) = index.and_then(|index| Cursor::new(index, len)) {
                     *at = cursor;
+                    *scroll = 0;
                 }
             }
         }
@@ -884,9 +921,13 @@ impl App {
             Nav::Scroll { scroll, max, .. } => {
                 *scroll = scrolled(*scroll, SCROLL_STEP, direction, max);
             }
-            Nav::Comments { at, len, .. } => {
-                *at = at.stepped(len, direction);
-            }
+            Nav::Comments {
+                at,
+                len,
+                scroll,
+                scroll_max,
+                ..
+            } => step_comment(at, len, scroll, scroll_max, SCROLL_STEP, direction),
         }
     }
 
@@ -917,19 +958,20 @@ impl App {
             } => {
                 *scroll = scrolled(*scroll, (viewport / 2).max(1), direction, max);
             }
-            Nav::Comments { at, len, viewport } => {
-                if len == 0 {
-                    return;
-                }
-
-                let step = (viewport / 2).max(1);
-                let next = match direction {
-                    Direction::Next => (at.index() + step).min(len - 1),
-                    Direction::Prev => at.index().saturating_sub(step),
-                };
-
-                *at = Cursor::new(next, len).unwrap_or(*at);
-            }
+            Nav::Comments {
+                at,
+                len,
+                viewport,
+                scroll,
+                scroll_max,
+            } => step_comment(
+                at,
+                len,
+                scroll,
+                scroll_max,
+                (viewport / 2).max(1),
+                direction,
+            ),
         }
     }
 
@@ -942,9 +984,12 @@ impl App {
                     Edge::Top => Scroll::Top,
                 };
             }
-            Nav::Comments { at, len, .. } => {
+            Nav::Comments {
+                at, len, scroll, ..
+            } => {
                 if len > 0 {
                     *at = Cursor::edge(len, edge);
+                    *scroll = 0;
                 }
             }
         }
@@ -1105,6 +1150,44 @@ impl App {
 impl Default for App {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn step_comment(
+    at: &mut Cursor,
+    len: usize,
+    scroll: &mut usize,
+    scroll_max: usize,
+    step: usize,
+    direction: Direction,
+) {
+    if len == 0 {
+        return;
+    }
+
+    match direction {
+        Direction::Next if *scroll < scroll_max => {
+            *scroll = (*scroll + step).min(scroll_max);
+        }
+        Direction::Next => {
+            let next = (at.index() + 1).min(len - 1);
+
+            if next != at.index() {
+                *at = Cursor::new(next, len).unwrap_or(*at);
+                *scroll = 0;
+            }
+        }
+        Direction::Prev if *scroll > 0 => {
+            *scroll = scroll.saturating_sub(step);
+        }
+        Direction::Prev => {
+            let prev = at.index().saturating_sub(1);
+
+            if prev != at.index() {
+                *at = Cursor::new(prev, len).unwrap_or(*at);
+                *scroll = 0;
+            }
+        }
     }
 }
 

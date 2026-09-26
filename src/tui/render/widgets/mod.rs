@@ -16,7 +16,7 @@ pub use placeholder::{placeholder, PlaceholderText};
 pub use preview::{notification_preview_text, preview_text};
 pub use reactions::reaction_chips;
 pub use rows::{breakdown_line, loading_more_row, notification_items, view_items};
-pub use scrollable_text::ScrollableText;
+pub use scrollable_text::{max_scroll, saturating_u16, text_area, wrapped_rows, ScrollableText};
 pub use styled_list::StyledList;
 pub use tabs::view_tabs;
 pub use text_panel::text_panel;

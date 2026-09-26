@@ -1,6 +1,6 @@
 use super::keymap::Hint;
 use super::keys::{
-    Action, ConfirmInput, EditorInput, InputInput, LabelsInput, MenuInput, PickerInput,
+    Action, ConfirmInput, EditorInput, ImageInput, InputInput, LabelsInput, MenuInput, PickerInput,
     ReactionInput, WorkspacesInput,
 };
 
@@ -57,6 +57,7 @@ pub const TEAMS_HINTS: &[Hint<Action>] = &[
 ];
 
 pub const DETAIL_HINTS: &[Hint<Action>] = &[
+    Hint::Bound(Action::ToggleImages),
     Hint::Literal {
         keys: "j/k",
         label: "scroll",
@@ -132,6 +133,15 @@ pub const WORKSPACES_HINTS: &[Hint<WorkspacesInput>] = &[
     Hint::Bound(WorkspacesInput::Next),
     Hint::Bound(WorkspacesInput::Accept),
     Hint::Bound(WorkspacesInput::Cancel),
+];
+
+pub const IMAGE_HINTS: &[Hint<ImageInput>] = &[
+    Hint::Pair {
+        forward: ImageInput::Next,
+        back: ImageInput::Prev,
+        label: "next/prev",
+    },
+    Hint::Every(ImageInput::Close),
 ];
 
 pub const REACTIONS_HINTS: &[Hint<ReactionInput>] = &[

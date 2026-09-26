@@ -30,17 +30,13 @@ pub fn view_items(
             ])));
         }
 
-        for &index in &group.indices {
+        for issue in group.indices.iter().filter_map(|&index| issues.get(index)) {
             if Some(flat) == selected {
                 selected_row = Some(items.len());
             }
 
             items.push(ListItem::new(issue_row(
-                &issues[index],
-                group_by,
-                id_width,
-                width,
-                now,
+                issue, group_by, id_width, width, now,
             )));
 
             flat += 1;

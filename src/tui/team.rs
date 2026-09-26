@@ -40,31 +40,45 @@ impl TeamMode {
 }
 
 #[derive(Debug, Clone)]
-pub struct TeamModes(Vec<TeamMode>);
+pub struct TeamModes {
+    first: TeamMode,
+    rest: Vec<TeamMode>,
+}
 
 impl TeamModes {
     pub fn for_team(team: &Team) -> Self {
-        let mut modes = vec![TeamMode::Active];
+        let mut rest = Vec::new();
 
         if team.triage_enabled {
-            modes.push(TeamMode::Triage);
+            rest.push(TeamMode::Triage);
         }
 
-        modes.extend([TeamMode::Backlog, TeamMode::All]);
+        rest.extend([TeamMode::Backlog, TeamMode::All]);
 
-        TeamModes(modes)
+        TeamModes {
+            first: TeamMode::Active,
+            rest,
+        }
     }
 
-    pub fn as_slice(&self) -> &[TeamMode] {
-        &self.0
+    pub fn iter(&self) -> impl Iterator<Item = TeamMode> + '_ {
+        std::iter::once(self.first).chain(self.rest.iter().copied())
     }
 
     pub fn len(&self) -> NonZeroUsize {
-        NonZeroUsize::MIN.saturating_add(self.0.len() - 1)
+        NonZeroUsize::MIN.saturating_add(self.rest.len())
     }
 
     pub fn at(&self, cursor: Cursor) -> TeamMode {
-        self.0[cursor.index().min(self.0.len() - 1)]
+        match cursor.index().checked_sub(1) {
+            None => self.first,
+            Some(offset) => self
+                .rest
+                .get(offset)
+                .or(self.rest.last())
+                .copied()
+                .unwrap_or(self.first),
+        }
     }
 }
 
@@ -111,6 +125,8 @@ impl TeamSurface {
 mod tests {
     use super::*;
 
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
     fn team(triage_enabled: bool) -> Team {
         Team {
             id: TeamId::from_raw("t_pizza"),
@@ -121,30 +137,34 @@ mod tests {
     }
 
     #[test]
-    fn every_mode_maps_to_a_distinct_team_scoped_filter() {
+    fn every_mode_maps_to_a_distinct_team_scoped_filter() -> TestResult {
         let team = team(true);
         let modes = TeamModes::for_team(&team);
 
-        let keys: Vec<FeedKey> = (0..modes.len().get())
+        let keys = (0..modes.len().get())
             .map(|index| {
-                let mode = modes.at(Cursor::new(index, modes.len().get()).expect("in range"));
+                let cursor = Cursor::new(index, modes.len().get()).ok_or("cursor out of range")?;
 
-                FeedKey::Issues(mode.filter(&team.id))
+                Ok(FeedKey::Issues(modes.at(cursor).filter(&team.id)))
             })
-            .collect();
+            .collect::<TestResult<Vec<FeedKey>>>()?;
 
         for key in &keys {
             match key {
                 FeedKey::Issues(filter) => {
                     assert_eq!(filter.team.as_ref(), Some(&team.id));
                 }
-                other => panic!("expected a team-scoped issue feed, got {other:?}"),
+                other => {
+                    return Err(format!("expected a team-scoped issue feed, got {other:?}").into())
+                }
             }
         }
 
         let unique: std::collections::HashSet<&FeedKey> = keys.iter().collect();
 
         assert_eq!(unique.len(), keys.len(), "each mode caches separately");
+
+        Ok(())
     }
 
     #[test]

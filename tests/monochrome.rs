@@ -8,7 +8,9 @@ use linear_tui::tui::render::theme::{self, ColourMode};
 use linear_tui::tui::render_styled_to_string;
 use linear_tui::tui::view::ViewKind;
 
-async fn monochrome_app(client: &FixtureClient) -> App {
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+async fn monochrome_app(client: &FixtureClient) -> TestResult<App> {
     theme::init(ColourMode::Monochrome);
 
     let mut app = App::new();
@@ -20,23 +22,23 @@ async fn monochrome_app(client: &FixtureClient) -> App {
     assert!(app.session.activate("ws"));
 
     app.now = Timestamp::from("2026-07-16T21:00:00Z");
-    app.workspace.session = Remote::ready(client.session().await.unwrap(), app.now);
+    app.workspace.session = Remote::ready(client.session().await?, app.now);
     app.ui.view_state.select(Some(0));
 
     if let ViewKind::Issues(filter) = &app.active_view().kind {
-        let page = client.issues(&filter.clone(), None).await.unwrap();
+        let page = client.issues(&filter.clone(), None).await?;
         app.workspace
             .feeds
             .insert(FeedKey::Issues(filter.clone()), Feed::ready(page, app.now));
     }
 
-    app
+    Ok(app)
 }
 
 #[tokio::test]
-async fn styled_monochrome_assigned_view() {
+async fn styled_monochrome_assigned_view() -> TestResult {
     let client = FixtureClient::sample();
-    let mut app = monochrome_app(&client).await;
+    let mut app = monochrome_app(&client).await?;
 
     let frame = render_styled_to_string(&mut app, 110, 16);
 
@@ -58,4 +60,6 @@ async fn styled_monochrome_assigned_view() {
     insta::with_settings!({prepend_module_to_snapshot => false}, {
         insta::assert_snapshot!("render__styled_monochrome_assigned_view", frame);
     });
+
+    Ok(())
 }

@@ -13,7 +13,12 @@ impl Spinner {
     }
 
     pub fn glyph(&self) -> &'static str {
-        FRAMES[self.frame % FRAMES.len()]
+        let [first, ..] = FRAMES;
+
+        FRAMES
+            .get(self.frame % FRAMES.len())
+            .copied()
+            .unwrap_or(first)
     }
 }
 

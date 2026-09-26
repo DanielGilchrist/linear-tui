@@ -1,5 +1,6 @@
 pub mod confirm;
 pub mod editor;
+pub mod image;
 pub mod input;
 pub mod labels;
 pub mod menu;

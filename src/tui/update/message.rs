@@ -39,6 +39,22 @@ enum Transition {
     },
     CustomViewsLoaded(Vec<crate::api::SavedView>),
     TeamsLoaded(Vec<crate::api::Team>),
+    ImageLoaded {
+        url: crate::api::ImageUrl,
+        image: Box<image::DynamicImage>,
+    },
+    ImageFailed {
+        url: crate::api::ImageUrl,
+        reason: crate::tui::message::ImageFailure,
+    },
+    ImageEncoded {
+        url: crate::api::ImageUrl,
+        size: ratatui::layout::Size,
+        encoded: Result<
+            Box<crate::tui::render::image::Encoded>,
+            crate::tui::render::image::EncodeFailure,
+        >,
+    },
     DetailLoaded {
         detail: Box<IssueDetail>,
         reveal: Reveal,
@@ -121,6 +137,11 @@ fn reduce(app: &App, msg: Message) -> Transition {
         }
         Message::CustomViewsLoaded(views) => Transition::CustomViewsLoaded(views),
         Message::TeamsLoaded { teams } => Transition::TeamsLoaded(teams),
+        Message::ImageLoaded { url, image } => Transition::ImageLoaded { url, image },
+        Message::ImageFailed { url, reason } => Transition::ImageFailed { url, reason },
+        Message::ImageEncoded { url, size, encoded } => {
+            Transition::ImageEncoded { url, size, encoded }
+        }
         Message::DetailLoaded { detail, reveal } => {
             let focused = app
                 .focus()
@@ -273,6 +294,23 @@ fn commit(app: &mut App, transition: Transition) -> Commands {
                 .map(|key| access_feed(app, key))
                 .unwrap_or_default()
                 .into()
+        }
+        Transition::ImageLoaded { url, image } => {
+            let loaded = crate::tui::render::image::load(*image);
+            app.workspace.set_image(&url, loaded, app.now);
+
+            Commands::default()
+        }
+        Transition::ImageFailed { url, reason } => {
+            app.workspace.fail_image(&url, reason.to_string());
+
+            Commands::default()
+        }
+        Transition::ImageEncoded { url, size, encoded } => {
+            app.workspace
+                .settle_encode(&url, size, encoded.map(|encoded| *encoded));
+
+            Commands::default()
         }
         Transition::TeamsLoaded(mut teams) => {
             teams.sort_by(|a, b| a.key.cmp(&b.key));
@@ -469,9 +507,12 @@ fn commit_detail(
 
     app.record_recent(summary);
 
-    Commands::from(Effect::Store(StoreCommand::SaveRecent(
+    let mut effects = Effects::default();
+    effects.push(Effect::Store(StoreCommand::SaveRecent(
         app.workspace.recently_viewed.clone(),
-    )))
+    )));
+
+    effects.into()
 }
 
 fn revealed_view(

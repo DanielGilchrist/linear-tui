@@ -24,6 +24,22 @@ pub enum Message {
     TeamsLoaded {
         teams: Vec<Team>,
     },
+    ImageLoaded {
+        url: crate::api::ImageUrl,
+        image: Box<image::DynamicImage>,
+    },
+    ImageFailed {
+        url: crate::api::ImageUrl,
+        reason: ImageFailure,
+    },
+    ImageEncoded {
+        url: crate::api::ImageUrl,
+        size: ratatui::layout::Size,
+        encoded: Result<
+            Box<crate::tui::render::image::Encoded>,
+            crate::tui::render::image::EncodeFailure,
+        >,
+    },
     DetailLoaded {
         detail: Box<IssueDetail>,
         reveal: Reveal,
@@ -127,6 +143,31 @@ pub enum Effect {
     Api(ApiCommand),
     Store(StoreCommand),
     Platform(PlatformCommand),
+    Image(ImageCommand),
+}
+
+#[derive(Debug, Clone)]
+pub enum ImageCommand {
+    Fetch { url: crate::api::ImageUrl },
+    Encode(EncodeImage),
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum ImageFailure {
+    #[error(transparent)]
+    Fetch(#[from] crate::api::ImageFetchError),
+    #[error("the image is not in a supported format")]
+    Undecodable,
+    #[error("Not connected")]
+    Offline,
+    #[error("The image worker stopped before loading this image")]
+    WorkerStopped,
+}
+
+#[derive(Debug, Clone)]
+pub struct EncodeImage {
+    pub url: crate::api::ImageUrl,
+    pub request: crate::tui::render::image::EncodeRequest,
 }
 
 #[derive(Debug, Clone, Default)]

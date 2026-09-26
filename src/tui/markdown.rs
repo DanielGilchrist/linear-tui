@@ -2,6 +2,8 @@ mod style;
 mod table;
 
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+
+use crate::api::{ImageOrigin, ImageUrl};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
@@ -15,7 +17,20 @@ const RULE_WIDTH: usize = 40;
 const PROFILE_PREFIX: &str = "https://linear.app/";
 const PROFILE_SEGMENT: &str = "/profiles/";
 
-pub fn render(input: &str, base: Style) -> Vec<Line<'static>> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImagePlacement {
+    pub url: ImageUrl,
+    pub alt: String,
+    pub top: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Rendered {
+    pub lines: Vec<Line<'static>>,
+    pub images: Vec<ImagePlacement>,
+}
+
+pub fn render(input: &str, base: Style) -> Rendered {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
@@ -28,6 +43,10 @@ pub fn render(input: &str, base: Style) -> Vec<Line<'static>> {
     }
 
     writer.finish()
+}
+
+pub fn render_lines(input: &str, base: Style) -> Vec<Line<'static>> {
+    render(input, base).lines
 }
 
 struct ListCtx {
@@ -46,6 +65,8 @@ struct Writer {
     code_buf: Option<String>,
     table: Option<Table>,
     cell: Option<Vec<Span<'static>>>,
+    images: Vec<ImagePlacement>,
+    open_image: Option<(String, Vec<Span<'static>>)>,
 }
 
 impl Writer {
@@ -62,6 +83,8 @@ impl Writer {
             code_buf: None,
             table: None,
             cell: None,
+            images: Vec::new(),
+            open_image: None,
         }
     }
 
@@ -91,6 +114,10 @@ impl Writer {
     }
 
     fn target(&mut self) -> &mut Vec<Span<'static>> {
+        if let Some((_, alt)) = &mut self.open_image {
+            return alt;
+        }
+
         match &mut self.cell {
             Some(cell) => cell,
             None => &mut self.spans,
@@ -273,10 +300,8 @@ impl Writer {
                 self.push_style(self.current_style().add_modifier(Modifier::CROSSED_OUT))
             }
             Tag::Link { .. } => self.push_style(link_style(self.base)),
-            Tag::Image { .. } => {
-                self.open_line();
-                let glyph = Span::styled("🖼 ".to_string(), dim_style(self.base));
-                self.target().push(glyph);
+            Tag::Image { dest_url, .. } => {
+                self.open_image = Some((dest_url.to_string(), Vec::new()));
                 self.push_style(dim_style(self.base).add_modifier(Modifier::ITALIC));
             }
             Tag::Table(aligns) => {
@@ -328,7 +353,18 @@ impl Writer {
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link => {
                 self.pop_style()
             }
-            TagEnd::Image => self.pop_style(),
+            TagEnd::Image => {
+                self.pop_style();
+
+                if let Some((url, alt)) = self.open_image.take() {
+                    let alt = alt
+                        .iter()
+                        .map(|span| span.content.as_ref())
+                        .collect::<String>();
+
+                    self.reserve_image(url, alt);
+                }
+            }
             TagEnd::TableCell => {
                 if let Some(cell) = self.cell.take() {
                     if let Some(table) = &mut self.table {
@@ -361,12 +397,65 @@ impl Writer {
         }
     }
 
-    fn finish(mut self) -> Vec<Line<'static>> {
+    fn finish(mut self) -> Rendered {
         self.flush_line();
-        while self.lines.last().is_some_and(is_blank) {
+
+        let reserved = self
+            .images
+            .iter()
+            .map(|image| image.top + 1)
+            .max()
+            .unwrap_or(0);
+
+        while self.lines.len() > reserved && self.lines.last().is_some_and(is_blank) {
             self.lines.pop();
         }
-        self.lines
+
+        Rendered {
+            lines: self.lines,
+            images: self.images,
+        }
+    }
+
+    fn reserve_image(&mut self, url: String, alt: String) {
+        if self.line_open && self.spans.iter().all(|span| span.content.is_empty()) {
+            self.spans.clear();
+            self.line_open = false;
+        } else {
+            self.flush_line();
+        }
+
+        let top = self.lines.len();
+
+        let label = if alt.is_empty() {
+            "image".to_string()
+        } else {
+            alt.clone()
+        };
+        let parsed = ImageUrl::parse(&url);
+        let hint = match &parsed {
+            Some(url) => image_source(url),
+            None => "  unsupported link".to_string(),
+        };
+
+        self.lines.push(Line::from(vec![
+            Span::styled(
+                format!("🖼 {label}"),
+                dim_style(self.base).add_modifier(Modifier::ITALIC),
+            ),
+            Span::styled(hint, dim_style(self.base)),
+        ]));
+
+        if let Some(url) = parsed {
+            self.images.push(ImagePlacement { url, alt, top });
+        }
+    }
+}
+
+fn image_source(url: &ImageUrl) -> String {
+    match (url.origin(), url.url().host_str()) {
+        (ImageOrigin::External, Some(host)) => format!("  from {host}"),
+        (ImageOrigin::External, None) | (ImageOrigin::LinearUpload, _) => String::new(),
     }
 }
 
@@ -387,8 +476,10 @@ mod tests {
     use super::*;
     use ratatui::style::Color;
 
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
     fn lines(input: &str) -> Vec<String> {
-        render(input, Style::default())
+        render_lines(input, Style::default())
             .iter()
             .map(|line| {
                 line.spans
@@ -399,13 +490,13 @@ mod tests {
             .collect()
     }
 
-    fn span_style(input: &str, needle: &str) -> Style {
-        render(input, Style::default())
+    fn span_style(input: &str, needle: &str) -> Result<Style, String> {
+        render_lines(input, Style::default())
             .into_iter()
             .flat_map(|line| line.spans)
             .find(|span| span.content.contains(needle))
-            .unwrap_or_else(|| panic!("no span containing {needle:?}"))
-            .style
+            .map(|span| span.style)
+            .ok_or_else(|| format!("no span containing {needle:?}"))
     }
 
     #[test]
@@ -461,24 +552,30 @@ mod tests {
     }
 
     #[test]
-    fn strong_text_is_bold() {
-        assert!(span_style("**loud**", "loud")
+    fn strong_text_is_bold() -> TestResult {
+        assert!(span_style("**loud**", "loud")?
             .add_modifier
             .contains(Modifier::BOLD));
+
+        Ok(())
     }
 
     #[test]
-    fn emphasis_text_is_italic() {
-        assert!(span_style("*soft*", "soft")
+    fn emphasis_text_is_italic() -> TestResult {
+        assert!(span_style("*soft*", "soft")?
             .add_modifier
             .contains(Modifier::ITALIC));
+
+        Ok(())
     }
 
     #[test]
-    fn headings_are_bold() {
-        assert!(span_style("# Title", "Title")
+    fn headings_are_bold() -> TestResult {
+        assert!(span_style("# Title", "Title")?
             .add_modifier
             .contains(Modifier::BOLD));
+
+        Ok(())
     }
 
     #[test]
@@ -508,33 +605,41 @@ mod tests {
     }
 
     #[test]
-    fn inline_code_keeps_its_text_and_is_styled() {
+    fn inline_code_keeps_its_text_and_is_styled() -> TestResult {
         assert_eq!(lines("run `cargo test` now"), vec!["run cargo test now"]);
         assert_eq!(
-            span_style("run `cargo test` now", "cargo test").fg,
+            span_style("run `cargo test` now", "cargo test")?.fg,
             Some(Color::Green)
         );
+
+        Ok(())
     }
 
     #[test]
-    fn strikethrough_is_crossed_out() {
-        assert!(span_style("~~gone~~", "gone")
+    fn strikethrough_is_crossed_out() -> TestResult {
+        assert!(span_style("~~gone~~", "gone")?
             .add_modifier
             .contains(Modifier::CROSSED_OUT));
+
+        Ok(())
     }
 
     #[test]
-    fn nested_emphasis_applies_both_modifiers() {
-        let style = span_style("***loud***", "loud");
+    fn nested_emphasis_applies_both_modifiers() -> TestResult {
+        let style = span_style("***loud***", "loud")?;
         assert!(style.add_modifier.contains(Modifier::BOLD));
         assert!(style.add_modifier.contains(Modifier::ITALIC));
+
+        Ok(())
     }
 
     #[test]
-    fn heading_levels_get_distinct_colours() {
-        assert_eq!(span_style("# One", "One").fg, Some(Color::Reset));
-        assert_eq!(span_style("## Two", "Two").fg, Some(Color::Cyan));
-        assert_eq!(span_style("### Three", "Three").fg, Some(Color::Blue));
+    fn heading_levels_get_distinct_colours() -> TestResult {
+        assert_eq!(span_style("# One", "One")?.fg, Some(Color::Reset));
+        assert_eq!(span_style("## Two", "Two")?.fg, Some(Color::Cyan));
+        assert_eq!(span_style("### Three", "Three")?.fg, Some(Color::Blue));
+
+        Ok(())
     }
 
     #[test]
@@ -562,36 +667,148 @@ mod tests {
     }
 
     #[test]
-    fn images_render_alt_text_with_a_glyph() {
-        assert_eq!(lines("![a diagram](chart.png)"), vec!["🖼 a diagram"]);
+    fn images_reserve_rows_and_record_where_they_went() -> TestResult {
+        let rendered = render(
+            "![a diagram](https://uploads.linear.app/chart.png)",
+            Style::default(),
+        );
+
+        assert_eq!(rendered.lines.len(), 1);
+        assert_eq!(
+            rendered
+                .lines
+                .first()
+                .ok_or("no lines")?
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>(),
+            "🖼 a diagram"
+        );
+        assert_eq!(
+            rendered.images,
+            vec![ImagePlacement {
+                url: ImageUrl::parse("https://uploads.linear.app/chart.png")
+                    .ok_or("a valid upload url")?,
+                alt: "a diagram".into(),
+                top: 0,
+            }]
+        );
+
+        Ok(())
     }
 
     #[test]
-    fn tables_render_headers_a_separator_and_rows() {
+    fn an_image_after_text_records_its_offset() -> TestResult {
+        let rendered = render(
+            "intro\n\n![shot](https://uploads.linear.app/a.png)",
+            Style::default(),
+        );
+
+        let placement = rendered.images.first().ok_or("no image placements")?;
+
+        assert_eq!(placement.top, 2);
+        assert_eq!(
+            rendered
+                .lines
+                .get(placement.top)
+                .ok_or("no line at the image's offset")?
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>(),
+            "🖼 shot"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn an_external_image_names_its_host() -> TestResult {
+        let text = |rendered: &Rendered| -> Result<String, &'static str> {
+            Ok(rendered
+                .lines
+                .first()
+                .ok_or("no lines")?
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect())
+        };
+
+        let external = render("![pixel](https://tracker.example/p.gif)", Style::default());
+        let upload = render(
+            "![shot](https://uploads.linear.app/a.png)",
+            Style::default(),
+        );
+
+        assert_eq!(text(&external)?, "🖼 pixel  from tracker.example");
+        assert_eq!(text(&upload)?, "🖼 shot");
+
+        Ok(())
+    }
+
+    #[test]
+    fn an_unsupported_image_link_is_labelled_and_never_placed() -> TestResult {
+        let rendered = render("![shot](file:///etc/passwd)", Style::default());
+
+        assert!(rendered.images.is_empty(), "nothing can fetch it");
+        assert_eq!(
+            rendered
+                .lines
+                .first()
+                .ok_or("no lines")?
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>(),
+            "🖼 shot  unsupported link"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn tables_render_headers_a_separator_and_rows() -> TestResult {
         let out = lines("| A | B |\n| - | - |\n| 1 | 2 |");
-        assert_eq!(out[0], "A │ B");
-        assert_eq!(out[1], "─".repeat(5));
-        assert_eq!(out[2], "1 │ 2");
-        assert!(span_style("| A | B |\n| - | - |\n| 1 | 2 |", "A")
+        let [header, separator, row, ..] = out.as_slice() else {
+            return Err(format!("expected at least three lines, got {out:?}").into());
+        };
+        assert_eq!(header, "A │ B");
+        assert_eq!(*separator, "─".repeat(5));
+        assert_eq!(row, "1 │ 2");
+        assert!(span_style("| A | B |\n| - | - |\n| 1 | 2 |", "A")?
             .add_modifier
             .contains(Modifier::BOLD));
+
+        Ok(())
     }
 
     #[test]
-    fn tables_pad_cells_so_columns_line_up() {
+    fn tables_pad_cells_so_columns_line_up() -> TestResult {
         let out = lines("| Time | Target |\n| - | - |\n| 6pm | 430C |\n| 7pm | 12345C |");
-        assert_eq!(out[0], "Time │ Target");
-        assert_eq!(out[1], "─".repeat(4 + 6 + 3));
-        assert_eq!(out[2], "6pm  │ 430C");
-        assert_eq!(out[3], "7pm  │ 12345C");
+        let [header, separator, first, second, ..] = out.as_slice() else {
+            return Err(format!("expected at least four lines, got {out:?}").into());
+        };
+        assert_eq!(header, "Time │ Target");
+        assert_eq!(*separator, "─".repeat(4 + 6 + 3));
+        assert_eq!(first, "6pm  │ 430C");
+        assert_eq!(second, "7pm  │ 12345C");
+
+        Ok(())
     }
 
     #[test]
-    fn table_columns_right_align_when_marked() {
+    fn table_columns_right_align_when_marked() -> TestResult {
         let out = lines("| N |\n| --: |\n| 5 |\n| 4321 |");
-        assert_eq!(out[0], "   N");
-        assert_eq!(out[2], "   5");
-        assert_eq!(out[3], "4321");
+        let [header, _, first, second, ..] = out.as_slice() else {
+            return Err(format!("expected at least four lines, got {out:?}").into());
+        };
+        assert_eq!(header, "   N");
+        assert_eq!(first, "   5");
+        assert_eq!(second, "4321");
+
+        Ok(())
     }
 
     #[test]

@@ -215,17 +215,18 @@ fn bucket(issues: &[IssueSummary], group: GroupBy) -> Vec<Group> {
 fn sort_indices(indices: &mut [usize], issues: &[IssueSummary], sort: SortBy) {
     match sort {
         SortBy::Manual => {}
-        SortBy::Priority => indices.sort_by_key(|&index| priority_rank(issues[index].priority)),
+        SortBy::Priority => indices
+            .sort_by_key(|&index| issues.get(index).map(|issue| priority_rank(issue.priority))),
         SortBy::Title => indices.sort_by_key(|&index| {
-            issues[index]
-                .title
-                .clone()
+            issues
+                .get(index)
+                .and_then(|issue| issue.title.as_deref())
                 .unwrap_or_default()
                 .to_lowercase()
         }),
-        SortBy::Updated => {
-            indices.sort_by_key(|&index| std::cmp::Reverse(issues[index].updated_at))
-        }
+        SortBy::Updated => indices.sort_by_key(|&index| {
+            std::cmp::Reverse(issues.get(index).map(|issue| issue.updated_at))
+        }),
     }
 }
 
@@ -279,19 +280,22 @@ mod tests {
     }
 
     #[test]
-    fn none_is_a_single_unlabelled_group_in_api_order() {
+    fn none_is_a_single_unlabelled_group_in_api_order() -> Result<(), Box<dyn std::error::Error>> {
         let issues = vec![
             issue("A", "Todo", StateType::Unstarted, Priority::Low),
             issue("B", "Done", StateType::Completed, Priority::Urgent),
         ];
         let groups = arrange(&issues, GroupBy::None, SortBy::Manual);
         assert_eq!(groups.len(), 1);
-        assert_eq!(groups[0].label, None);
-        assert_eq!(groups[0].indices, vec![0, 1]);
+        let first = groups.first().ok_or("no groups")?;
+        assert_eq!(first.label, None);
+        assert_eq!(first.indices, vec![0, 1]);
+
+        Ok(())
     }
 
     #[test]
-    fn status_groups_follow_the_workflow_order() {
+    fn status_groups_follow_the_workflow_order() -> Result<(), Box<dyn std::error::Error>> {
         let issues = vec![
             issue("A", "Backlog", StateType::Backlog, Priority::None),
             issue("B", "In Progress", StateType::Started, Priority::None),
@@ -307,11 +311,14 @@ mod tests {
                 (Some("Backlog"), 1),
             ]
         );
-        assert_eq!(groups[0].indices, vec![1, 3]);
+        let first = groups.first().ok_or("no groups")?;
+        assert_eq!(first.indices, vec![1, 3]);
+
+        Ok(())
     }
 
     #[test]
-    fn priority_sort_orders_urgent_first_and_none_last() {
+    fn priority_sort_orders_urgent_first_and_none_last() -> Result<(), Box<dyn std::error::Error>> {
         let issues = vec![
             issue("A", "Todo", StateType::Unstarted, Priority::None),
             issue("B", "Todo", StateType::Unstarted, Priority::Urgent),
@@ -319,7 +326,10 @@ mod tests {
         ];
         let groups = arrange(&issues, GroupBy::None, SortBy::Priority);
         // B (urgent), C (medium), A (none)
-        assert_eq!(groups[0].indices, vec![1, 2, 0]);
+        let first = groups.first().ok_or("no groups")?;
+        assert_eq!(first.indices, vec![1, 2, 0]);
+
+        Ok(())
     }
 
     #[test]
@@ -333,13 +343,16 @@ mod tests {
     }
 
     #[test]
-    fn title_sort_is_case_insensitive() {
+    fn title_sort_is_case_insensitive() -> Result<(), Box<dyn std::error::Error>> {
         let issues = vec![
             issue("banana", "Todo", StateType::Unstarted, Priority::None),
             issue("Apple", "Todo", StateType::Unstarted, Priority::None),
         ];
         let groups = arrange(&issues, GroupBy::None, SortBy::Title);
-        assert_eq!(groups[0].indices, vec![1, 0]);
+        let first = groups.first().ok_or("no groups")?;
+        assert_eq!(first.indices, vec![1, 0]);
+
+        Ok(())
     }
 
     #[test]

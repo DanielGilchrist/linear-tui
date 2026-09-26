@@ -49,21 +49,25 @@ mod tests {
     }
 
     #[test]
-    fn failed_shows_the_failed_text_in_error_style() {
+    fn failed_shows_the_failed_text_in_error_style() -> Result<(), &'static str> {
         let line = placeholder(
             Some(CacheStatus::Failed("boom".into())),
             texts(),
             Spinner::default(),
         );
         assert_eq!(content(&line), "failed  ·  r to retry");
-        assert_eq!(line.spans[0].style, theme::error());
+        assert_eq!(line.spans.first().ok_or("no spans")?.style, theme::error());
+
+        Ok(())
     }
 
     #[test]
-    fn ready_but_empty_shows_the_empty_text() {
+    fn ready_but_empty_shows_the_empty_text() -> Result<(), &'static str> {
         let line = placeholder(Some(CacheStatus::Ready), texts(), Spinner::default());
         assert_eq!(content(&line), "nothing here");
-        assert_eq!(line.spans[0].style, theme::dim());
+        assert_eq!(line.spans.first().ok_or("no spans")?.style, theme::dim());
+
+        Ok(())
     }
 
     #[test]

@@ -13,8 +13,11 @@ use super::layout;
 use super::overlay::{Menu, ModalOverlay, Overlay, Picker, PrefixUnder, Search};
 use super::spinner::Spinner;
 use super::view::{ViewKind, Views};
-use super::workspace::WorkspaceData;
+use super::workspace::{ImageStore, WorkspaceData};
 use crate::api::{IssueDetail, IssueSummary, Timestamp};
+use image::DrawnImage;
+
+pub mod image;
 
 mod format;
 mod overlays;
@@ -38,17 +41,14 @@ pub fn detail_line_texts(
     now: Timestamp,
     selected: Option<usize>,
 ) -> Vec<String> {
-    surfaces::detail::detail_text(detail, rendered, now, selected).line_texts()
+    surfaces::detail::detail_text(detail, rendered, now, selected, None).line_texts()
 }
 
 pub fn render(app: &mut App, frame: &mut Frame) {
-    let chunks = Layout::default()
+    let [body, footer] = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
-        .split(frame.area());
-
-    let body = chunks[0];
-    let footer = chunks[1];
+        .areas(frame.area());
 
     match app.ui.zoom {
         Zoom::Full => render_zoomed(app, frame, body),
@@ -63,16 +63,21 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     render_footer(app, frame, footer);
     let overlay_in_flight = app.overlay_in_flight();
     let mut overlay = app.take_overlay();
-    render_overlay(
+    let spinner = app.ui.spinner;
+    let (feeds, images) = app.workspace.overlay_render_parts();
+
+    let drawn = render_overlay(
         &mut overlay,
-        &app.workspace.feeds,
+        feeds,
+        images,
         OverlayProps {
             in_flight: overlay_in_flight,
-            spinner: app.ui.spinner,
+            spinner,
         },
         frame,
     );
     app.set_overlay(overlay);
+    app.ui.drawn_images.extend(drawn);
 }
 
 fn render_zoomed(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -99,9 +104,10 @@ struct OverlayProps {
 fn render_overlay(
     overlay: &mut Overlay,
     feeds: &FeedStore,
+    images: &ImageStore,
     props: OverlayProps,
     frame: &mut Frame,
-) {
+) -> Option<DrawnImage> {
     use ratatui::widgets::Clear;
 
     let frame_area = frame.area();
@@ -159,8 +165,20 @@ fn render_overlay(
             frame.render_widget(Clear, area);
             overlays::workspaces::render(workspaces, frame, area);
         }
+        Overlay::Image(view) => {
+            let area = Rect {
+                height: frame_area.height.saturating_sub(1),
+                ..frame_area
+            };
+
+            frame.render_widget(Clear, area);
+
+            return overlays::image::render(view, images, spinner, frame, area);
+        }
         Overlay::Find(_) | Overlay::None => {}
     }
+
+    None
 }
 
 fn render_picker(picker: &mut Picker, in_flight: bool, spinner: Spinner, frame: &mut Frame) {
@@ -311,7 +329,7 @@ fn render_panel(
         }
     }
 
-    Viewport((rect.height as usize).saturating_sub(2))
+    Viewport(usize::from(rect.height).saturating_sub(2))
 }
 
 fn render_view_surface(
@@ -326,7 +344,7 @@ fn render_view_surface(
 
     match view {
         Some(view) => surfaces::view::render(frame, area, feeds, view, spinner, emphasis, now),
-        None => Viewport((area.height as usize).saturating_sub(2)),
+        None => Viewport(usize::from(area.height).saturating_sub(2)),
     }
 }
 
@@ -339,31 +357,41 @@ fn render_detail_pane(
     let selected = app.comment_cursor();
     let scroll = app.reading_scroll().unwrap_or_default();
 
-    let preview = work_preview(
-        &app.workspace,
-        &app.ui.views,
-        &app.ui.view_state,
-        &app.ui.list_state,
-    );
+    let spinner = app.ui.spinner;
+    let now = app.now;
+    let Ui {
+        views,
+        view_state,
+        list_state,
+        comment_scroll,
+        ..
+    } = &mut app.ui;
+    let (views, view_state, list_state) = (&*views, &*view_state, &*list_state);
+    let expanded = app.workspace.expanded_images();
+    let comment_scroll = *comment_scroll;
 
-    let max = surfaces::detail::render_pane(
+    let measured = surfaces::detail::render_pane(
         frame,
         area,
-        app.workspace.detail(),
-        app.workspace.detail_markdown(),
-        app.ui.spinner,
-        preview,
+        &app.workspace,
+        spinner,
+        |workspace| work_preview(workspace, views, view_state, list_state),
         surfaces::detail::ReadingProps {
-            now: app.now,
+            now,
             selected,
             scroll,
             emphasis,
+            expanded,
+            comment_scroll,
+            spinner,
         },
     );
 
-    app.ui.detail_scroll_max = max;
+    app.ui.detail_scroll_max = measured.scroll_max;
+    app.ui.comment_scroll_max = measured.comment_scroll_max;
+    app.ui.drawn_images.extend(measured.drawn_images);
 
-    Viewport((area.height as usize).saturating_sub(2))
+    Viewport(usize::from(area.height).saturating_sub(2))
 }
 
 fn render_my_work_right(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -373,19 +401,29 @@ fn render_my_work_right(app: &mut App, frame: &mut Frame, area: Rect) {
         &app.ui.view_state,
         &app.ui.list_state,
     ) {
-        Some(detail) => {
-            surfaces::detail::render_reading(
-                frame,
-                area,
-                detail,
-                app.workspace.detail_markdown(),
-                surfaces::detail::ReadingProps {
-                    now: app.now,
-                    selected: None,
-                    scroll: Scroll::Top,
-                    emphasis: Emphasis::Blurred,
-                },
-            );
+        Some(_) => {
+            let now = app.now;
+            let collapsed = std::collections::HashSet::new();
+            let (detail, rendered, images) = app.workspace.detail_render_parts();
+
+            if let Some(detail) = detail.value() {
+                surfaces::detail::render_reading(
+                    frame,
+                    area,
+                    detail,
+                    rendered,
+                    images,
+                    surfaces::detail::ReadingProps {
+                        now,
+                        selected: None,
+                        scroll: Scroll::Top,
+                        emphasis: Emphasis::Blurred,
+                        expanded: &collapsed,
+                        comment_scroll: 0,
+                        spinner: app.ui.spinner,
+                    },
+                );
+            }
         }
         None => {
             let preview = work_preview(
@@ -408,7 +446,7 @@ fn render_left(app: &mut App, frame: &mut Frame, area: Rect) {
                 Constraint::Min(5)
             } else {
                 let rows = app.panel(panel).len.clamp(1, COLLAPSED_PEEK);
-                Constraint::Length(rows as u16 + 2)
+                Constraint::Length(widgets::saturating_u16(rows).saturating_add(2))
             }
         })
         .collect();
@@ -575,6 +613,7 @@ fn footer_hint(app: &App) -> String {
         Overlay::Reactions(_) => return action::REACTIONS.hint_bar(action::REACTIONS_HINTS),
         Overlay::Labels(_) => return action::LABELS.hint_bar(action::LABELS_HINTS),
         Overlay::Workspaces(_) => return action::WORKSPACES.hint_bar(action::WORKSPACES_HINTS),
+        Overlay::Image(_) => return action::IMAGE.hint_bar(action::IMAGE_HINTS),
         Overlay::Find(_) | Overlay::None => {}
     }
 

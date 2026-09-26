@@ -14,6 +14,7 @@ use linear_tui::tui::{
     focus::{DetailFocus, LeftPanel, Origin},
     view::ViewKind,
 };
+use ratatui_image::picker::Picker;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -85,6 +86,7 @@ async fn run_tui(bootstrap: Option<Credential>) -> Result<()> {
         Arc::new(|credential| Arc::new(Client::new(credential)) as Arc<dyn LinearApi>);
 
     tui::render::theme::init(colour_mode());
+    tui::render::image::init(image_picker());
 
     if let Some(overrides) = theme_overrides()? {
         tui::render::theme::init_overrides(overrides);
@@ -149,6 +151,10 @@ fn migrate_legacy_state_dir(new: &std::path::Path) {
 #[cfg(not(target_os = "macos"))]
 fn migrate_legacy_state_dir(_new: &std::path::Path) {}
 
+fn image_picker() -> Picker {
+    Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks())
+}
+
 fn colour_mode() -> ColourMode {
     match std::env::var_os("NO_COLOR") {
         Some(value) if !value.is_empty() => ColourMode::Monochrome,
@@ -174,6 +180,7 @@ fn theme_overrides() -> Result<Option<linear_tui::tui::render::theme::Overrides>
 
 async fn headless_render(args: RenderArgs) -> Result<()> {
     tui::render::theme::init(ColourMode::Ansi);
+    tui::render::image::init(Picker::halfblocks());
 
     let api: Arc<dyn LinearApi> = match &args.fixture {
         Some(path) => Arc::new(FixtureClient::from_path(path)?),

@@ -81,7 +81,7 @@ pub fn render_preview(
         Line::from(Span::styled("modes", theme::dim())),
     ];
 
-    for mode in TeamModes::for_team(team).as_slice() {
+    for mode in TeamModes::for_team(team).iter() {
         let cached = feeds
             .get(&FeedKey::Issues(mode.filter(&team.id)))
             .filter(|feed| !feed.items().is_empty())

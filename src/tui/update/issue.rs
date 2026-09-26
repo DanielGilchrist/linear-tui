@@ -3,16 +3,18 @@ use ratatui::widgets::ListState;
 use super::input::Report;
 use super::nav::clamp_selection;
 use crate::api::{
-    IssueId, IssueRef, IssueSummary, Label, Priority, Reaction, ReactionTarget, StateOption,
-    TeamId, User,
+    ImageUrl, IssueId, IssueRef, IssueSummary, Label, Priority, Reaction, ReactionTarget,
+    StateOption, TeamId, User,
 };
 use crate::tui::app::{App, FocusedIssue};
 use crate::tui::cache::{RefreshPolicy, Remote};
 use crate::tui::focus::{DetailFocus, DetailView, Focus, Origin, Reveal};
-use crate::tui::message::{ApiCommand, Effect, Effects, PlatformCommand, StoreCommand};
+use crate::tui::message::{
+    ApiCommand, Effect, Effects, ImageCommand, PlatformCommand, StoreCommand,
+};
 use crate::tui::overlay::{
-    AssignOptions, Compose, Confirm, Editor, Labels, Overlay, Picker, PickerItem, PickerKind,
-    Reactions,
+    AssignOptions, Compose, Confirm, Editor, ImageView, Labels, Overlay, Picker, PickerItem,
+    PickerKind, Reactions,
 };
 use crate::tui::status::Status;
 
@@ -86,6 +88,93 @@ pub(super) fn open_edit_editor(app: &mut App) -> Report {
         Some(&body),
     )
     .into()
+}
+
+pub(super) fn toggle_images(app: &mut App) -> Report {
+    let urls = toggle_targets(app);
+
+    if urls.is_empty() {
+        return Report::status(Status::NoImages);
+    }
+
+    if !app.workspace.toggle_images(&urls) {
+        return Effects::default().into();
+    }
+
+    let effects = urls
+        .into_iter()
+        .filter(|url| app.workspace.begin_image(url, app.now))
+        .map(|url| Effect::Image(ImageCommand::Fetch { url }))
+        .collect::<Effects>();
+
+    effects.into()
+}
+
+pub(super) fn open_image_view(app: &mut App) -> Report {
+    let urls = gallery_urls(app);
+
+    match ImageView::open(urls) {
+        Some(view) => {
+            let effects = access_view_image(app, &view);
+            app.set_overlay(Overlay::Image(view));
+
+            effects.into()
+        }
+        None => Report::status(Status::NoImages),
+    }
+}
+
+pub(super) fn access_view_image(app: &mut App, view: &ImageView) -> Effects {
+    let url = view.url();
+
+    Effects::when(
+        app.workspace.begin_image(url, app.now),
+        Effect::Image(ImageCommand::Fetch { url: url.clone() }),
+    )
+}
+
+fn selected_comment_urls(app: &App, index: usize) -> Vec<ImageUrl> {
+    urls_of(
+        app.workspace
+            .detail_markdown()
+            .comment_bodies
+            .get(index)
+            .into_iter(),
+    )
+}
+
+fn toggle_targets(app: &App) -> Vec<ImageUrl> {
+    match app.comment_cursor() {
+        Some(index) => selected_comment_urls(app, index),
+        None => urls_of(std::iter::once(
+            &app.workspace.detail_markdown().description,
+        )),
+    }
+}
+
+fn gallery_urls(app: &App) -> Vec<ImageUrl> {
+    let rendered = app.workspace.detail_markdown();
+
+    match app.comment_cursor() {
+        Some(index) => selected_comment_urls(app, index),
+        None => {
+            urls_of(std::iter::once(&rendered.description).chain(rendered.comment_bodies.iter()))
+        }
+    }
+}
+
+fn urls_of<'a>(bodies: impl Iterator<Item = &'a crate::tui::markdown::Rendered>) -> Vec<ImageUrl> {
+    let mut urls: Vec<ImageUrl> = Vec::new();
+
+    for body in bodies {
+        for image in &body.images {
+            if !urls.contains(&image.url) {
+                urls.push(image.url.clone());
+            }
+        }
+    }
+
+    urls
 }
 
 pub(super) fn open_reactions(app: &mut App) -> Effects {

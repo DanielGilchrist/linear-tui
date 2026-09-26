@@ -271,14 +271,16 @@ pub enum Nav<'a> {
         at: &'a mut Cursor,
         len: usize,
         viewport: usize,
+        scroll: &'a mut usize,
+        scroll_max: usize,
     },
 }
 
 pub fn scrolled(scroll: Scroll, step: usize, direction: Direction, max: usize) -> Scroll {
     match direction {
         Direction::Next => match scroll {
-            Scroll::Top => Scroll::At(step),
-            Scroll::At(row) => Scroll::At(row + step),
+            Scroll::Top => Scroll::At(step.min(max)),
+            Scroll::At(row) => Scroll::At((row + step).min(max)),
             Scroll::Bottom => Scroll::Bottom,
         },
         Direction::Prev => match scroll {
@@ -323,5 +325,23 @@ mod tests {
         assert!(DetailView::comments(0).is_none());
         assert!(Cursor::new(3, 3).is_none());
         assert!(Cursor::new(2, 3).is_some());
+    }
+
+    #[test]
+    fn scrolling_past_the_bottom_does_not_bank_rows() {
+        let max = 10;
+        let mut scroll = Scroll::At(8);
+
+        for _ in 0..3 {
+            scroll = scrolled(scroll, 3, Direction::Next, max);
+        }
+
+        assert_eq!(scroll, Scroll::At(max));
+        assert_eq!(scrolled(scroll, 3, Direction::Prev, max), Scroll::At(7));
+    }
+
+    #[test]
+    fn scrolling_a_short_body_stays_at_the_top_row() {
+        assert_eq!(scrolled(Scroll::Top, 3, Direction::Next, 0), Scroll::At(0));
     }
 }

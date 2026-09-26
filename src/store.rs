@@ -233,6 +233,8 @@ mod tests {
     };
     use crate::tui::feed::Feed;
 
+    type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
+
     fn issue(id: &str) -> IssueSummary {
         IssueSummary {
             id: IssueId::from_raw(id),
@@ -253,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn build_cache_caps_items_marks_truncated_and_drops_search_and_stale() {
+    fn build_cache_caps_items_marks_truncated_and_drops_search_and_stale() -> TestResult {
         let mut feeds = FeedStore::default();
         let many: Vec<IssueSummary> = (0..FEED_ITEM_CAP + 5)
             .map(|n| issue(&format!("i{n}")))
@@ -280,22 +282,23 @@ mod tests {
 
         assert_eq!(cache.issues.len(), 1, "search and stale feeds excluded");
 
-        let (_, persisted) = &cache.issues[0];
+        let (_, persisted) = cache.issues.first().ok_or("no persisted feed")?;
         assert_eq!(persisted.items.len(), FEED_ITEM_CAP);
         assert!(persisted.truncated, "a capped feed is marked truncated");
+
+        Ok(())
     }
 
     #[test]
-    fn write_atomic_writes_contents_and_leaves_no_temp_file() {
-        let dir = tempfile::tempdir().unwrap();
+    fn write_atomic_writes_contents_and_leaves_no_temp_file() -> TestResult {
+        let dir = tempfile::tempdir()?;
         let path = dir.path().join("feeds.json");
 
         write_atomic(&path, "{\"ok\":true}");
 
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"ok\":true}");
+        assert_eq!(std::fs::read_to_string(&path)?, "{\"ok\":true}");
 
-        let stragglers = std::fs::read_dir(dir.path())
-            .unwrap()
+        let stragglers = std::fs::read_dir(dir.path())?
             .filter_map(Result::ok)
             .any(|entry| entry.file_name().to_string_lossy().contains("tmp"));
 
@@ -303,11 +306,13 @@ mod tests {
             !stragglers,
             "temp file should be renamed away, not left behind"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn accounts_round_trip_through_a_state_dir() {
-        let dir = tempfile::tempdir().unwrap();
+    fn accounts_round_trip_through_a_state_dir() -> TestResult {
+        let dir = tempfile::tempdir()?;
         let state = StateDir::at(dir.path().into());
 
         assert!(load_accounts(&state).accounts.is_empty());
@@ -323,26 +328,29 @@ mod tests {
 
         assert_eq!(loaded.accounts, stored);
         assert_eq!(loaded.active.as_deref(), Some("acme"));
+
+        Ok(())
     }
 
     #[test]
-    fn a_cache_written_before_team_scoped_feeds_still_loads() {
+    fn a_cache_written_before_team_scoped_feeds_still_loads() -> TestResult {
         let legacy = r#"{"version":2,"issues":[[{"Issues":{"assigned_to_me":true,
             "created_by_me":false,"state_types_in":[],"state_types_nin":["completed"],
             "label":null}},{"items":[],"truncated":false,
             "fetched_at":"2026-07-16T09:00:00Z"}]],"inbox":null}"#;
 
-        let cache: PersistedCache =
-            serde_json::from_str(legacy).expect("a pre-team cache still deserialises");
+        let cache: PersistedCache = serde_json::from_str(legacy)?;
 
         assert_eq!(cache.version, FEEDS_VERSION);
 
-        let (key, _) = &cache.issues[0];
+        let (key, _) = cache.issues.first().ok_or("no persisted feed")?;
 
         match key {
             FeedKey::Issues(filter) => assert_eq!(filter.team, None),
-            other => panic!("expected an issues feed key, got {other:?}"),
+            other => return Err(format!("expected an issues feed key, got {other:?}").into()),
         }
+
+        Ok(())
     }
 
     #[test]
@@ -352,18 +360,20 @@ mod tests {
     }
 
     #[test]
-    fn a_version_mismatch_is_discarded() {
+    fn a_version_mismatch_is_discarded() -> TestResult {
         let cache = PersistedCache {
             version: FEEDS_VERSION + 1,
             issues: Vec::new(),
             inbox: None,
         };
 
-        let json = serde_json::to_string(&cache).unwrap();
-        let parsed: PersistedCache = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&cache)?;
+        let parsed: PersistedCache = serde_json::from_str(&json)?;
 
         assert!((parsed.version == FEEDS_VERSION)
             .then_some(parsed)
             .is_none());
+
+        Ok(())
     }
 }

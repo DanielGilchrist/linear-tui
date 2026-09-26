@@ -6,9 +6,9 @@ use serde::Deserialize;
 
 use crate::api::error::{ApiError, ApiResult};
 use crate::api::model::{
-    CommentId, Credential, Cursor, IssueDetail, IssueFilter, IssueId, IssueRef, IssueSummary,
-    IssueUpdate, Label, NotificationItem, Page, ReactionId, ReactionTarget, SavedView, Session,
-    StateOption, Team, TeamId, User, ViewId,
+    CommentId, Credential, Cursor, ImageFetchError, ImageOrigin, ImageUrl, IssueDetail,
+    IssueFilter, IssueId, IssueRef, IssueSummary, IssueUpdate, Label, NotificationItem, Page,
+    ReactionId, ReactionTarget, SavedView, Session, StateOption, Team, TeamId, User, ViewId,
 };
 use crate::api::queries::actions::{
     AssigneeInput, AssigneeMutation, AssigneeVariables, CommentCreateInput, CommentCreateMutation,
@@ -41,6 +41,10 @@ const API_ENDPOINT: &str = "https://api.linear.app/graphql";
 const PAGE_SIZE: i32 = 100;
 
 const USER_SEARCH_LIMIT: i32 = 25;
+
+const IMAGE_BYTE_LIMIT: usize = 20 * 1024 * 1024;
+
+const IMAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 pub struct Client {
     http_client: HttpClient,
@@ -256,6 +260,47 @@ impl LinearApi for Client {
         let result = self.fetch_json(operation).await?;
 
         Ok(result.teams.nodes.into_iter().map(Team::from).collect())
+    }
+
+    async fn image(&self, url: &ImageUrl) -> Result<Vec<u8>, ImageFetchError> {
+        let transport = |error: reqwest::Error| ImageFetchError::Transport(error.to_string());
+        let request = self
+            .http_client
+            .get(url.url().clone())
+            .timeout(IMAGE_TIMEOUT);
+        let request = match url.origin() {
+            ImageOrigin::LinearUpload => {
+                request.header("Authorization", self.credential.header_value())
+            }
+            ImageOrigin::External => request,
+        };
+        let mut response = request.send().await.map_err(transport)?;
+
+        let status = response.status();
+
+        if !status.is_success() {
+            return Err(ImageFetchError::Status(status.as_u16()));
+        }
+
+        let too_large = ImageFetchError::TooLarge(IMAGE_BYTE_LIMIT);
+
+        if response.content_length().is_some_and(|length| {
+            usize::try_from(length).map_or(true, |length| length > IMAGE_BYTE_LIMIT)
+        }) {
+            return Err(too_large);
+        }
+
+        let mut bytes = Vec::new();
+
+        while let Some(chunk) = response.chunk().await.map_err(transport)? {
+            if bytes.len().saturating_add(chunk.len()) > IMAGE_BYTE_LIMIT {
+                return Err(too_large);
+            }
+
+            bytes.extend_from_slice(&chunk);
+        }
+
+        Ok(bytes)
     }
 
     async fn team_members(&self, team_id: &TeamId) -> ApiResult<Vec<User>> {

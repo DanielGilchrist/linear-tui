@@ -84,11 +84,19 @@ mod tests {
     }
 
     #[test]
-    fn invalidate_all_marks_every_cell_stale() {
+    fn invalidate_all_marks_every_cell_stale() -> Result<(), Box<dyn std::error::Error>> {
         let mut cache: Cache<&str, Remote<i32>> = Cache::default();
         cache.insert("a", Remote::ready(1, at(5_000)));
         cache.insert("b", Remote::ready(2, at(5_000)));
         cache.invalidate_all();
-        assert!(cache.get(&"a").unwrap().access(at(5_000), &POLICY) != Access::Skip);
+        assert!(
+            cache
+                .get(&"a")
+                .ok_or("cell a is missing")?
+                .access(at(5_000), &POLICY)
+                != Access::Skip
+        );
+
+        Ok(())
     }
 }

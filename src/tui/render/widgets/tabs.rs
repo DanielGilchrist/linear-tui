@@ -61,8 +61,10 @@ fn compact_strip(views: &[View], active: usize, budget: usize) -> Vec<Span<'stat
     let indicator = format!(" {}/{}", active + 1, views.len());
     let name_budget = budget.saturating_sub(format::width(&indicator));
 
-    vec![
-        Span::styled(format::fit(&views[active].name, name_budget), theme::TITLE),
-        Span::styled(indicator, theme::dim()),
-    ]
+    views
+        .get(active)
+        .map(|view| Span::styled(format::fit(&view.name, name_budget), theme::TITLE))
+        .into_iter()
+        .chain(std::iter::once(Span::styled(indicator, theme::dim())))
+        .collect()
 }

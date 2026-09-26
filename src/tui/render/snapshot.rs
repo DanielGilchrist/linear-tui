@@ -1,91 +1,94 @@
-use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+use std::num::NonZeroUsize;
+
+use ratatui::{
+    backend::TestBackend,
+    buffer::{Buffer, Cell},
+    Terminal,
+};
 
 use super::render;
 use crate::tui::app::App;
 
 pub fn render_to_string(app: &mut App, width: u16, height: u16) -> String {
-    let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test backend");
-    terminal
-        .draw(|frame| render(app, frame))
-        .expect("draw to test backend");
+    let Ok(mut terminal) = Terminal::new(TestBackend::new(width, height));
+    let Ok(_) = terminal.draw(|frame| render(app, frame));
+
     buffer_to_string(terminal.backend().buffer())
 }
 
-fn buffer_to_string(buffer: &Buffer) -> String {
-    let area = buffer.area;
-    let mut out = String::new();
-    for y in 0..area.height {
-        let mut line = String::new();
-        for x in 0..area.width {
-            line.push_str(buffer[(x, y)].symbol());
-        }
-        out.push_str(line.trim_end());
-        out.push('\n');
-    }
-    out
-}
-
 pub fn render_styled_to_string(app: &mut App, width: u16, height: u16) -> String {
-    let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test backend");
-
-    terminal
-        .draw(|frame| render(app, frame))
-        .expect("draw to test backend");
+    let Ok(mut terminal) = Terminal::new(TestBackend::new(width, height));
+    let Ok(_) = terminal.draw(|frame| render(app, frame));
 
     buffer_to_styled_string(terminal.backend().buffer())
 }
 
-fn buffer_to_styled_string(buffer: &Buffer) -> String {
-    let area = buffer.area;
-    let default_key = cell_style_key(&ratatui::buffer::Cell::default());
+fn rows(buffer: &Buffer) -> impl Iterator<Item = &[Cell]> {
+    let width = NonZeroUsize::new(usize::from(buffer.area.width));
+
+    width
+        .into_iter()
+        .flat_map(|width| buffer.content.chunks(width.get()))
+}
+
+fn buffer_to_string(buffer: &Buffer) -> String {
     let mut out = String::new();
 
-    for y in 0..area.height {
-        let mut symbols = String::new();
-        let mut runs: Vec<String> = Vec::new();
-        let mut start = 0usize;
-        let mut key = cell_style_key(&buffer[(0, y)]);
-        let mut text = String::new();
+    for row in rows(buffer) {
+        let line: String = row.iter().map(Cell::symbol).collect();
 
-        let flush = |start: usize, key: &str, text: &str, runs: &mut Vec<String>| {
-            let blank = text.trim().is_empty() && key == default_key;
-            if !blank {
-                runs.push(format!("[{start}] {key} {text:?}"));
-            }
-        };
+        out.push_str(line.trim_end());
+        out.push('\n');
+    }
 
-        for x in 0..area.width {
-            let cell = &buffer[(x, y)];
-            symbols.push_str(cell.symbol());
+    out
+}
 
-            let cell_key = cell_style_key(cell);
-            if cell_key == key {
-                text.push_str(cell.symbol());
-            } else {
-                flush(start, &key, &text, &mut runs);
-                key = cell_key;
-                start = x as usize;
-                text = cell.symbol().to_string();
+struct Run {
+    start: usize,
+    key: String,
+    text: String,
+}
+
+fn buffer_to_styled_string(buffer: &Buffer) -> String {
+    let default_key = cell_style_key(&Cell::default());
+    let mut out = String::new();
+
+    for row in rows(buffer) {
+        let symbols: String = row.iter().map(Cell::symbol).collect();
+        let mut runs: Vec<Run> = Vec::new();
+
+        for (x, cell) in row.iter().enumerate() {
+            let key = cell_style_key(cell);
+
+            match runs.last_mut() {
+                Some(run) if run.key == key => run.text.push_str(cell.symbol()),
+                _ => runs.push(Run {
+                    start: x,
+                    key,
+                    text: cell.symbol().to_string(),
+                }),
             }
         }
-
-        flush(start, &key, &text, &mut runs);
 
         out.push_str(symbols.trim_end());
         out.push('\n');
 
-        for run in runs {
-            out.push_str("    ");
-            out.push_str(&run);
-            out.push('\n');
+        for Run { start, key, text } in runs {
+            if text.trim().is_empty() && key == default_key {
+                continue;
+            }
+
+            out.push_str(&format!("    [{start}] {key} {text:?}\n"));
         }
     }
 
     out
 }
 
-fn cell_style_key(cell: &ratatui::buffer::Cell) -> String {
+fn cell_style_key(cell: &Cell) -> String {
     let style = cell.style();
+
     format!(
         "fg={:?} bg={:?} mod={:?}",
         style.fg, style.bg, style.add_modifier

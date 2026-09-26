@@ -20,6 +20,10 @@ impl<K: Eq + Hash + Clone, V: Default> Cache<K, V> {
         self.entries.get(key)
     }
 
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.entries.get_mut(key)
+    }
+
     pub fn get_or_default(&mut self, key: &K) -> &mut V {
         self.entries.entry(key.clone()).or_default()
     }
@@ -38,6 +42,10 @@ impl<K: Eq + Hash + Clone, V: Default> Cache<K, V> {
 
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
         self.entries.values_mut()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
+        self.entries.iter_mut()
     }
 
     pub fn retain(&mut self, keep: impl FnMut(&K, &mut V) -> bool) {
