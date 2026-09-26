@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{Event as CrosstermEvent, EventStream, KeyEventKind};
+use crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
 use futures::StreamExt;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -41,6 +42,14 @@ impl Runtime {
     fn lane(&self) -> Lane {
         Lane::Workspace(self.generation)
     }
+}
+
+fn draw(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &mut App) -> Result<()> {
+    crossterm::queue!(terminal.backend_mut(), BeginSynchronizedUpdate)?;
+    terminal.draw(|frame| render::render(app, frame))?;
+    crossterm::execute!(terminal.backend_mut(), EndSynchronizedUpdate)?;
+
+    Ok(())
 }
 
 pub async fn run(
@@ -86,7 +95,7 @@ pub async fn run(
         (None, None) => update::open_workspaces(app),
     }
 
-    terminal.draw(|frame| render::render(app, frame))?;
+    draw(terminal, app)?;
 
     loop {
         match next_event(&mut events, &mut rx, &mut ticker).await {
@@ -119,7 +128,7 @@ pub async fn run(
             break;
         }
 
-        terminal.draw(|frame| render::render(app, frame))?;
+        draw(terminal, app)?;
     }
 
     Ok(())
