@@ -3370,6 +3370,7 @@ fn tab_outside_the_detail_pane_still_cycles_panels() {
 fn ctrl_d_and_ctrl_u_scroll_the_detail_by_half_a_page() {
     let mut app = detail_app();
     app.ui.viewport = 20;
+    app.ui.detail_scroll_max = 40;
 
     handle_key(
         &mut app,
